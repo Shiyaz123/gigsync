@@ -1,0 +1,17 @@
+{
+  "short_name": "GigSync",
+  "name": "GigSync — Find work. Find workers. Just talk.",
+  "description": "AI-powered hyperlocal gig marketplace for India's Tier-2 and Tier-3 cities.",
+  "icons": [
+    {
+      "src": "assets/images/gigsync_icon.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "./index.html",
+  "background_color": "#F4F6FB",
+  "theme_color": "#2563EB",
+  "display": "standalone"
+}

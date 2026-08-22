@@ -1,0 +1,1909 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GigSync | AI-Powered Hyperlocal Gig Marketplace for India's Growing Cities</title>
+    <meta name="description"
+        content="GigSync is an AI-powered local gig marketplace connecting skilled local workers and customers across Tier-2 and Tier-3 cities in India through voice-first intelligence.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1E3A8A">
+</head>
+
+<body class="auth-locked">
+    <script>
+        try { if (localStorage.getItem('gigsync_session')) document.body.classList.remove('auth-locked'); } catch (e) { }
+    </script>
+
+    <!-- AUTH SCREEN -->
+    <div id="loginScreen" class="login-screen">
+        <div class="login-mosaic" aria-hidden="true">
+            <div class="mosaic-header">
+                <div class="brand-badge"><i class="fa-solid fa-bolt-lightning"></i> Tier-2 &amp; Tier-3 Local
+                    Marketplace</div>
+                <h2>Connecting India's skilled workers with nearby demand.</h2>
+                <p>Designed for electricians, plumbers, carpenters, tailors, mechanics and households in towns like
+                    Ramanagara, Mandya, Tumakuru, Chitradurga, and Hassan.</p>
+            </div>
+            <div class="mosaic-grid">
+                <div class="mosaic-tile t1">
+                    <div class="tile-icon"><i class="fa-solid fa-microphone-lines"></i></div>
+                    <div>
+                        <span class="badge">Voice-First AI</span>
+                        <h3>"Just speak to find work or get work done"</h3>
+                        <small>Zero complex forms. Built for low digital literacy.</small>
+                    </div>
+                </div>
+                <div class="mosaic-tile t2">
+                    <div class="tile-icon"><i class="fa-solid fa-bolt"></i></div>
+                    <div>
+                        <span class="badge">Local Trades</span>
+                        <h3>Electricians &amp; Plumbers</h3>
+                        <small>Verified skilled professionals nearby</small>
+                    </div>
+                </div>
+                <div class="mosaic-tile t3">
+                    <div class="tile-icon"><i class="fa-solid fa-file-invoice-dollar"></i></div>
+                    <div>
+                        <span class="badge">Financial Identity</span>
+                        <h3>Digital Work Record</h3>
+                        <small>Verifiable history &amp; earning record</small>
+                    </div>
+                </div>
+                <div class="mosaic-tile t4">
+                    <div class="tile-icon"><i class="fa-solid fa-map-location-dot"></i></div>
+                    <div>
+                        <span class="badge">Hyperlocal</span>
+                        <h3>0.5 km – 15 km Reach</h3>
+                        <small>Towns, wards &amp; surrounding villages</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="login-panel">
+            <div class="login-logo">
+                <div class="brand-mark">G</div>
+                <div class="brand-name">Gig<span>Sync</span></div>
+            </div>
+
+            <div class="auth-header">
+                <span class="kicker"><i class="fa-solid fa-sparkles"></i> AI Local Work Infrastructure</span>
+                <h1>Local skills. Local jobs.</h1>
+                <p class="tag">Digitally connecting local workers and customers across India's growing cities and towns.
+                </p>
+            </div>
+
+            <div class="login-tabs">
+                <button type="button" class="login-tab active" id="loginTabBtn"><i
+                        class="fa-solid fa-arrow-right-to-bracket"></i> Login</button>
+                <button type="button" class="login-tab" id="signupTabBtn"><i class="fa-solid fa-user-plus"></i> Create
+                    Account</button>
+            </div>
+
+            <form id="authForm">
+                <div class="field-label">Mobile Number or Email</div>
+                <div class="phone-field">
+                    <div class="cc"><span>🇮🇳</span> +91</div>
+                    <input id="authIdentifier" type="text" placeholder="e.g. 98765 43210 or name@domain.com"
+                        autocomplete="username" required>
+                </div>
+
+                <div class="field-label" style="margin-top:14px">Password</div>
+                <div class="login-field">
+                    <i class="fa-solid fa-lock"></i>
+                    <input id="authPassword" type="password" placeholder="Enter password (min 6 chars)"
+                        autocomplete="current-password" minlength="6" required>
+                    <button type="button" id="togglePasswordBtn" class="icon-btn-inline"
+                        title="Toggle password visibility"><i class="fa-solid fa-eye"></i></button>
+                </div>
+
+                <p id="authError" class="login-error hidden"></p>
+
+                <div class="login-actions">
+                    <button type="submit" id="authSubmitBtn" class="btn btn-primary btn-lg btn-block"><i
+                            class="fa-solid fa-right-to-bracket"></i> Continue to GigSync</button>
+                    <div class="divider"><span>OR QUICK DEMO</span></div>
+                    <button type="button" id="guestBtn" class="btn btn-ghost btn-block"><i class="fa-solid fa-bolt"></i>
+                        Instant Guest Access (Explore Platform)</button>
+                </div>
+            </form>
+
+            <div class="auth-footer">
+                <div class="demo-credentials">
+                    <i class="fa-solid fa-circle-info"></i> Demo credentials: <b>9876543210</b> / <b>gigsync123</b>
+                </div>
+                <p class="legal">By continuing, you agree to GigSync's <b>Terms of Service</b> and <b>Local Community
+                        Guidelines</b>.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOP NAVIGATION (DESKTOP) -->
+    <header class="topnav">
+        <a class="brand" href="#" data-view="home">
+            <div class="brand-mark">G</div>
+            <div class="brand-info">
+                <div class="brand-name">Gig<span>Sync</span></div>
+                <div class="brand-tagline">AI Hyperlocal Marketplace</div>
+            </div>
+        </a>
+
+        <!-- Customer Navigation -->
+        <nav class="nav-links" id="customerNav">
+            <button class="nav-link active" data-view="home"><i class="fa-solid fa-house"></i> Home</button>
+            <button class="nav-link" data-view="find"><i class="fa-solid fa-magnifying-glass"></i> Find Workers</button>
+            <button class="nav-link" data-view="post-job"><i class="fa-solid fa-circle-plus"></i> Post a Job</button>
+            <button class="nav-link" data-view="jobs"><i class="fa-solid fa-clipboard-list"></i> My Jobs</button>
+            <button class="nav-link" data-view="voice"><i class="fa-solid fa-wand-magic-sparkles"></i> AI
+                Assistant</button>
+        </nav>
+
+        <!-- Worker Navigation -->
+        <nav class="nav-links hidden" id="workerNav">
+            <button class="nav-link" data-view="worker-home"><i class="fa-solid fa-gauge-high"></i> Dashboard</button>
+            <button class="nav-link" data-view="worker-jobs"><i class="fa-solid fa-briefcase"></i> Jobs</button>
+            <button class="nav-link" data-view="worker-availability"><i class="fa-solid fa-clock"></i>
+                Availability</button>
+            <button class="nav-link" data-view="worker-earnings"><i class="fa-solid fa-indian-rupee-sign"></i>
+                Earnings</button>
+            <button class="nav-link" data-view="worker-profile"><i class="fa-solid fa-user-gear"></i> Profile</button>
+        </nav>
+
+        <!-- Admin Navigation -->
+        <nav class="nav-links hidden" id="adminNav">
+            <button class="nav-link" data-view="admin"><i class="fa-solid fa-chart-pie"></i> City Clusters &amp;
+                Stats</button>
+        </nav>
+
+        <div class="nav-right">
+            <!-- Location Selector -->
+            <button class="loc-chip" id="locBtn" type="button" title="Change City / Town">
+                <i class="fa-solid fa-location-dot"></i>
+                <span id="locLabel">Ramanagara</span>
+                <i class="fa-solid fa-chevron-down" style="font-size:10px;opacity:.7"></i>
+            </button>
+
+            <!-- Language Badge -->
+            <button class="lang-chip" id="langBtn" type="button" title="Select Language">
+                <i class="fa-solid fa-globe"></i>
+                <span id="langLabel">English</span>
+            </button>
+
+            <!-- Voice Quick Trigger -->
+            <button class="btn btn-outline nav-voice" id="navPhoneCallBtn" type="button" style="background:#F0FDF4;border-color:#86EFAC;color:#15803D">
+                <i class="fa-solid fa-phone" style="color:#16A34A"></i>
+                <span>📞 AI Phone Call</span>
+            </button>
+
+            <button class="btn btn-indigo nav-voice" data-view="voice" type="button">
+                <span class="mic-wave"><i class="fa-solid fa-microphone"></i></span>
+                <span>Talk to GigSync</span>
+            </button>
+
+            <!-- Notifications -->
+            <button class="icon-btn" id="notifBtn" type="button" title="Notifications">
+                <i class="fa-regular fa-bell"></i>
+                <span class="dot" id="notifDot"></span>
+            </button>
+
+            <!-- Mode Switcher & Profile -->
+            <button class="avatar-btn" id="profileBtn" type="button">
+                <span class="avatar-circle">RK</span>
+                <span class="mode-badge" id="navRoleBadge">Customer</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- WORKER / ADMIN MODE ACTIVE BANNER -->
+    <div class="mode-bar" id="modeBar">
+        <div class="mode-indicator"><i class="fa-solid fa-hammer"></i> <strong id="modeBarLabel">Worker
+                Workspace</strong></div>
+        <span class="mode-desc">Managing active jobs, voice availability &amp; digital earning record.</span>
+        <span class="spacer"></span>
+        <button class="btn btn-sm btn-ghost-dark" id="exitModeBtn"><i class="fa-solid fa-repeat"></i> Switch to Customer
+            View</button>
+    </div>
+
+    <!-- DROPDOWNS -->
+    <div class="dropdown hidden" id="profileMenu">
+        <div class="dropdown-header">
+            <strong id="dropdownUserName">Ramesh Kumar</strong>
+            <small id="dropdownUserRole">Ramanagara · Karnataka</small>
+        </div>
+        <div class="dropdown-divider"></div>
+        <button class="dropdown-item" id="menuCustomerBtn" data-view="home"><i class="fa-solid fa-user"></i> Customer
+            Mode (Hire Workers)</button>
+        <button class="dropdown-item" id="switchWorkerBtn"><i class="fa-solid fa-briefcase"></i> Worker Mode (Find &amp;
+            Accept Jobs)</button>
+        <button class="dropdown-item" id="onboardBtn"><i class="fa-solid fa-microphone-lines"></i> Worker Voice
+            Onboarding</button>
+        <button class="dropdown-item" id="switchAdminBtn"><i class="fa-solid fa-shield-halved"></i> City Cluster
+            Admin</button>
+        <div class="dropdown-divider"></div>
+        <button class="dropdown-item text-danger" id="logoutBtn"><i class="fa-solid fa-arrow-right-from-bracket"></i>
+            Log Out</button>
+    </div>
+
+    <div class="dropdown hidden" id="notifMenu" style="width:360px">
+        <div class="dropdown-header">
+            <strong>Live Activity Alerts</strong>
+            <span class="pill pill-blue">3 New</span>
+        </div>
+        <div class="notif-list">
+            <div class="notif-item unread">
+                <div class="notif-icon green"><i class="fa-solid fa-check"></i></div>
+                <div class="notif-content">
+                    <p><b>Ramesh Kumar</b> accepted your Fan Repair job for tomorrow morning.</p>
+                    <small>10 mins ago · Ramanagara</small>
+                </div>
+            </div>
+            <div class="notif-item unread">
+                <div class="notif-icon blue"><i class="fa-solid fa-bell"></i></div>
+                <div class="notif-content">
+                    <p><b>New Job Alert:</b> Plumbing leak near Vijaya Nagar (1.8 km) — Estimated ₹500–₹700.</p>
+                    <small>25 mins ago</small>
+                </div>
+            </div>
+            <div class="notif-item">
+                <div class="notif-icon amber"><i class="fa-solid fa-calendar-check"></i></div>
+                <div class="notif-content">
+                    <p><b>Availability updated:</b> AI confirmed your hours (10 AM – 2 PM).</p>
+                    <small>2 hours ago</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="dropdown hidden" id="locMenu" style="left:auto;right:240px;width:320px">
+        <div class="dropdown-header">
+            <strong>Select Tier-2 / Tier-3 Location</strong>
+            <small>Active City Clusters</small>
+        </div>
+        <div class="loc-list">
+            <button class="loc-item active" data-loc="Ramanagara, Karnataka">
+                <div><b>Ramanagara</b> <small>Karnataka</small></div>
+                <span class="pill pill-green">48 Workers Available</span>
+            </button>
+            <button class="loc-item" data-loc="Mandya, Karnataka">
+                <div><b>Mandya City</b> <small>Karnataka</small></div>
+                <span class="pill pill-blue">36 Workers</span>
+            </button>
+            <button class="loc-item" data-loc="Tumakuru, Karnataka">
+                <div><b>Tumakuru (Tumkur)</b> <small>Karnataka</small></div>
+                <span class="pill pill-blue">52 Workers</span>
+            </button>
+            <button class="loc-item" data-loc="Chitradurga, Karnataka">
+                <div><b>Chitradurga</b> <small>Karnataka</small></div>
+                <span class="pill pill-blue">29 Workers</span>
+            </button>
+            <button class="loc-item" data-loc="Hassan, Karnataka">
+                <div><b>Hassan</b> <small>Karnataka</small></div>
+                <span class="pill pill-blue">41 Workers</span>
+            </button>
+            <button class="loc-item" data-loc="Shivamogga, Karnataka">
+                <div><b>Shivamogga (Shimoga)</b> <small>Karnataka</small></div>
+                <span class="pill pill-blue">34 Workers</span>
+            </button>
+            <button class="loc-item" data-loc="Davangere, Karnataka">
+                <div><b>Davangere</b> <small>Karnataka</small></div>
+                <span class="pill pill-blue">38 Workers</span>
+            </button>
+            <button class="loc-item" data-loc="Hubballi-Dharwad, Karnataka">
+                <div><b>Hubballi-Dharwad</b> <small>Karnataka</small></div>
+                <span class="pill pill-blue">65 Workers</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="dropdown hidden" id="langMenu" style="left:auto;right:180px;width:220px">
+        <div class="dropdown-header">
+            <strong>Voice &amp; UI Language</strong>
+        </div>
+        <button class="dropdown-item active" data-lang="en"><i class="fa-solid fa-check"></i> English</button>
+        <button class="dropdown-item" data-lang="kn">ಕನ್ನಡ (Kannada)</button>
+        <button class="dropdown-item" data-lang="hi">हिन्दी (Hindi)</button>
+        <button class="dropdown-item" data-lang="ta">தமிழ் (Tamil)</button>
+        <button class="dropdown-item" data-lang="te">తెలుగు (Telugu)</button>
+    </div>
+
+    <!-- MAIN APP SHELL -->
+    <main class="app-shell">
+
+        <!-- ====================================================================
+             1. HOME VIEW
+             ==================================================================== -->
+        <section class="view active" id="view-home">
+            <div class="page">
+                <!-- HERO SECTION -->
+                <div class="hero-container">
+                    <div class="hero-badge-row">
+                        <div class="loc-line">
+                            <i class="fa-solid fa-location-dot"></i>
+                            <span>Serving:</span>
+                            <strong class="loc-text">Ramanagara, Karnataka</strong>
+                            <button type="button" id="changeLocLink" class="btn-link">Change City <i
+                                    class="fa-solid fa-angle-down"></i></button>
+                        </div>
+                        <div class="hero-pill-badge">
+                            <span class="live-dot"></span> Built for India's Tier-2 &amp; Tier-3 Towns
+                        </div>
+                    </div>
+
+                    <div class="hero-content">
+                        <h1 class="hero-title">Local skills. Local jobs.<br><span class="gradient-text">Powered by
+                                AI.</span></h1>
+                        <p class="hero-subtitle">Find trusted local workers or discover nearby work opportunities —
+                            simply tell GigSync what you need in your own voice.</p>
+
+                        <!-- AI Interaction Hub -->
+                        <div class="ai-core-hub">
+                            <div class="hub-header">
+                                <div class="hub-title"><i class="fa-solid fa-wand-magic-sparkles"></i> <strong>What do
+                                        you need help with?</strong></div>
+                                <div class="hub-modes">
+                                    <span class="hub-mode-tag"><i class="fa-solid fa-bolt"></i> Instant Local
+                                        Match</span>
+                                </div>
+                            </div>
+
+                            <div class="search-stage">
+                                <div class="search-input-wrap">
+                                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                                    <input id="homeSearch" type="search"
+                                        placeholder="Speak or describe your problem (e.g. 'Fan not working, need electrician tomorrow morning')">
+                                </div>
+                                <div class="search-actions">
+                                    <button class="btn btn-indigo btn-mic" data-view="voice" type="button">
+                                        <i class="fa-solid fa-microphone-lines"></i>
+                                        <span>Speak to GigSync</span>
+                                    </button>
+                                    <button class="btn btn-primary" id="homeSearchBtn" type="button">
+                                        <span>Find Worker</span>
+                                        <i class="fa-solid fa-arrow-right"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Voice Prompt Suggestions -->
+                            <div class="prompt-chips">
+                                <span class="chip-label">Try saying:</span>
+                                <button class="sample-prompt-btn"
+                                    data-prompt="I need an electrician tomorrow morning. My fan isn't working.">
+                                    <i class="fa-solid fa-microphone"></i> “Need electrician tomorrow morning for fan
+                                    repair”
+                                </button>
+                                <button class="sample-prompt-btn"
+                                    data-prompt="My bathroom pipe is leaking and I need a plumber today urgently.">
+                                    <i class="fa-solid fa-microphone"></i> “Bathroom pipe leaking, need plumber today”
+                                </button>
+                                <button class="sample-prompt-btn"
+                                    data-prompt="Need a motorcycle mechanic, bike won't start near station road.">
+                                    <i class="fa-solid fa-microphone"></i> “Bike won't start near station road”
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 3 Entry Options & Worker CTA -->
+                        <div class="hero-dual-cta">
+                            <div class="entry-options">
+                                <button class="entry-btn" data-view="voice">
+                                    <div class="entry-icon icon-purple"><i class="fa-solid fa-microphone"></i></div>
+                                    <div class="entry-text">
+                                        <strong>1. Speak to GigSync</strong>
+                                        <small>Natural voice recognition in your language</small>
+                                    </div>
+                                </button>
+                                <button class="entry-btn" data-view="find">
+                                    <div class="entry-icon icon-blue"><i class="fa-solid fa-magnifying-glass"></i></div>
+                                    <div class="entry-text">
+                                        <strong>2. Browse Nearby Trades</strong>
+                                        <small>Filter by distance, tools &amp; ratings</small>
+                                    </div>
+                                </button>
+                                <button class="entry-btn" data-view="post-job">
+                                    <div class="entry-icon icon-green"><i class="fa-solid fa-clipboard-check"></i></div>
+                                    <div class="entry-text">
+                                        <strong>3. Post a Direct Job</strong>
+                                        <small>Local workers receive alerts immediately</small>
+                                    </div>
+                                </button>
+                            </div>
+
+                            <div class="worker-invite-card">
+                                <div class="worker-badge"><i class="fa-solid fa-handshake-angle"></i> FOR SKILLED
+                                    WORKERS</div>
+                                <h3>Are you an Electrician, Plumber, Carpenter or Mechanic?</h3>
+                                <p>No forms. Tell AI what work you do and get jobs sent directly to your phone.</p>
+                                <div class="worker-invite-actions">
+                                    <button class="btn btn-warning" id="heroWorkerBtn"><i
+                                            class="fa-solid fa-briefcase"></i> Open Worker Mode</button>
+                                    <button class="btn btn-ghost-light" data-view="onboard"><i
+                                            class="fa-solid fa-microphone-lines"></i> Register by Voice</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ============================================================
+                     TWO-SIDED MARKETPLACE LOOP SECTION
+                     ============================================================ -->
+                <div class="section marketplace-loop-section">
+                    <div class="section-badge-center">
+                        <span class="kicker"><i class="fa-solid fa-arrows-spin"></i> The Marketplace Flow</span>
+                        <h2 class="h2">How GigSync Connects Local Demand &amp; Talent</h2>
+                        <p class="lede center">Unlike traditional marketplaces with complex browsing and commission
+                            middlemen, GigSync is a direct intelligent bridge.</p>
+                    </div>
+
+                    <div class="marketplace-loop-grid">
+                        <div class="loop-card step-1">
+                            <div class="step-num">1</div>
+                            <div class="step-badge customer-badge"><i class="fa-solid fa-user"></i> Customer</div>
+                            <div class="step-illustration">
+                                <div class="quote-box">
+                                    <i class="fa-solid fa-quote-left"></i>
+                                    <p>“I need an electrician tomorrow morning. My fan isn't working.”</p>
+                                </div>
+                            </div>
+                            <h3>Customer Speaks or Types</h3>
+                            <p>Expresses real need in simple natural words without having to browse complex categories.
+                            </p>
+                        </div>
+
+                        <div class="loop-connector"><i class="fa-solid fa-arrow-right"></i></div>
+
+                        <div class="loop-card step-2 ai-step">
+                            <div class="step-num ai-num"><i class="fa-solid fa-brain"></i></div>
+                            <div class="step-badge ai-badge"><i class="fa-solid fa-sparkles"></i> GigSync AI</div>
+                            <div class="ai-match-demo">
+                                <div class="tag-row">
+                                    <span class="meta-tag">⚡ Electrical</span>
+                                    <span class="meta-tag">🔧 Fan Repair</span>
+                                    <span class="meta-tag">📍 Ramanagara</span>
+                                    <span class="meta-tag">⏰ Tomorrow 10 AM</span>
+                                </div>
+                                <div class="ai-status-pulse"><i class="fa-solid fa-circle-nodes"></i> Matching tools,
+                                    skills &amp; distance...</div>
+                            </div>
+                            <h3>AI Understands &amp; Dispatches</h3>
+                            <p>Extracts problem, tools required, distance radius, and matches the best available nearby
+                                worker.</p>
+                        </div>
+
+                        <div class="loop-connector"><i class="fa-solid fa-arrow-right"></i></div>
+
+                        <div class="loop-card step-3 worker-step">
+                            <div class="step-num">3</div>
+                            <div class="step-badge worker-badge"><i class="fa-solid fa-hammer"></i> Local Worker</div>
+                            <div class="worker-alert-demo">
+                                <div class="alert-box">
+                                    <div class="alert-top"><b>⚡ Electrical Repair</b> <span class="km-pill">📍 1.2
+                                            km</span></div>
+                                    <div class="alert-pay">Est. ₹350–₹500 · Tomorrow 10 AM</div>
+                                    <div class="btn-pair">
+                                        <span class="mock-btn accept"><i class="fa-solid fa-check"></i> ACCEPT</span>
+                                        <span class="mock-btn reject"><i class="fa-solid fa-xmark"></i> REJECT</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <h3>Worker Receives Nearby Alert</h3>
+                            <p>Gets simple actionable job alert with distance and estimated earnings. 1-click accept.
+                            </p>
+                        </div>
+
+                        <div class="loop-connector"><i class="fa-solid fa-arrow-right"></i></div>
+
+                        <div class="loop-card step-4">
+                            <div class="step-num">4</div>
+                            <div class="step-badge confirm-badge"><i class="fa-solid fa-circle-check"></i> Connected
+                            </div>
+                            <div class="confirm-demo">
+                                <div class="worker-confirmed-chip">
+                                    <div class="w-avatar-sm">RK</div>
+                                    <div>
+                                        <strong>Ramesh Kumar Confirmed</strong>
+                                        <small>Arriving tomorrow at 10:00 AM · ₹350 onwards</small>
+                                    </div>
+                                </div>
+                                <div class="receipt-record">
+                                    <i class="fa-solid fa-file-shield"></i> Added to Digital Work Record
+                                </div>
+                            </div>
+                            <h3>Job Done &amp; Record Created</h3>
+                            <p>Customer gets reliable local service. Worker builds digital credibility and verifiable
+                                income history.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ============================================================
+                     KEY DIFFERENTIATOR SECTION: BUILT FOR PEOPLE NOT ONLINE YET
+                     ============================================================ -->
+                <div class="section diff-section">
+                    <div class="diff-card">
+                        <div class="diff-header">
+                            <span class="kicker" style="color:#FBBF24"><i class="fa-solid fa-lightbulb"></i> The Big
+                                Innovation</span>
+                            <h2>Built for people who aren't online yet.</h2>
+                            <p class="lede text-white">Most skilled workers in India's Tier-2/3 towns do not have
+                                resumes, digital portfolios, or experience with complicated apps. GigSync eliminates all
+                                digital friction.</p>
+                        </div>
+
+                        <div class="comparison-grid">
+                            <!-- Traditional System -->
+                            <div class="compare-column traditional">
+                                <div class="column-header">
+                                    <div class="col-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                                    <div>
+                                        <h3>Traditional Informal System</h3>
+                                        <small>How workers struggle today</small>
+                                    </div>
+                                </div>
+                                <div class="flow-steps">
+                                    <div class="flow-step">
+                                        <div class="bullet-dot red"></div>
+                                        <div><strong>Word of mouth dependence</strong>
+                                            <p>Relying on contractor whims, friends, or sitting at tea stalls waiting
+                                                for calls.</p>
+                                        </div>
+                                    </div>
+                                    <div class="flow-step">
+                                        <div class="bullet-dot red"></div>
+                                        <div><strong>Zero digital presence</strong>
+                                            <p>Can't reach new homeowners, shopkeepers, or nearby village projects.</p>
+                                        </div>
+                                    </div>
+                                    <div class="flow-step">
+                                        <div class="bullet-dot red"></div>
+                                        <div><strong>Complicated smartphone forms</strong>
+                                            <p>Cannot fill English registration forms or upload portfolio documents.</p>
+                                        </div>
+                                    </div>
+                                    <div class="flow-step">
+                                        <div class="bullet-dot red"></div>
+                                        <div><strong>No verifiable work record</strong>
+                                            <p>Years of hard work left with zero financial or employment paper trail.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- The GigSync Way -->
+                            <div class="compare-column gigsync-way">
+                                <div class="column-header">
+                                    <div class="col-icon green"><i class="fa-solid fa-circle-check"></i></div>
+                                    <div>
+                                        <h3>The GigSync Platform</h3>
+                                        <small>Inclusive AI for local empowerment</small>
+                                    </div>
+                                </div>
+                                <div class="flow-steps">
+                                    <div class="flow-step">
+                                        <div class="bullet-dot green"></div>
+                                        <div><strong>Voice AI Registration</strong>
+                                            <p>Speak in Kannada, Hindi, or English. AI automatically structures the
+                                                profile.</p>
+                                        </div>
+                                    </div>
+                                    <div class="flow-step">
+                                        <div class="bullet-dot green"></div>
+                                        <div><strong>Hyperlocal Real-time Job Alerts</strong>
+                                            <p>Direct notifications for jobs within 1–10 km with clear estimated pay.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div class="flow-step">
+                                        <div class="bullet-dot green"></div>
+                                        <div><strong>Voice Availability Updates</strong>
+                                            <p>Worker simply speaks: “Available tomorrow 10 to 2” to update schedule.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div class="flow-step">
+                                        <div class="bullet-dot green"></div>
+                                        <div><strong>Digital Work &amp; Earning Record</strong>
+                                            <p>Automatic timestamped log of completed jobs and earnings for credibility.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ============================================================
+                     FEATURE CARDS: 8 CORE CAPABILITIES
+                     ============================================================ -->
+                <div class="section">
+                    <div class="section-head-center">
+                        <span class="kicker"><i class="fa-solid fa-cubes"></i> Core Infrastructure</span>
+                        <h2 class="h2">Engineered for Tier-2 &amp; Tier-3 Realities</h2>
+                        <p class="lede center">Designed specifically around low digital literacy, regional languages,
+                            tools, and local proximity.</p>
+                    </div>
+
+                    <div class="features-grid-8">
+                        <div class="feature-card">
+                            <div class="feat-icon f1"><i class="fa-solid fa-microphone-lines"></i></div>
+                            <h3>1. AI Voice Registration</h3>
+                            <p>Workers speak naturally about their skills and tools. AI converts the spoken conversation
+                                into a structured digital profile.</p>
+                        </div>
+
+                        <div class="feature-card">
+                            <div class="feat-icon f2"><i class="fa-solid fa-location-crosshairs"></i></div>
+                            <h3>2. Hyperlocal Matching</h3>
+                            <p>Accurate matching within 0.5 to 15 km radii across towns, wards, and adjacent village
+                                clusters.</p>
+                        </div>
+
+                        <div class="feature-card">
+                            <div class="feat-icon f3"><i class="fa-solid fa-calendar-check"></i></div>
+                            <h3>3. Smart Voice Availability</h3>
+                            <p>Workers toggle or speak their working hours without navigating multi-level calendar
+                                settings.</p>
+                        </div>
+
+                        <div class="feature-card">
+                            <div class="feat-icon f4"><i class="fa-solid fa-toolbox"></i></div>
+                            <h3>4. Skill &amp; Tool Matching</h3>
+                            <p>AI verifies whether the worker owns specialized gear (drills, multimeters, pipe wrenches,
+                                welding machines) before dispatching.</p>
+                        </div>
+
+                        <div class="feature-card">
+                            <div class="feat-icon f5"><i class="fa-solid fa-bell-ring"></i></div>
+                            <h3>5. Instant Job Alerts</h3>
+                            <p>Transparent push notifications showing exact distance, scope of work, and estimated
+                                income with 1-click accept.</p>
+                        </div>
+
+                        <div class="feature-card">
+                            <div class="feat-icon f6"><i class="fa-solid fa-receipt"></i></div>
+                            <h3>6. Digital Work Record</h3>
+                            <p>Maintains a permanent, verifiable history of completed jobs and earnings to help informal
+                                workers build track records.</p>
+                        </div>
+
+                        <div class="feature-card">
+                            <div class="feat-icon f7"><i class="fa-solid fa-comment-dots"></i></div>
+                            <h3>7. Simple Direct Booking</h3>
+                            <p>Customers can book through conversational voice, search, or by submitting a quick problem
+                                description.</p>
+                        </div>
+
+                        <div class="feature-card">
+                            <div class="feat-icon f8"><i class="fa-solid fa-language"></i></div>
+                            <h3>8. Multi-Language Ready</h3>
+                            <p>Full architecture ready for Kannada, Hindi, Tamil, Telugu, and English spoken dialects.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ============================================================
+                     POPULAR LOCAL TRADES (NOT SALONS / METRO SERVICES)
+                     ============================================================ -->
+                <div class="section">
+                    <div class="section-head">
+                        <div>
+                            <span class="kicker"><i class="fa-solid fa-wrench"></i> Skilled Local Trades</span>
+                            <h2 class="h2">Skilled Workers in <span class="loc-text">Ramanagara</span></h2>
+                            <p class="lede">Explore verified local technicians and craftsmen available in your
+                                neighborhood.</p>
+                        </div>
+                        <button class="btn btn-outline" data-view="find">View All Trades <i
+                                class="fa-solid fa-arrow-right"></i></button>
+                    </div>
+                    <div class="services-grid" id="homeServices"></div>
+                </div>
+
+                <!-- ============================================================
+                     AVAILABLE NEARBY WORKERS SHOWCASE
+                     ============================================================ -->
+                <div class="section">
+                    <div class="section-head">
+                        <div>
+                            <span class="kicker"><i class="fa-solid fa-users"></i> Available Near You</span>
+                            <h2 class="h2">Nearby Professionals Ready for Work</h2>
+                            <p class="lede">Local workers with tools and verified track records.</p>
+                        </div>
+                        <button class="btn btn-primary" data-view="find"><i class="fa-solid fa-magnifying-glass"></i>
+                            Explore All Workers</button>
+                    </div>
+                    <div class="worker-grid" id="homeWorkers"></div>
+                </div>
+
+                <!-- ============================================================
+                     INTERACTIVE VOICE AI SHOWCASE BANNER
+                     ============================================================ -->
+                <div class="ai-banner">
+                    <div class="ai-banner-copy">
+                        <span class="kicker text-sky"><i class="fa-solid fa-sparkles"></i> GigSync Voice
+                            Intelligence</span>
+                        <h2>Don't want to type? Just tell GigSync.</h2>
+                        <p class="lede text-white" style="opacity:.9">Speak in Kannada, Hindi or English. Our AI
+                            extracts your exact requirements and instantly finds the closest equipped worker.</p>
+
+                        <div class="ai-chat-preview">
+                            <div class="chat-row user-row">
+                                <span class="who"><i class="fa-solid fa-user"></i> You ·</span>
+                                <span class="bubble-text">“I need a plumber today. My bathroom pipe has a leak.”</span>
+                            </div>
+                            <div class="chat-row ai-row">
+                                <span class="who"><i class="fa-solid fa-sparkles"></i> GigSync AI ·</span>
+                                <span class="bubble-text">“I found 3 plumbers near Vijaya Nagar with pipe wrenches.
+                                    Suresh Gowda is 1.8 km away, available now for ₹280 onwards.”</span>
+                            </div>
+                        </div>
+
+                        <div class="ai-actions">
+                            <button class="btn btn-primary btn-lg" data-view="voice"><i
+                                    class="fa-solid fa-microphone-lines"></i> Open Voice Assistant</button>
+                            <button class="btn btn-ghost-dark" data-view="find" data-service="Plumbing"><i
+                                    class="fa-solid fa-list-check"></i> View Plumbers</button>
+                        </div>
+                    </div>
+
+                    <div class="ai-banner-visual">
+                        <div class="mic-orb-wrapper">
+                            <div class="mic-orb-glow"></div>
+                            <button class="mic-orb" data-view="voice" type="button" title="Start Talking">
+                                <i class="fa-solid fa-microphone-lines"></i>
+                            </button>
+                            <span class="mic-orb-label"><i class="fa-solid fa-waveform"></i> Tap to speak now</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ============================================================
+                     ACTIVE / UPCOMING JOB PREVIEW
+                     ============================================================ -->
+                <div class="card job-preview-banner">
+                    <div class="job-preview-content">
+                        <div class="preview-tag"><span class="live-dot"></span> Active Work Request</div>
+                        <h3 class="h3">Electrical Repair · Ceiling Fan &amp; Switchboard</h3>
+                        <div class="preview-details">
+                            <span><i class="fa-regular fa-calendar"></i> Tomorrow · 10:00 AM</span>
+                            <span><i class="fa-solid fa-user-check"></i> Assigned: <b>Ramesh Kumar</b></span>
+                            <span><i class="fa-solid fa-location-dot"></i> <b>1.2 km away</b></span>
+                            <span class="pill pill-green"><i class="fa-solid fa-check"></i> Confirmed</span>
+                        </div>
+                    </div>
+                    <div class="preview-actions">
+                        <button class="btn btn-ghost" data-view="jobs">View Details</button>
+                        <button class="btn btn-primary" data-toast="Calling Ramesh Kumar (+91 98450 11223)..."><i
+                                class="fa-solid fa-phone"></i> Call Worker</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ====================================================================
+             2. FIND WORKERS MARKETPLACE VIEW
+             ==================================================================== -->
+        <section class="view" id="view-find">
+            <div class="page page-wide">
+                <div class="marketplace-head">
+                    <div>
+                        <p class="kicker"><i class="fa-solid fa-store"></i> Hyperlocal Directory</p>
+                        <h1 class="h2" id="findTitle">Skilled Workers near Ramanagara</h1>
+                        <p class="lede">Showing verified local professionals filtered by trade, proximity, and tools.
+                        </p>
+                    </div>
+                    <div class="marketplace-actions">
+                        <button class="btn btn-indigo" data-view="voice"><i class="fa-solid fa-microphone"></i> Find by
+                            Voice</button>
+                        <button class="btn btn-ghost" data-view="post-job"><i class="fa-solid fa-plus"></i> Post a
+                            Job</button>
+                    </div>
+                </div>
+
+                <div class="market">
+                    <!-- Filters Sidebar -->
+                    <aside class="card filters">
+                        <div class="filters-header">
+                            <h3><i class="fa-solid fa-sliders"></i> Filters</h3>
+                            <button class="btn-link" id="resetFiltersBtn">Reset</button>
+                        </div>
+
+                        <div class="filter-group">
+                            <label>Trade / Skill</label>
+                            <select class="gs-select" id="filterService"></select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label>Town / Cluster</label>
+                            <select class="gs-select" id="filterLoc">
+                                <option>Ramanagara (All Areas)</option>
+                                <option>Vijaya Nagar, Ramanagara</option>
+                                <option>Channapatna Town</option>
+                                <option>Bidadi Industrial Area</option>
+                                <option>Mandya City</option>
+                                <option>Tumakuru</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <div class="range-head">
+                                <label>Distance Radius</label>
+                                <span class="range-val"><span id="distVal">10</span> km</span>
+                            </div>
+                            <input type="range" id="filterDist" min="1" max="25" value="10" class="gs-range">
+                            <div class="range-labels"><span>1 km</span><span>12 km</span><span>25 km</span></div>
+                        </div>
+
+                        <div class="filter-group">
+                            <label>Availability</label>
+                            <label class="check-custom"><input type="checkbox" id="filterNow"><span class="box"></span>
+                                🟢 Available right now</label>
+                            <label class="check-custom"><input type="checkbox" id="filterToday" checked><span
+                                    class="box"></span> Available today</label>
+                        </div>
+
+                        <div class="filter-group">
+                            <label>Worker Verification &amp; Tools</label>
+                            <label class="check-custom"><input type="checkbox" id="filterVerified" checked><span
+                                    class="box"></span> Verified workers (ID checked)</label>
+                            <label class="check-custom"><input type="checkbox" id="filterTools" checked><span
+                                    class="box"></span> Has own tools &amp; equipment</label>
+                        </div>
+
+                        <div class="filter-group">
+                            <label>Minimum Rating</label>
+                            <select class="gs-select" id="filterRating">
+                                <option value="0">Any Rating</option>
+                                <option value="4.0">4.0+ Stars</option>
+                                <option value="4.5" selected>4.5+ Stars (Top Rated)</option>
+                                <option value="4.8">4.8+ Stars</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label>Starting Price</label>
+                            <select class="gs-select" id="filterPrice">
+                                <option value="all">Any Price</option>
+                                <option value="300">Under ₹300</option>
+                                <option value="500">Under ₹500</option>
+                            </select>
+                        </div>
+                    </aside>
+
+                    <!-- Results Column -->
+                    <div class="results-container">
+                        <div class="results-toolbar">
+                            <div class="results-count-badge" id="resultCount">Showing nearby workers</div>
+                            <div class="sorts-bar">
+                                <span class="sort-label">Sort:</span>
+                                <div class="sort-buttons">
+                                    <button class="sort-btn active" data-sort="rec"><i class="fa-solid fa-sparkles"></i>
+                                        AI Best Match</button>
+                                    <button class="sort-btn" data-sort="dist"><i class="fa-solid fa-location-arrow"></i>
+                                        Distance</button>
+                                    <button class="sort-btn" data-sort="rating"><i class="fa-solid fa-star"></i>
+                                        Rating</button>
+                                    <button class="sort-btn" data-sort="price"><i class="fa-solid fa-tag"></i>
+                                        Price</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="result-list" id="resultList"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ====================================================================
+             3. POST A JOB VIEW
+             ==================================================================== -->
+        <section class="view" id="view-post-job">
+            <div class="page" style="max-width:900px">
+                <div class="post-job-header">
+                    <p class="kicker"><i class="fa-solid fa-bullhorn"></i> Direct Dispatch</p>
+                    <h1 class="h1" style="font-size:36px">Post a Job for Nearby Workers</h1>
+                    <p class="lede">Tell GigSync what needs fixing. Nearby workers with the right tools will receive
+                        direct alerts.</p>
+                </div>
+
+                <div class="card post-job-card">
+                    <form id="postJobForm">
+                        <div class="form-section">
+                            <label class="form-label">1. Describe the Problem or Service Needed</label>
+                            <div class="voice-input-wrapper">
+                                <textarea id="jobDescInput" class="gs-textarea" rows="3"
+                                    placeholder="e.g. My submersible water pump motor is making a humming sound and not pumping water. Need someone with testing tools today."
+                                    required></textarea>
+                                <button type="button" class="btn btn-sm btn-indigo voice-fill-btn" id="jobDescVoiceBtn"
+                                    title="Speak problem">
+                                    <i class="fa-solid fa-microphone"></i> Speak
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="form-grid-2">
+                            <div class="form-section">
+                                <label class="form-label">2. Trade Required</label>
+                                <select class="gs-select" id="jobTradeSelect">
+                                    <option value="electrical">⚡ Electrician</option>
+                                    <option value="plumbing">🔧 Plumber</option>
+                                    <option value="carpentry">🪚 Carpenter</option>
+                                    <option value="mechanics">🛵 Motorcycle / Auto Mechanic</option>
+                                    <option value="ac">❄️ AC &amp; Refrigerator Technician</option>
+                                    <option value="welding">🔥 Welder / Fabricator</option>
+                                    <option value="mason">🧱 Mason / Construction</option>
+                                    <option value="painting">🎨 Painter</option>
+                                    <option value="tailoring">🧵 Tailor</option>
+                                </select>
+                            </div>
+
+                            <div class="form-section">
+                                <label class="form-label">3. Location / Ward</label>
+                                <input type="text" class="gs-input" id="jobLocInput" value="Vijaya Nagar, Ramanagara"
+                                    required>
+                            </div>
+                        </div>
+
+                        <div class="form-grid-2">
+                            <div class="form-section">
+                                <label class="form-label">4. When do you need this done?</label>
+                                <select class="gs-select" id="jobWhenSelect">
+                                    <option value="today_urgent">🚨 Urgent (Within 1–2 hours)</option>
+                                    <option value="today_later">Today Evening (4 PM – 7 PM)</option>
+                                    <option value="tomorrow_morning" selected>Tomorrow Morning (9 AM – 12 PM)</option>
+                                    <option value="flexible">Flexible / Any day this week</option>
+                                </select>
+                            </div>
+
+                            <div class="form-section">
+                                <label class="form-label">5. Estimated Budget Expectation</label>
+                                <input type="text" class="gs-input" id="jobBudgetInput"
+                                    value="₹350 – ₹600 (Based on local rates)">
+                            </div>
+                        </div>
+
+                        <div class="ai-estimate-box">
+                            <div class="ai-estimate-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+                            <div class="ai-estimate-info">
+                                <strong>GigSync AI Analysis:</strong>
+                                <p id="aiEstimateText">Estimated <b>4 verified workers</b> with suitable tools currently
+                                    active within 3 km of Vijaya Nagar. Expected response time: <b>&lt; 5 minutes</b>.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary btn-lg"><i class="fa-solid fa-paper-plane"></i>
+                                Broadcast Job to Nearby Workers</button>
+                            <button type="button" class="btn btn-ghost" data-view="home">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- ====================================================================
+             4. MY JOBS VIEW (CUSTOMER)
+             ==================================================================== -->
+        <section class="view" id="view-jobs">
+            <div class="page">
+                <div class="section-head">
+                    <div>
+                        <p class="kicker"><i class="fa-solid fa-receipt"></i> Job Tracker</p>
+                        <h1 class="h2">My Bookings &amp; Work Requests</h1>
+                        <p class="lede">Track your ongoing, scheduled, and completed jobs with local professionals.</p>
+                    </div>
+                    <button class="btn btn-primary" data-view="post-job"><i class="fa-solid fa-plus"></i> New
+                        Request</button>
+                </div>
+
+                <div class="tabs" id="jobTabs">
+                    <button class="tab active" data-tab="active"><i class="fa-solid fa-bolt"></i> Active (1)</button>
+                    <button class="tab" data-tab="upcoming"><i class="fa-solid fa-clock"></i> Upcoming (1)</button>
+                    <button class="tab" data-tab="completed"><i class="fa-solid fa-check"></i> Completed (1)</button>
+                    <button class="tab" data-tab="cancelled"><i class="fa-solid fa-xmark"></i> Cancelled (1)</button>
+                </div>
+
+                <div class="card table-wrap">
+                    <table class="data" id="jobsTable"></table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ====================================================================
+             5. AI VOICE ASSISTANT STUDIO VIEW
+             ==================================================================== -->
+        <section class="view" id="view-voice">
+            <div class="voice-studio">
+                <div class="voice-center">
+                    <div class="voice-hero-badge"><i class="fa-solid fa-sparkles"></i> Multi-lingual AI Interaction
+                        Layer</div>
+                    <h1 class="h1">Talk to GigSync</h1>
+                    <p class="lede">Speak naturally in Kannada, Hindi, or English. Tell me what needs repair or what
+                        help you need.</p>
+
+                    <!-- Interactive Mic Orb -->
+                    <div class="mic-stage">
+                        <button class="big-mic" id="micBtn" type="button" title="Click to Speak">
+                            <i class="fa-solid fa-microphone"></i>
+                        </button>
+                        <div class="waveform-anim hidden" id="micWaveform">
+                            <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                        </div>
+                    </div>
+
+                    <p id="micStatus" class="mic-status-text">Click the microphone and speak your request.</p>
+
+                    <!-- Quick Spoken Scenarios -->
+                    <div class="voice-presets">
+                        <span class="preset-label">Or test with a sample voice scenario:</span>
+                        <div class="preset-buttons">
+                            <button class="preset-btn" data-vscenario="electrical">
+                                <i class="fa-solid fa-bolt"></i> “Fan not working, need electrician tomorrow morning”
+                            </button>
+                            <button class="preset-btn" data-vscenario="plumbing">
+                                <i class="fa-solid fa-wrench"></i> “Kitchen sink pipe burst, need urgent plumber”
+                            </button>
+                            <button class="preset-btn" data-vscenario="mechanic">
+                                <i class="fa-solid fa-motorcycle"></i> “Scooter won't kick start, need mechanic nearby”
+                            </button>
+                            <button class="preset-btn" data-vscenario="carpentry">
+                                <i class="fa-solid fa-hammer"></i> “Need carpenter to fix bedroom door lock”
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Real-Time AI Extraction Panel -->
+                <aside class="card voice-panel">
+                    <div class="voice-panel-header">
+                        <h3><i class="fa-solid fa-comments"></i> Real-time Conversation</h3>
+                        <button class="btn-link" id="resetVoice"><i class="fa-solid fa-rotate-left"></i> Reset</button>
+                    </div>
+
+                    <div class="transcript" id="transcript">
+                        <div class="bubble ai">
+                            <div class="bubble-speaker"><i class="fa-solid fa-robot"></i> GigSync AI</div>
+                            <div class="bubble-content">Namaskara / Hello! What can I help you with today in Ramanagara?
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="slot-extraction-box">
+                        <div class="slot-head"><i class="fa-solid fa-microchip"></i> AI Extracted Job Parameters</div>
+                        <div class="extracted-grid">
+                            <div class="slot-item">
+                                <span class="slot-label">Trade / Service</span>
+                                <strong id="exService">—</strong>
+                            </div>
+                            <div class="slot-item">
+                                <span class="slot-label">Problem Scope</span>
+                                <strong id="exProblem">—</strong>
+                            </div>
+                            <div class="slot-item">
+                                <span class="slot-label">Preferred Time</span>
+                                <strong id="exWhen">—</strong>
+                            </div>
+                            <div class="slot-item">
+                                <span class="slot-label">Location Radius</span>
+                                <strong id="exLoc">Ramanagara (&lt; 3 km)</strong>
+                            </div>
+                            <div class="slot-item">
+                                <span class="slot-label">Urgency</span>
+                                <strong id="exUrgency">—</strong>
+                            </div>
+                            <div class="slot-item">
+                                <span class="slot-label">Required Tools</span>
+                                <strong id="exTools">—</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recommended Worker Card (Populated by AI) -->
+                    <div class="matched-worker-card hidden" id="aiMatchedWorkerBox">
+                        <div class="match-badge"><i class="fa-solid fa-sparkles"></i> AI Best Match (Skill, Distance
+                            &amp; Tools)</div>
+                        <div class="match-body">
+                            <div class="match-avatar" id="matchAvatar">RK</div>
+                            <div>
+                                <h4 id="matchName">Ramesh Kumar</h4>
+                                <p id="matchTrade" style="color:var(--gs-indigo);font-weight:700">⚡ Master Electrician
+                                </p>
+                                <small id="matchMeta">📍 1.2 km away · ⭐ 4.8 · Has Wire Kit &amp; Drill</small>
+                            </div>
+                        </div>
+                        <div class="match-actions">
+                            <button class="btn btn-primary btn-sm btn-block" id="bookMatchedWorkerBtn"><i
+                                    class="fa-solid fa-check"></i> Book Ramesh Kumar (₹300+)</button>
+                        </div>
+                    </div>
+
+                    <div class="voice-actions-footer">
+                        <button class="btn btn-ghost btn-sm btn-block" data-view="find"><i
+                                class="fa-solid fa-magnifying-glass"></i> View All Nearby Workers</button>
+                    </div>
+                </aside>
+            </div>
+        </section>
+
+        <!-- ====================================================================
+             6. WORKER PROFILE VIEW (CUSTOMER FACING)
+             ==================================================================== -->
+        <section class="view" id="view-profile">
+            <div class="page">
+                <button class="btn btn-ghost btn-sm" data-view="find"><i class="fa-solid fa-arrow-left"></i> Back to
+                    Directory</button>
+
+                <div class="card profile-hero" style="margin-top:16px">
+                    <div class="p-photo" id="pPhoto">RK</div>
+                    <div class="p-info">
+                        <div class="p-header-line">
+                            <h1 class="h2" id="pName">Ramesh Kumar</h1>
+                            <span class="pill pill-blue"><i class="fa-solid fa-shield-check"></i> Aadhaar &amp; Police
+                                Verified</span>
+                        </div>
+                        <p id="pTrade" class="p-trade-title">⚡ Electrician &amp; Wiring Technician</p>
+                        <div class="meta" id="pMeta"></div>
+                        <div class="p-avail-tag">
+                            <span class="pill pill-green"><i class="fa-solid fa-circle-check"></i> Available Today in
+                                Ramanagara</span>
+                            <span class="pill pill-gray"><i class="fa-solid fa-toolbox"></i> Own Tools &amp; Testing
+                                Gear</span>
+                        </div>
+                    </div>
+                    <div class="p-actions">
+                        <button class="btn btn-primary btn-lg" id="profileRequestBtn"><i
+                                class="fa-solid fa-calendar-plus"></i> Request Worker</button>
+                        <button class="btn btn-ghost" data-toast="Calling worker on registered mobile..."><i
+                                class="fa-solid fa-phone"></i> Call Direct</button>
+                        <button class="btn btn-outline" data-toast="SMS sent to worker"><i
+                                class="fa-solid fa-comment-sms"></i> SMS / WhatsApp</button>
+                    </div>
+                </div>
+
+                <div class="profile-grid">
+                    <div class="stack">
+                        <div class="card block">
+                            <h3><i class="fa-solid fa-id-card"></i> About the Professional</h3>
+                            <p style="color:var(--gs-ink-2);margin-top:10px;line-height:1.6" id="pAbout">Serving
+                                households and shops around Ramanagara, Vijaya Nagar, and nearby village clusters for
+                                over 5 years. Specializes in house wiring, switchboard faults, ceiling fan fitting, and
+                                inverter battery setups. ID verified by GigSync team.</p>
+                        </div>
+
+                        <div class="card block">
+                            <h3><i class="fa-solid fa-wrench"></i> Skills &amp; Services Offered</h3>
+                            <div class="chip-row" id="pSkills"></div>
+                        </div>
+
+                        <div class="card block">
+                            <h3><i class="fa-solid fa-star"></i> Verified Local Reviews</h3>
+                            <div class="review">
+                                <strong>Ananya S. · Ramanagara · ⭐ 5.0</strong>
+                                <span>“Fixed our main board switch within 30 minutes of calling. Extremely polite and
+                                    brought his own tester and wiring kit.”</span>
+                            </div>
+                            <div class="review">
+                                <strong>Prakash M. · Channapatna Road · ⭐ 4.8</strong>
+                                <span>“Fair local pricing. Explained the inverter issue clearly without charging
+                                    unnecessarily.”</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="stack">
+                        <div class="card block">
+                            <h3><i class="fa-solid fa-toolbox"></i> Equipment &amp; Tools Available</h3>
+                            <div class="chip-row" id="pTools"></div>
+                        </div>
+
+                        <div class="card block">
+                            <h3><i class="fa-solid fa-clock"></i> Working Hours</h3>
+                            <p style="margin-top:8px;color:var(--gs-muted)">Monday – Saturday: <b>8:30 AM – 7:30
+                                    PM</b><br>Sunday: <b>Emergency calls only</b></p>
+                        </div>
+
+                        <div class="card block">
+                            <h3><i class="fa-solid fa-map-location-dot"></i> Service Radius</h3>
+                            <p style="margin-top:8px;color:var(--gs-muted)">Ramanagara · Channapatna · Bidadi · Up to 15
+                                km around town</p>
+                        </div>
+
+                        <div class="card block digital-badge-card">
+                            <span class="kicker"><i class="fa-solid fa-award"></i> Verifiable Track Record</span>
+                            <div class="digital-stat-large">
+                                <div><b id="pJobsCount">126</b><span>Jobs Completed</span></div>
+                                <div><b>100%</b><span>On-Time Arrival</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ====================================================================
+             7. WORKER DASHBOARD (WORKER WORKSPACE)
+             ==================================================================== -->
+        <section class="view" id="view-worker-home">
+            <div class="page">
+                <div class="worker-dash-header">
+                    <div>
+                        <span class="kicker"><i class="fa-solid fa-id-badge"></i> Worker Workspace</span>
+                        <h1 class="h2">Good morning, Ramesh 👋</h1>
+                        <p class="lede">Receive nearby job alerts, update availability naturally by voice, and build
+                            your digital earning record.</p>
+                    </div>
+                    <div class="worker-header-actions">
+                        <button class="btn btn-indigo" data-view="worker-availability"><i
+                                class="fa-solid fa-microphone"></i> 🎙️ Update Availability</button>
+                    </div>
+                </div>
+
+                <!-- AVAILABILITY TOGGLE CARD -->
+                <div class="card avail-hero-card">
+                    <div class="avail-info">
+                        <div class="avail-status-tag" id="availTag">🟢 AVAILABLE FOR WORK</div>
+                        <h3>You are currently visible to nearby customers in Ramanagara.</h3>
+                        <small>Customers and AI can match new jobs to you immediately.</small>
+                    </div>
+                    <div class="toggle-wrap">
+                        <label class="toggle"><input type="checkbox" id="availToggle" checked><span
+                                class="slider"></span></label>
+                        <span id="availLabelText">Accepting Jobs</span>
+                    </div>
+                </div>
+
+                <!-- WORKER STATS (DIGITAL EARNING RECORD PREVIEW) -->
+                <div class="stats">
+                    <div class="card stat">
+                        <span class="stat-label"><i class="fa-solid fa-briefcase"></i> Today's Jobs</span>
+                        <b>3</b>
+                        <span class="stat-sub">2 Completed · 1 Pending</span>
+                    </div>
+                    <div class="card stat">
+                        <span class="stat-label"><i class="fa-solid fa-indian-rupee-sign"></i> Today's Earnings</span>
+                        <b style="color:var(--gs-green)">₹1,250</b>
+                        <span class="stat-sub">Direct cash &amp; UPI</span>
+                    </div>
+                    <div class="card stat">
+                        <span class="stat-label"><i class="fa-solid fa-wallet"></i> This Month</span>
+                        <b>₹28,600</b>
+                        <span class="stat-sub">23 Jobs completed</span>
+                    </div>
+                    <div class="card stat">
+                        <span class="stat-label"><i class="fa-solid fa-award"></i> Total Jobs</span>
+                        <b>126</b>
+                        <span class="stat-sub">⭐ 4.8 Customer Rating</span>
+                    </div>
+                </div>
+
+                <!-- NEW JOBS NEAR YOU (ACTIONABLE NOTIFICATIONS) -->
+                <div class="section">
+                    <div class="section-head">
+                        <div>
+                            <span class="kicker"><i class="fa-solid fa-bell"></i> Real-Time Demand</span>
+                            <h2 class="h2">New Jobs Near You</h2>
+                            <p class="lede">AI matches based on your electrical skill, location, and tools.</p>
+                        </div>
+                        <span class="pill pill-green">2 Live Requests</span>
+                    </div>
+
+                    <div class="stack" id="wDashboardJobRequests">
+                        <!-- Job 1 -->
+                        <div class="card job-request-card" id="jobReqCard1">
+                            <div class="req-left">
+                                <div class="req-trade-icon"><i class="fa-solid fa-bolt"></i></div>
+                                <div>
+                                    <div class="req-title-line">
+                                        <h3>Electrical Repair · Ceiling Fan &amp; Light Fitting</h3>
+                                        <span class="pill pill-amber">Urgent</span>
+                                    </div>
+                                    <p class="req-meta">
+                                        <span><i class="fa-solid fa-location-dot"></i> <b>1.1 km away</b> · Vijaya
+                                            Nagar</span>
+                                        <span><i class="fa-solid fa-calendar-day"></i> Today · 4:00 PM</span>
+                                        <span><i class="fa-solid fa-indian-rupee-sign"></i> Estimated: <b>₹350 –
+                                                ₹500</b></span>
+                                    </p>
+                                    <p class="req-notes">Customer note: <em>“Fan is making a buzzing sound and not
+                                            spinning at full speed. Need tester.”</em></p>
+                                </div>
+                            </div>
+                            <div class="req-actions">
+                                <button class="btn btn-success" data-accept-job="1"><i class="fa-solid fa-check"></i>
+                                    ACCEPT JOB</button>
+                                <button class="btn btn-danger" data-reject-job="1"><i class="fa-solid fa-xmark"></i>
+                                    REJECT</button>
+                            </div>
+                        </div>
+
+                        <!-- Job 2 -->
+                        <div class="card job-request-card" id="jobReqCard2">
+                            <div class="req-left">
+                                <div class="req-trade-icon"><i class="fa-solid fa-plug-circle-bolt"></i></div>
+                                <div>
+                                    <div class="req-title-line">
+                                        <h3>Inverter Setup &amp; Wiring Check</h3>
+                                        <span class="pill pill-blue">Scheduled</span>
+                                    </div>
+                                    <p class="req-meta">
+                                        <span><i class="fa-solid fa-location-dot"></i> <b>2.4 km away</b> · Station
+                                            Road</span>
+                                        <span><i class="fa-solid fa-calendar-day"></i> Tomorrow · 10:00 AM</span>
+                                        <span><i class="fa-solid fa-indian-rupee-sign"></i> Estimated: <b>₹600 –
+                                                ₹850</b></span>
+                                    </p>
+                                    <p class="req-notes">Customer note: <em>“Bought new luminous inverter, need proper
+                                            connection to main distribution board.”</em></p>
+                                </div>
+                            </div>
+                            <div class="req-actions">
+                                <button class="btn btn-success" data-accept-job="2"><i class="fa-solid fa-check"></i>
+                                    ACCEPT JOB</button>
+                                <button class="btn btn-danger" data-reject-job="2"><i class="fa-solid fa-xmark"></i>
+                                    REJECT</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- QUICK ACCESS LINKS -->
+                <div class="worker-quick-grid">
+                    <button class="quick-card" data-view="worker-availability">
+                        <div class="q-icon"><i class="fa-solid fa-microphone-lines"></i></div>
+                        <div>
+                            <h4>Update Availability by Voice</h4>
+                            <p>Speak: “I am available tomorrow 10 AM to 2 PM”</p>
+                        </div>
+                    </button>
+                    <button class="quick-card" data-view="worker-earnings">
+                        <div class="q-icon green"><i class="fa-solid fa-receipt"></i></div>
+                        <div>
+                            <h4>View Digital Work Record</h4>
+                            <p>Download verifiable statement of 126 jobs</p>
+                        </div>
+                    </button>
+                    <button class="quick-card" data-view="worker-profile">
+                        <div class="q-icon purple"><i class="fa-solid fa-user-gear"></i></div>
+                        <div>
+                            <h4>Manage Profile &amp; Tools</h4>
+                            <p>Update skills, tool kit, and service villages</p>
+                        </div>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ====================================================================
+             8. WORKER JOBS MANAGEMENT VIEW
+             ==================================================================== -->
+        <section class="view" id="view-worker-jobs">
+            <div class="page">
+                <div class="section-head">
+                    <div>
+                        <p class="kicker"><i class="fa-solid fa-briefcase"></i> Job Pipeline</p>
+                        <h1 class="h2">Your Assigned &amp; Nearby Jobs</h1>
+                        <p class="lede">Manage active jobs, confirm completion, and update status.</p>
+                    </div>
+                </div>
+
+                <div class="tabs" id="wJobTabs">
+                    <button class="tab active" data-wtab="new"><i class="fa-solid fa-bell"></i> New Requests
+                        (1)</button>
+                    <button class="tab" data-wtab="accepted"><i class="fa-solid fa-handshake"></i> Accepted (1)</button>
+                    <button class="tab" data-wtab="ongoing"><i class="fa-solid fa-person-running"></i> Ongoing
+                        (1)</button>
+                    <button class="tab" data-wtab="done"><i class="fa-solid fa-circle-check"></i> Completed (1)</button>
+                </div>
+
+                <div id="wJobList" class="stack"></div>
+            </div>
+        </section>
+
+        <!-- ====================================================================
+             9. SMART VOICE AVAILABILITY VIEW
+             ==================================================================== -->
+        <section class="view" id="view-worker-availability">
+            <div class="page" style="max-width:920px">
+                <div class="section-head">
+                    <div>
+                        <p class="kicker"><i class="fa-solid fa-clock"></i> Schedule Management</p>
+                        <h1 class="h2">Manage Working Hours</h1>
+                        <p class="lede">Built for workers with low digital literacy. Update your hours naturally by
+                            speaking.</p>
+                    </div>
+                </div>
+
+                <!-- Voice Availability Box -->
+                <div class="card voice-avail-box">
+                    <div class="voice-avail-info">
+                        <div class="pill pill-blue"><i class="fa-solid fa-microphone"></i> Voice-First Schedule</div>
+                        <h3>Speak to update your working hours</h3>
+                        <p style="color:var(--gs-muted)">Example: <em>“I am an electrician. I am available tomorrow from
+                                10 AM to 2 PM.”</em></p>
+                    </div>
+                    <button class="btn btn-indigo btn-lg" id="voiceAvailBtn">
+                        <i class="fa-solid fa-microphone-lines"></i> Speak Availability
+                    </button>
+                </div>
+
+                <div class="card confirm-box hidden" id="availExtract">
+                    <div class="confirm-head"><i class="fa-solid fa-circle-check text-green"></i> <b>AI Extracted &amp;
+                            Saved Schedule</b></div>
+                    <p style="margin-top:8px">Profession: <b>Electrician</b> · Date: <b>Tomorrow</b> · Hours: <b>10:00
+                            AM – 2:00 PM</b></p>
+                    <p class="text-green font-bold" style="margin-top:6px">Your availability in Ramanagara has been
+                        updated.</p>
+                </div>
+
+                <div class="section" style="margin-top:28px">
+                    <h3 class="h3" style="margin-bottom:14px">Weekly Schedule</h3>
+                    <div class="week" id="weekList"></div>
+                    <button class="btn btn-ghost" style="margin-top:14px" data-toast="Custom slot opened">+ Add Custom
+                        Slot</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ====================================================================
+             10. DIGITAL WORK & EARNING RECORD VIEW
+             ==================================================================== -->
+        <section class="view" id="view-worker-earnings">
+            <div class="page">
+                <div class="section-head">
+                    <div>
+                        <p class="kicker"><i class="fa-solid fa-file-invoice-dollar"></i> Financial Track Record</p>
+                        <h1 class="h2">Digital Work &amp; Earning Record</h1>
+                        <p class="lede">GigSync automatically maintains your verified job and earning history to help
+                            you build financial credibility.</p>
+                    </div>
+                    <div class="earnings-actions">
+                        <button class="btn btn-primary" id="downloadStatementBtn"><i
+                                class="fa-solid fa-file-arrow-down"></i> Download Work Record</button>
+                    </div>
+                </div>
+
+                <div class="stats" style="margin:22px 0">
+                    <div class="card stat">
+                        <span class="stat-label">Today's Earnings</span>
+                        <b style="color:var(--gs-green)">₹1,250</b>
+                        <span class="stat-sub">3 Jobs today</span>
+                    </div>
+                    <div class="card stat">
+                        <span class="stat-label">This Week</span>
+                        <b>₹7,450</b>
+                        <span class="stat-sub">9 Jobs completed</span>
+                    </div>
+                    <div class="card stat">
+                        <span class="stat-label">This Month (August)</span>
+                        <b>₹28,600</b>
+                        <span class="stat-sub">23 Jobs completed</span>
+                    </div>
+                    <div class="card stat">
+                        <span class="stat-label">Lifetime Earned</span>
+                        <b style="color:var(--gs-indigo)">₹2,48,500</b>
+                        <span class="stat-sub">126 Total verified jobs</span>
+                    </div>
+                </div>
+
+                <div class="charts-row">
+                    <div class="card chart-card">
+                        <div class="chart-header">
+                            <h3>Weekly Earnings (₹)</h3>
+                            <span class="pill pill-blue">Past 7 Days</span>
+                        </div>
+                        <div class="bars" id="weekBars"></div>
+                        <div class="bar-labels">
+                            <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+                        </div>
+                    </div>
+
+                    <div class="card chart-card">
+                        <div class="chart-header">
+                            <h3>Monthly Progression (₹)</h3>
+                            <span class="pill pill-green">Past 8 Months</span>
+                        </div>
+                        <div class="bars" id="monthBars"></div>
+                        <div class="bar-labels">
+                            <span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-top:24px;padding:24px">
+                    <div class="record-title-row">
+                        <div>
+                            <h3><i class="fa-solid fa-stamp"></i> Verifiable Work History</h3>
+                            <p style="color:var(--gs-muted);margin-top:4px">Each completed job is cryptographically
+                                logged on GigSync.</p>
+                        </div>
+                        <span class="pill pill-green"><i class="fa-solid fa-shield-check"></i> Verified Digital
+                            Record</span>
+                    </div>
+
+                    <table class="data" style="margin-top:16px">
+                        <thead>
+                            <tr>
+                                <th>Job Description</th>
+                                <th>Customer &amp; Location</th>
+                                <th>Date &amp; Time</th>
+                                <th>Earnings</th>
+                                <th>Status</th>
+                                <th>Receipt</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><b>Ceiling fan wiring repair</b></td>
+                                <td>Ananya S. · Vijaya Nagar</td>
+                                <td>21 Aug 2026 · 11:30 AM</td>
+                                <td style="font-weight:700">₹450</td>
+                                <td><span class="pill pill-green">Paid (UPI)</span></td>
+                                <td><button class="btn btn-ghost btn-sm"
+                                        data-toast="Receipt downloaded for Fan Repair">Receipt</button></td>
+                            </tr>
+                            <tr>
+                                <td><b>Inverter battery cabling</b></td>
+                                <td>Prakash M. · Station Road</td>
+                                <td>20 Aug 2026 · 5:00 PM</td>
+                                <td style="font-weight:700">₹800</td>
+                                <td><span class="pill pill-green">Paid (Cash)</span></td>
+                                <td><button class="btn btn-ghost btn-sm"
+                                        data-toast="Receipt downloaded for Inverter Cabling">Receipt</button></td>
+                            </tr>
+                            <tr>
+                                <td><b>Emergency main fuse fix</b></td>
+                                <td>Laxmi Store · Market Ward</td>
+                                <td>19 Aug 2026 · 8:15 PM</td>
+                                <td style="font-weight:700">₹300</td>
+                                <td><span class="pill pill-green">Paid (UPI)</span></td>
+                                <td><button class="btn btn-ghost btn-sm"
+                                        data-toast="Receipt downloaded for Fuse Fix">Receipt</button></td>
+                            </tr>
+                            <tr>
+                                <td><b>Kitchen heavy appliance line</b></td>
+                                <td>Kavya R. · Channapatna Link</td>
+                                <td>17 Aug 2026 · 2:00 PM</td>
+                                <td style="font-weight:700">₹650</td>
+                                <td><span class="pill pill-green">Paid (Cash)</span></td>
+                                <td><button class="btn btn-ghost btn-sm"
+                                        data-toast="Receipt downloaded for Appliance Line">Receipt</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ====================================================================
+             11. WORKER PROFILE SETTINGS VIEW
+             ==================================================================== -->
+        <section class="view" id="view-worker-profile">
+            <div class="page" style="max-width:920px">
+                <div class="section-head">
+                    <div>
+                        <p class="kicker"><i class="fa-solid fa-user-pen"></i> Public Profile</p>
+                        <h1 class="h2">Your Worker Profile</h1>
+                        <p class="lede">This is how local customers and the AI see your qualifications.</p>
+                    </div>
+                    <button class="btn btn-indigo" data-view="onboard"><i class="fa-solid fa-microphone"></i> 🎙️ Update
+                        Profile by Voice</button>
+                </div>
+
+                <div class="card block" style="margin-top:18px">
+                    <h3>Personal Information</h3>
+                    <p style="margin-top:8px;font-size:15px"><b>Ramesh Kumar</b> · +91 98450 11223 · Vijaya Nagar,
+                        Ramanagara, Karnataka</p>
+                </div>
+
+                <div class="profile-grid">
+                    <div class="card block">
+                        <h3>Primary Trade &amp; Skills</h3>
+                        <div class="chip-row">
+                            <span class="chip">⚡ House Wiring</span>
+                            <span class="chip">Inverters</span>
+                            <span class="chip">Fans &amp; Lights</span>
+                            <span class="chip">Emergency Fuse</span>
+                            <span class="chip">Appliance Lines</span>
+                        </div>
+                    </div>
+
+                    <div class="card block">
+                        <h3>Experience</h3>
+                        <p style="margin-top:8px;font-size:16px"><b>5+ Years</b> in Ramanagara &amp; surrounding towns
+                        </p>
+                    </div>
+
+                    <div class="card block">
+                        <h3>Tool Kit &amp; Equipment</h3>
+                        <div class="chip-row">
+                            <span class="chip">🧰 Digital Multimeter</span>
+                            <span class="chip">Impact Drill Machine</span>
+                            <span class="chip">Wire Stripper Kit</span>
+                            <span class="chip">Safety Rubber Gloves</span>
+                        </div>
+                    </div>
+
+                    <div class="card block">
+                        <h3>Languages Spoken</h3>
+                        <p style="margin-top:8px">ಕನ್ನಡ (Kannada), हिन्दी (Hindi), English</p>
+                    </div>
+
+                    <div class="card block">
+                        <h3>Verification Status</h3>
+                        <p style="margin-top:8px">
+                            <span class="pill pill-green"><i class="fa-solid fa-check"></i> Aadhaar Card Verified</span>
+                            <span class="pill pill-blue"><i class="fa-solid fa-shield"></i> Police Record Clean</span>
+                        </p>
+                    </div>
+
+                    <div class="card block">
+                        <h3>Customer Rating</h3>
+                        <p style="margin-top:8px;font-size:24px;font-weight:800;color:var(--gs-amber)">⭐ 4.8 <small
+                                style="font-size:14px;color:var(--gs-muted);font-weight:500">(from 126 completed
+                                jobs)</small></p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ====================================================================
+             12. WORKER VOICE-FIRST ONBOARDING
+             ==================================================================== -->
+        <section class="view" id="view-onboard">
+            <div class="page">
+                <div class="card onboard-container">
+                    <span class="kicker"><i class="fa-solid fa-wand-magic-sparkles"></i> AI-Assisted Worker
+                        Registration</span>
+
+                    <div class="step-dots" id="obDots">
+                        <span class="on"></span><span></span><span></span><span></span>
+                    </div>
+
+                    <div class="ob-q-box">
+                        <span class="ob-step-indicator" id="obStepNum">Step 1 of 4</span>
+                        <h2 class="h2" id="obQ">What work do you do?</h2>
+                        <p class="ob-hint-text" id="obHint">Speak your answer naturally. Example: “I am a plumber.”</p>
+                    </div>
+
+                    <div class="ob-voice-action">
+                        <button class="big-mic" id="obMic" type="button">
+                            <i class="fa-solid fa-microphone"></i>
+                        </button>
+                        <span class="ob-mic-label">Click mic &amp; speak your answer</span>
+                    </div>
+
+                    <div class="ob-input-row">
+                        <input class="gs-input" id="obInput" placeholder="Or type your response here">
+                        <button class="btn btn-primary btn-lg" id="obNext">Continue <i
+                                class="fa-solid fa-arrow-right"></i></button>
+                    </div>
+
+                    <div class="card confirm-box hidden" id="obSummary" style="padding:22px;margin-top:24px"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ====================================================================
+             13. ADMIN VIEW (CITY CLUSTERS)
+             ==================================================================== -->
+        <section class="view" id="view-admin">
+            <div class="page page-wide">
+                <div class="section-head">
+                    <div>
+                        <p class="kicker"><i class="fa-solid fa-city"></i> Hyperlocal Operations</p>
+                        <h1 class="h2">GigSync Tier-2 &amp; Tier-3 Cluster Admin</h1>
+                        <p class="lede">Monitoring local worker onboarding, voice interactions, and job completions
+                            across Karnataka towns.</p>
+                    </div>
+                </div>
+
+                <div class="admin-grid" style="margin-top:20px">
+                    <aside class="card side" id="adminSide">
+                        <button class="active"><i class="fa-solid fa-gauge"></i> Overview</button>
+                        <button><i class="fa-solid fa-users"></i> Local Workers (3,102)</button>
+                        <button><i class="fa-solid fa-user-group"></i> Customers (12,480)</button>
+                        <button><i class="fa-solid fa-briefcase"></i> Active Gigs (186)</button>
+                        <button><i class="fa-solid fa-microphone"></i> Voice AI Logs (1,128)</button>
+                        <button><i class="fa-solid fa-map"></i> Ramanagara Ward Map</button>
+                        <button><i class="fa-solid fa-file-invoice"></i> Digital Statements</button>
+                        <button><i class="fa-solid fa-gear"></i> Settings</button>
+                    </aside>
+
+                    <div>
+                        <div class="admin-stats">
+                            <div class="card stat"><b>12,480</b><span>Total Customers</span></div>
+                            <div class="card stat"><b>3,102</b><span>Onboarded Workers</span></div>
+                            <div class="card stat"><b>186</b><span>Active Local Gigs</span></div>
+                            <div class="card stat"><b>41,290</b><span>Completed Jobs</span></div>
+                            <div class="card stat"><b>94</b><span>Today's Dispatches</span></div>
+                            <div class="card stat"><b>1,128</b><span>Voice AI Interactions</span></div>
+                        </div>
+
+                        <div class="admin-charts-grid">
+                            <div class="card chart-card">
+                                <h3>Daily Job Volume · Tier-2/3 Clusters</h3>
+                                <div class="bars" id="adminJobBars"></div>
+                            </div>
+                            <div class="card chart-card">
+                                <h3>Voice AI Interactions vs Traditional</h3>
+                                <div class="bars" id="adminAiBars"></div>
+                            </div>
+                        </div>
+
+                        <div class="card" style="margin-top:16px;padding:22px">
+                            <h3>Trade Distribution in Ramanagara Cluster</h3>
+                            <p style="color:var(--gs-muted);margin-top:8px">⚡ Electrical (24%) · 🔧 Plumbing (20%) · 🪚
+                                Carpentry (15%) · 🛵 Mechanics (14%) · ❄️ AC &amp; Appliances (11%) · 🧵 Tailoring (9%)
+                                · Other (7%)</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ======================================================================
+         REAL-TIME AI VOICE CALLING HUB & PHONE SIMULATOR MODAL
+         ====================================================================== -->
+    <div id="phoneCallModal" class="modal-overlay hidden">
+        <div class="phone-modal-card">
+            <!-- Modal Header -->
+            <div class="phone-modal-header">
+                <div class="phone-brand-title">
+                    <span class="phone-pulse-icon"><i class="fa-solid fa-phone-volume"></i></span>
+                    <div>
+                        <h2 style="font-size:20px;margin:0;font-weight:800">GigSync AI Voice Telephony Gateway</h2>
+                        <p style="font-size:12.5px;color:var(--gs-muted);margin:2px 0 0">Hyperlocal Inbound Phone Hotline · <strong>+91 98450 00123</strong> (Ramanagara Hub)</p>
+                    </div>
+                </div>
+                <button id="closePhoneModalBtn" class="icon-btn" type="button"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- Main Phone Calling Body (Grid Layout) -->
+            <div class="phone-modal-grid">
+                <!-- Left Column: Virtual Phone Handset -->
+                <div class="handset-column">
+                    <div class="phone-screen-card">
+                        <div class="phone-screen-top">
+                            <span class="phone-carrier-tag"><i class="fa-solid fa-tower-broadcast"></i> Jio / Airtel GSM Gateway</span>
+                            <span class="phone-call-timer" id="phoneTimer">00:00</span>
+                        </div>
+
+                        <!-- Active Call Status & Caller Info -->
+                        <div class="phone-caller-box">
+                            <div class="phone-avatar-ring active" id="phoneAvatarRing">
+                                <i class="fa-solid fa-user-gear"></i>
+                            </div>
+                            <h3 id="phoneCallerName" style="margin:10px 0 2px;font-size:18px">GigSync AI Voice Assistant</h3>
+                            <p id="phoneCallerNumber" style="font-size:13px;color:#93C5FD;margin:0">+91 98450 00123 (Active Inbound Line)</p>
+                            <div class="call-badge-status" id="phoneCallStatus">
+                                <span class="pulse-dot"></span> <span>Call Connected · Listening</span>
+                            </div>
+                        </div>
+
+                        <!-- Live Audio Waveform Animation -->
+                        <div class="voice-wave-container" id="phoneWaveContainer">
+                            <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+                            <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+                            <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+                        </div>
+
+                        <!-- Spoken Turn Output -->
+                        <div class="phone-live-transcript-box">
+                            <div class="transcript-line caller" id="callerTranscriptLine">
+                                <span class="t-label">CALLER:</span>
+                                <span class="t-text" id="callerSpeechText">"I am an electrician. I am available tomorrow from 10 AM to 2 PM."</span>
+                            </div>
+                            <div class="transcript-line ai" id="aiTranscriptLine">
+                                <span class="t-label">GIGSYNC AI:</span>
+                                <span class="t-text" id="aiSpeechText">"Namaskara! I have updated your availability as Electrician for Tomorrow from 10:00 AM to 02:00 PM. Your status is now active in Ramanagara."</span>
+                            </div>
+                        </div>
+
+                        <!-- Phone Actions & Live Mic Toggle -->
+                        <div class="phone-keypad-actions">
+                            <button id="phoneMicBtn" class="phone-action-btn mic-btn" title="Toggle Microphone to Speak">
+                                <i class="fa-solid fa-microphone"></i>
+                                <span>Speak (Mic)</span>
+                            </button>
+                            <button id="phoneAutoLineBtn" class="phone-action-btn" style="background:#059669;color:#fff" title="Enable Auto-Listen for Real Phone Calls via Splitter Cable">
+                                <i class="fa-solid fa-headphones"></i>
+                                <span id="autoLineLabel">Line Monitor</span>
+                            </button>
+                            <button id="phoneMuteBtn" class="phone-action-btn mute-btn" title="Replay AI Speech">
+                                <i class="fa-solid fa-volume-high"></i>
+                                <span>Replay Voice</span>
+                            </button>
+                            <button id="phoneEndCallBtn" class="phone-action-btn hangup-btn" title="End / Reset Call">
+                                <i class="fa-solid fa-phone-slash"></i>
+                                <span>End Call</span>
+                            </button>
+                        </div>
+                        <div id="lineMonitorBanner" class="hidden" style="margin-top:10px;background:rgba(16,185,129,0.2);border:1px solid #10B981;border-radius:10px;padding:8px 10px;text-align:center;font-size:11px;color:#6EE7B7">
+                            <i class="fa-solid fa-circle-notch fa-spin"></i> <strong>Cellular Line Active:</strong> Continuously listening to Phone Splitter Line-In...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Interactive Test Chips & Real-Time Tool Inspector -->
+                <div class="inspector-column">
+                    <!-- Caller Role & Number Selector -->
+                    <div class="card" style="padding:16px;margin-bottom:14px">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                            <strong style="font-size:13.5px;color:var(--gs-ink)"><i class="fa-solid fa-sim-card" style="color:var(--gs-indigo)"></i> Simulate Caller Identity:</strong>
+                            <span class="pill pill-blue" id="callerRoleTag">Worker Caller</span>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                            <label class="radio-chip">
+                                <input type="radio" name="callerIdentity" value="worker" checked id="callRoleWorkerRadio">
+                                <span><strong>Worker (Ramesh)</strong><br><small>+91 98450 11223</small></span>
+                            </label>
+                            <label class="radio-chip">
+                                <input type="radio" name="callerIdentity" value="customer" id="callRoleCustomerRadio">
+                                <span><strong>Customer (Kavya)</strong><br><small>+91 98765 43210</small></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Spoken Prompt Test Scenarios -->
+                    <div class="card" style="padding:16px;margin-bottom:14px">
+                        <strong style="font-size:13px;display:block;margin-bottom:8px;color:var(--gs-ink-2)">
+                            <i class="fa-solid fa-bolt" style="color:#F59E0B"></i> Click to Speak Spoken Scenarios (Real Speech Synthesis):
+                        </strong>
+                        <div class="phone-preset-chips">
+                            <button class="call-prompt-chip" data-speech="I am an electrician. I am available tomorrow from 10 AM to 2 PM." data-role="worker">
+                                ⚡ <strong>Worker Availability:</strong> "I am an electrician. Available tomorrow 10 AM to 2 PM."
+                            </button>
+                            <button class="call-prompt-chip" data-speech="I need a plumber tomorrow morning for a water tank pipe leak in Vijaya Nagar." data-role="customer">
+                                🔧 <strong>Customer Booking:</strong> "I need a plumber tomorrow morning for a pipe leak."
+                            </button>
+                            <button class="call-prompt-chip" data-speech="I am a carpenter with 5 years experience in Ramanagara, I want to join GigSync." data-role="worker">
+                                🛠️ <strong>Worker Registration:</strong> "I am a carpenter with 5 years experience, I want to join."
+                            </button>
+                            <button class="call-prompt-chip" data-speech="What is the status of my electrical repair booking?" data-role="customer">
+                                📦 <strong>Status Check:</strong> "What is the status of my electrical repair booking?"
+                            </button>
+                        </div>
+
+                        <!-- Manual Custom Speech Input -->
+                        <form id="customCallSpeechForm" style="display:flex;gap:8px;margin-top:12px">
+                            <input type="text" id="customSpeechInput" placeholder="Or type what the caller says..." class="input-styled" style="flex:1;font-size:13px;padding:10px 14px">
+                            <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-paper-plane"></i> Send Audio</button>
+                        </form>
+                    </div>
+
+                    <!-- Live Backend Database & Tool Execution Inspector -->
+                    <div class="card" style="padding:16px">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                            <strong style="font-size:13px;color:var(--gs-ink)"><i class="fa-solid fa-database" style="color:var(--gs-green)"></i> Active SQLite Tool Execution:</strong>
+                            <span class="pill pill-green" id="toolExecBadge">updateWorkerAvailability</span>
+                        </div>
+                        <pre id="toolInspectionJson" class="tool-json-box">{\n  "status": "success",\n  "action": "AVAILABILITY_UPDATED",\n  "workerPhone": "9845011223",\n  "trade": "Electrician",\n  "date": "Tomorrow",\n  "hours": "10:00 AM – 02:00 PM",\n  "isAvailable": true,\n  "db": "gigsync.db (SQLite Table: worker_availability)"\n}</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST NOTIFICATION -->
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

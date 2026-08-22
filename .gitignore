@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+# Local Environment & Logs
+.env
+*.log
+.DS_Store
+.vscode/
+
+# Local databases (re-created on startup)
+*.db-journal
