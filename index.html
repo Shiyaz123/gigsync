@@ -23,106 +23,119 @@
         try { if (localStorage.getItem('gigsync_session')) document.body.classList.remove('auth-locked'); } catch (e) { }
     </script>
 
-    <!-- AUTH SCREEN -->
-    <div id="loginScreen" class="login-screen">
-        <div class="login-mosaic" aria-hidden="true">
-            <div class="mosaic-header">
-                <div class="brand-badge"><i class="fa-solid fa-bolt-lightning"></i> Tier-2 &amp; Tier-3 Local
-                    Marketplace</div>
-                <h2>Connecting India's skilled workers with nearby demand.</h2>
-                <p>Designed for electricians, plumbers, carpenters, tailors, mechanics and households in towns like
-                    Ramanagara, Mandya, Tumakuru, Chitradurga, and Hassan.</p>
+    <!-- AUTH SCREEN (3-WAY ROLE SELECTION: CUSTOMER, WORKER, ADMIN) -->
+    <div id="loginScreen" class="login-screen-v2">
+        <div class="auth-card-container">
+            <!-- Brand Mark & Header -->
+            <div class="auth-brand-center">
+                <div class="brand-mark-lg">G</div>
+                <div class="brand-name-lg">Gig<span>Sync</span></div>
             </div>
-            <div class="mosaic-grid">
-                <div class="mosaic-tile t1">
-                    <div class="tile-icon"><i class="fa-solid fa-microphone-lines"></i></div>
-                    <div>
-                        <span class="badge">Voice-First AI</span>
-                        <h3>"Just speak to find work or get work done"</h3>
-                        <small>Zero complex forms. Built for low digital literacy.</small>
+            <div class="auth-heading-block">
+                <h1 class="auth-main-title">Welcome to GigSync</h1>
+                <p class="auth-main-sub">AI Hyperlocal Work &amp; Telephony Infrastructure for India's Tier-2 &amp; Tier-3 Cities</p>
+            </div>
+
+            <!-- Role Selector Section (3 Cards) -->
+            <div class="role-selector-section">
+                <div class="role-question-head">
+                    <span class="role-question-badge">Select Platform Mode</span>
+                    <h2 class="role-question-title">How will you use GigSync today?</h2>
+                </div>
+
+                <div class="role-cards-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
+                    <!-- Customer Card -->
+                    <div class="role-card active" id="roleCardCustomer" role="button" tabindex="0">
+                        <span class="role-check-indicator"><i class="fa-solid fa-circle-check"></i></span>
+                        <div class="role-icon-box customer-icon"><i class="fa-solid fa-user"></i></div>
+                        <h3 class="role-title">Customer</h3>
+                        <p class="role-desc">Find &amp; hire verified local tradespeople near your home or shop.</p>
+                        <span class="role-action-link">Find workers <i class="fa-solid fa-arrow-right"></i></span>
+                    </div>
+
+                    <!-- Worker Card -->
+                    <div class="role-card" id="roleCardWorker" role="button" tabindex="0">
+                        <span class="role-check-indicator"><i class="fa-regular fa-circle"></i></span>
+                        <div class="role-icon-box worker-icon"><i class="fa-solid fa-toolbox"></i></div>
+                        <h3 class="role-title">Worker</h3>
+                        <p class="role-desc">Find local jobs, set voice availability, and build your digital work record.</p>
+                        <span class="role-action-link">Find work <i class="fa-solid fa-arrow-right"></i></span>
+                    </div>
+
+                    <!-- Admin & 3.5mm Gateway Card -->
+                    <div class="role-card" id="roleCardAdmin" role="button" tabindex="0">
+                        <span class="role-check-indicator"><i class="fa-regular fa-circle"></i></span>
+                        <div class="role-icon-box admin-icon" style="background:#FEF3C7;color:#D97706"><i class="fa-solid fa-shield-halved"></i></div>
+                        <h3 class="role-title">Admin &amp; 3.5mm Hub</h3>
+                        <p class="role-desc">Cluster analytics, 3.5mm cellular hardware bridge &amp; call monitoring.</p>
+                        <span class="role-action-link" style="color:#D97706">Manage hub <i class="fa-solid fa-arrow-right"></i></span>
                     </div>
                 </div>
-                <div class="mosaic-tile t2">
-                    <div class="tile-icon"><i class="fa-solid fa-bolt"></i></div>
-                    <div>
-                        <span class="badge">Local Trades</span>
-                        <h3>Electricians &amp; Plumbers</h3>
-                        <small>Verified skilled professionals nearby</small>
+
+                <div class="role-selected-chip" id="roleSelectedStatus">
+                    <i class="fa-solid fa-circle-check" style="color:var(--gs-indigo)"></i>
+                    <span id="roleSelectedLabel">Customer Mode Selected</span>
+                </div>
+            </div>
+
+            <!-- Dynamic Form Section -->
+            <div class="auth-form-section">
+                <div class="auth-tabs-row">
+                    <div class="login-tabs">
+                        <button type="button" class="login-tab active" id="loginTabBtn"><i class="fa-solid fa-arrow-right-to-bracket"></i> Sign In</button>
+                        <button type="button" class="login-tab" id="signupTabBtn"><i class="fa-solid fa-user-plus"></i> Register</button>
                     </div>
                 </div>
-                <div class="mosaic-tile t3">
-                    <div class="tile-icon"><i class="fa-solid fa-file-invoice-dollar"></i></div>
-                    <div>
-                        <span class="badge">Financial Identity</span>
-                        <h3>Digital Work Record</h3>
-                        <small>Verifiable history &amp; earning record</small>
+
+                <div class="dynamic-auth-header">
+                    <h3 class="dynamic-auth-title" id="dynamicAuthTitle">Sign in as a Customer</h3>
+                    <p class="dynamic-auth-sub" id="dynamicAuthSub">Find and book trusted local professionals near you.</p>
+                </div>
+
+                <form id="authForm">
+                    <div class="field-label">Mobile Number or Email</div>
+                    <div class="phone-field">
+                        <div class="cc"><span>🇮🇳</span> +91</div>
+                        <input id="authIdentifier" type="text" placeholder="e.g. 98765 43210 or name@domain.com" autocomplete="username" required>
                     </div>
-                </div>
-                <div class="mosaic-tile t4">
-                    <div class="tile-icon"><i class="fa-solid fa-map-location-dot"></i></div>
-                    <div>
-                        <span class="badge">Hyperlocal</span>
-                        <h3>0.5 km – 15 km Reach</h3>
-                        <small>Towns, wards &amp; surrounding villages</small>
+
+                    <div class="field-label" style="margin-top:14px">Password / PIN</div>
+                    <div class="login-field">
+                        <i class="fa-solid fa-lock"></i>
+                        <input id="authPassword" type="password" placeholder="Enter password (min 6 chars)" autocomplete="current-password" minlength="6" required>
+                        <button type="button" id="togglePasswordBtn" class="icon-btn-inline" title="Toggle password visibility"><i class="fa-solid fa-eye"></i></button>
                     </div>
+
+                    <!-- Worker Voice-First Prompt (Shown when Worker role is active) -->
+                    <div id="workerVoiceCallout" class="worker-voice-callout hidden">
+                        <div class="w-voice-icon"><i class="fa-solid fa-microphone-lines"></i></div>
+                        <div class="w-voice-copy">
+                            <strong>Prefer to talk?</strong>
+                            <p>Set up your GigSync worker profile using your voice — no typing required.</p>
+                        </div>
+                        <button type="button" id="authVoiceOnboardBtn" class="btn btn-success btn-sm"><i class="fa-solid fa-microphone"></i> Talk to GigSync</button>
+                    </div>
+
+                    <p id="authError" class="login-error hidden"></p>
+
+                    <div class="login-actions">
+                        <button type="submit" id="authSubmitBtn" class="btn btn-primary btn-lg btn-block"><i class="fa-solid fa-right-to-bracket"></i> Continue as Customer</button>
+                        
+                        <div class="divider"><span>OR 1-CLICK QUICK ACCESS</span></div>
+                        <div class="guest-actions-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+                            <button type="button" id="guestBtn" class="btn btn-ghost btn-sm" title="Explore as Customer"><i class="fa-solid fa-user"></i> Guest Customer</button>
+                            <button type="button" id="guestWorkerBtn" class="btn btn-ghost btn-sm" title="Explore as Worker"><i class="fa-solid fa-toolbox"></i> Guest Worker</button>
+                            <button type="button" id="guestAdminBtn" class="btn btn-ghost btn-sm" style="background:#FFFBEB;border-color:#FDE68A;color:#B45309" title="Explore Admin & 3.5mm Gateway"><i class="fa-solid fa-shield-halved"></i> 3.5mm Admin</button>
+                        </div>
+                    </div>
+                </form>
+
+                <div class="auth-footer-note">
+                    <div class="demo-credentials">
+                        <i class="fa-solid fa-circle-info"></i> Demo: <b>9876543210</b> (Customer) · <b>9845011223</b> (Worker) · <b>admin@gigsync.app</b> (Admin) / Pass: <b>gigsync123</b>
+                    </div>
+                    <p class="legal">GigSync AI Hyperlocal Work &amp; 3.5mm Cellular Gateway Platform.</p>
                 </div>
-            </div>
-        </div>
-
-        <div class="login-panel">
-            <div class="login-logo">
-                <div class="brand-mark">G</div>
-                <div class="brand-name">Gig<span>Sync</span></div>
-            </div>
-
-            <div class="auth-header">
-                <span class="kicker"><i class="fa-solid fa-sparkles"></i> AI Local Work Infrastructure</span>
-                <h1>Local skills. Local jobs.</h1>
-                <p class="tag">Digitally connecting local workers and customers across India's growing cities and towns.
-                </p>
-            </div>
-
-            <div class="login-tabs">
-                <button type="button" class="login-tab active" id="loginTabBtn"><i
-                        class="fa-solid fa-arrow-right-to-bracket"></i> Login</button>
-                <button type="button" class="login-tab" id="signupTabBtn"><i class="fa-solid fa-user-plus"></i> Create
-                    Account</button>
-            </div>
-
-            <form id="authForm">
-                <div class="field-label">Mobile Number or Email</div>
-                <div class="phone-field">
-                    <div class="cc"><span>🇮🇳</span> +91</div>
-                    <input id="authIdentifier" type="text" placeholder="e.g. 98765 43210 or name@domain.com"
-                        autocomplete="username" required>
-                </div>
-
-                <div class="field-label" style="margin-top:14px">Password</div>
-                <div class="login-field">
-                    <i class="fa-solid fa-lock"></i>
-                    <input id="authPassword" type="password" placeholder="Enter password (min 6 chars)"
-                        autocomplete="current-password" minlength="6" required>
-                    <button type="button" id="togglePasswordBtn" class="icon-btn-inline"
-                        title="Toggle password visibility"><i class="fa-solid fa-eye"></i></button>
-                </div>
-
-                <p id="authError" class="login-error hidden"></p>
-
-                <div class="login-actions">
-                    <button type="submit" id="authSubmitBtn" class="btn btn-primary btn-lg btn-block"><i
-                            class="fa-solid fa-right-to-bracket"></i> Continue to GigSync</button>
-                    <div class="divider"><span>OR QUICK DEMO</span></div>
-                    <button type="button" id="guestBtn" class="btn btn-ghost btn-block"><i class="fa-solid fa-bolt"></i>
-                        Instant Guest Access (Explore Platform)</button>
-                </div>
-            </form>
-
-            <div class="auth-footer">
-                <div class="demo-credentials">
-                    <i class="fa-solid fa-circle-info"></i> Demo credentials: <b>9876543210</b> / <b>gigsync123</b>
-                </div>
-                <p class="legal">By continuing, you agree to GigSync's <b>Terms of Service</b> and <b>Local Community
-                        Guidelines</b>.</p>
             </div>
         </div>
     </div>
@@ -220,17 +233,12 @@
             <small id="dropdownUserRole">Ramanagara · Karnataka</small>
         </div>
         <div class="dropdown-divider"></div>
-        <button class="dropdown-item" id="menuCustomerBtn" data-view="home"><i class="fa-solid fa-user"></i> Customer
-            Mode (Hire Workers)</button>
-        <button class="dropdown-item" id="switchWorkerBtn"><i class="fa-solid fa-briefcase"></i> Worker Mode (Find &amp;
-            Accept Jobs)</button>
-        <button class="dropdown-item" id="onboardBtn"><i class="fa-solid fa-microphone-lines"></i> Worker Voice
-            Onboarding</button>
-        <button class="dropdown-item" id="switchAdminBtn"><i class="fa-solid fa-shield-halved"></i> City Cluster
-            Admin</button>
+        <button class="dropdown-item" id="menuCustomerBtn" data-view="home"><i class="fa-solid fa-user" style="color:var(--gs-indigo)"></i> <span>Customer Mode</span> <small style="margin-left:auto;color:var(--gs-muted)">Hire</small></button>
+        <button class="dropdown-item" id="switchWorkerBtn"><i class="fa-solid fa-toolbox" style="color:var(--gs-green)"></i> <span>Worker Mode</span> <small style="margin-left:auto;color:var(--gs-muted)">Work</small></button>
+        <button class="dropdown-item" id="onboardBtn"><i class="fa-solid fa-microphone-lines" style="color:var(--gs-blue)"></i> <span>Worker Voice Onboarding</span></button>
+        <button class="dropdown-item" id="switchAdminBtn"><i class="fa-solid fa-shield-halved" style="color:#D97706"></i> <span>Admin &amp; 3.5mm Gateway</span> <span class="pill pill-amber" style="margin-left:auto;font-size:10px">3.5mm Hub</span></button>
         <div class="dropdown-divider"></div>
-        <button class="dropdown-item text-danger" id="logoutBtn"><i class="fa-solid fa-arrow-right-from-bracket"></i>
-            Log Out</button>
+        <button class="dropdown-item text-danger" id="logoutBtn"><i class="fa-solid fa-arrow-right-from-bracket"></i> Log Out</button>
     </div>
 
     <div class="dropdown hidden" id="notifMenu" style="width:360px">
@@ -1724,6 +1732,81 @@
                     </aside>
 
                     <div>
+                        <!-- 3.5MM HARDWARE CELLULAR AUDIO GATEWAY CONTROL CENTER -->
+                        <div class="card" style="margin-bottom:20px;padding:24px;border:2px solid #FDE68A;background:linear-gradient(135deg, #FFFBEB 0%, #FFFFFF 100%)">
+                            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:14px;margin-bottom:18px">
+                                <div>
+                                    <span class="pill pill-amber" style="font-weight:800;margin-bottom:6px"><i class="fa-solid fa-headphones"></i> 3.5mm Cellular Hardware Hub</span>
+                                    <h2 style="font-size:22px;margin:4px 0 2px;font-weight:800;color:#92400E">Method 1 Cellular Audio Bridge (Laptop Audio Jack)</h2>
+                                    <p style="font-size:13px;color:var(--gs-ink-2);margin:0">Connect your Android phone's 3.5mm splitter cable to this laptop to process real telephone calls with zero telecom charges.</p>
+                                </div>
+                                <div style="display:flex;gap:8px;align-items:center">
+                                    <button type="button" id="adminStartLineBtn" class="btn btn-warning" style="background:#D97706;color:#fff"><i class="fa-solid fa-microphone"></i> <span>Start 3.5mm Line Monitor</span></button>
+                                    <button type="button" class="btn btn-outline" id="adminOpenHandsetBtn"><i class="fa-solid fa-phone"></i> Open Live Handset</button>
+                                </div>
+                            </div>
+
+                            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:14px;margin-bottom:16px">
+                                <div style="background:#fff;border:1px solid var(--gs-line);border-radius:14px;padding:12px 16px">
+                                    <small style="color:var(--gs-muted);font-weight:700;display:block">Active SIM Hotline</small>
+                                    <strong style="font-size:16px;color:#D97706">+91 98450 00123</strong>
+                                    <small style="display:block;color:var(--gs-green);font-weight:750;margin-top:2px">● Jio / Airtel GSM Gateway</small>
+                                </div>
+                                <div style="background:#fff;border:1px solid var(--gs-line);border-radius:14px;padding:12px 16px">
+                                    <small style="color:var(--gs-muted);font-weight:700;display:block">Hardware Connection</small>
+                                    <strong style="font-size:14px;color:var(--gs-ink)">3.5mm TRRS Splitter Cable</strong>
+                                    <small style="display:block;color:var(--gs-muted)">Phone Out ➔ Laptop Line-In</small>
+                                </div>
+                                <div style="background:#fff;border:1px solid var(--gs-line);border-radius:14px;padding:12px 16px">
+                                    <small style="color:var(--gs-muted);font-weight:700;display:block">AI Telephony Mode</small>
+                                    <strong style="font-size:14px;color:var(--gs-ink)">11 Tool Functions Active</strong>
+                                    <small style="display:block;color:var(--gs-green);font-weight:750">● SQLite sync: Enabled</small>
+                                </div>
+                            </div>
+
+                            <!-- Live Audio Banner & Status -->
+                            <div id="adminLineBanner" style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:12px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between">
+                                <div style="display:flex;align-items:center;gap:10px">
+                                    <span style="width:10px;height:10px;border-radius:50%;background:#D97706;display:inline-block"></span>
+                                    <span id="adminLineStatusText" style="font-size:12.5px;font-weight:750;color:#92400E">3.5mm Hardware Monitor Standby · Ready to process calls on any laptop</span>
+                                </div>
+                                <span class="pill pill-green" style="font-size:11px">Auto-Answer Ready</span>
+                            </div>
+                        </div>
+
+                        <!-- LIVE TELEPHONY CALL LOGS FEED -->
+                        <div class="card" style="margin-bottom:20px;padding:22px">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+                                <div>
+                                    <h3 style="margin:0;font-size:17px">Real-Time Inbound Call Logs &amp; AI Tool Dispatches</h3>
+                                    <small style="color:var(--gs-muted)">Live telephone conversations captured from 3.5mm cellular line / simulator</small>
+                                </div>
+                                <button type="button" class="btn btn-ghost btn-sm" id="refreshCallLogsBtn"><i class="fa-solid fa-rotate"></i> Refresh DB</button>
+                            </div>
+                            <div style="overflow-x:auto">
+                                <table class="table-styled" id="adminCallLogsTable" style="width:100%;font-size:13px">
+                                    <thead>
+                                        <tr style="text-align:left;border-bottom:2px solid var(--gs-line)">
+                                            <th style="padding:10px">Caller Number &amp; Role</th>
+                                            <th style="padding:10px">Caller Spoken Words</th>
+                                            <th style="padding:10px">AI Action / Tool Executed</th>
+                                            <th style="padding:10px">Duration</th>
+                                            <th style="padding:10px">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="adminCallLogsBody">
+                                        <tr>
+                                            <td style="padding:12px"><b>+91 98450 11223</b><br><span class="pill pill-blue" style="font-size:10px">Worker</span></td>
+                                            <td style="padding:12px">"I am an electrician. Available tomorrow 10 AM to 2 PM."</td>
+                                            <td style="padding:12px"><span class="pill pill-green">updateWorkerAvailability</span></td>
+                                            <td style="padding:12px">24s</td>
+                                            <td style="padding:12px"><span class="pill pill-green">Completed</span></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
                         <div class="admin-stats">
                             <div class="card stat"><b>12,480</b><span>Total Customers</span></div>
                             <div class="card stat"><b>3,102</b><span>Onboarded Workers</span></div>

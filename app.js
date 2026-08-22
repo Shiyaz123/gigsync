@@ -226,6 +226,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const state = {
         view: 'home',
         mode: 'customer', // 'customer' | 'worker' | 'admin'
+        selectedRole: 'customer', // 'customer' | 'worker' | 'admin'
         city: 'Ramanagara, Karnataka',
         lang: 'en',
         sort: 'rec',
@@ -262,7 +263,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     function setSession(user) {
         localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({
-            email: user.email || '', phone: user.phone || '9876543210', loggedInAt: Date.now()
+            email: user.email || '',
+            phone: user.phone || '9876543210',
+            role: user.role || state.selectedRole || 'customer',
+            loggedInAt: Date.now()
         }));
     }
 
@@ -279,19 +283,84 @@ document.addEventListener('DOMContentLoaded', () => {
         closeMenus();
     }
 
-    let authMode = 'login';
+    let authMode = 'login'; // 'login' | 'signup'
+
+    function updateRoleSelection(role) {
+        state.selectedRole = role;
+        const isCustomer = role === 'customer';
+        const isWorker = role === 'worker';
+        const isAdmin = role === 'admin';
+
+        // Toggle card active classes
+        document.getElementById('roleCardCustomer')?.classList.toggle('active', isCustomer);
+        document.getElementById('roleCardWorker')?.classList.toggle('active', isWorker);
+        document.getElementById('roleCardAdmin')?.classList.toggle('active', isAdmin);
+
+        // Update card indicators
+        const cCheck = document.querySelector('#roleCardCustomer .role-check-indicator i');
+        const wCheck = document.querySelector('#roleCardWorker .role-check-indicator i');
+        const aCheck = document.querySelector('#roleCardAdmin .role-check-indicator i');
+        if (cCheck) cCheck.className = isCustomer ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle';
+        if (wCheck) wCheck.className = isWorker ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle';
+        if (aCheck) aCheck.className = isAdmin ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle';
+
+        const statusEl = document.getElementById('roleSelectedLabel');
+        if (statusEl) {
+            if (isCustomer) statusEl.textContent = 'Customer Mode Selected';
+            else if (isWorker) statusEl.textContent = 'Worker Mode Selected';
+            else statusEl.textContent = 'Admin & 3.5mm Gateway Selected';
+        }
+
+        const titleEl = document.getElementById('dynamicAuthTitle');
+        const subEl = document.getElementById('dynamicAuthSub');
+        const submitBtn = document.getElementById('authSubmitBtn');
+        const voiceCallout = document.getElementById('workerVoiceCallout');
+
+        if (isCustomer) {
+            if (titleEl) titleEl.textContent = authMode === 'login' ? 'Sign in as a Customer' : 'Create Customer Account';
+            if (subEl) subEl.textContent = 'Find and book trusted local professionals near you.';
+            if (submitBtn) submitBtn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Continue as Customer';
+            if (voiceCallout) voiceCallout.classList.add('hidden');
+        } else if (isWorker) {
+            if (titleEl) titleEl.textContent = authMode === 'login' ? 'Sign in as a Worker' : 'Create Worker Account';
+            if (subEl) subEl.textContent = 'Find nearby jobs, set voice availability and track digital earnings.';
+            if (submitBtn) submitBtn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Continue as Worker';
+            if (voiceCallout) voiceCallout.classList.remove('hidden');
+        } else {
+            if (titleEl) titleEl.textContent = 'Cluster Admin & 3.5mm Gateway';
+            if (subEl) subEl.textContent = 'Manage hyperlocal clusters, 3.5mm cellular hardware bridge & AI telemetry.';
+            if (submitBtn) submitBtn.innerHTML = '<i class="fa-solid fa-shield-halved"></i> Enter Admin & 3.5mm Console';
+            if (voiceCallout) voiceCallout.classList.add('hidden');
+        }
+    }
+
+    // Role Card Clicks
+    document.getElementById('roleCardCustomer')?.addEventListener('click', () => updateRoleSelection('customer'));
+    document.getElementById('roleCardWorker')?.addEventListener('click', () => updateRoleSelection('worker'));
+    document.getElementById('roleCardAdmin')?.addEventListener('click', () => updateRoleSelection('admin'));
+
+    // Auth Tabs
     document.getElementById('loginTabBtn').onclick = () => {
         authMode = 'login';
         document.getElementById('loginTabBtn').classList.add('active');
         document.getElementById('signupTabBtn').classList.remove('active');
-        document.getElementById('authSubmitBtn').innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Continue to GigSync';
+        updateRoleSelection(state.selectedRole);
     };
     document.getElementById('signupTabBtn').onclick = () => {
         authMode = 'signup';
         document.getElementById('signupTabBtn').classList.add('active');
         document.getElementById('loginTabBtn').classList.remove('active');
-        document.getElementById('authSubmitBtn').innerHTML = '<i class="fa-solid fa-user-plus"></i> Create GigSync Account';
+        updateRoleSelection(state.selectedRole);
     };
+
+    // Worker Voice-First Auth Button
+    document.getElementById('authVoiceOnboardBtn')?.addEventListener('click', () => {
+        setSession({ email: 'voice.worker@gigsync.app', phone: '9845011223', role: 'worker' });
+        unlockApp();
+        setMode('worker');
+        showView('onboard');
+        toast('Starting AI Voice Onboarding for Worker!');
+    });
 
     document.getElementById('togglePasswordBtn').onclick = () => {
         const input = document.getElementById('authPassword');
@@ -300,11 +369,30 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('togglePasswordBtn').innerHTML = isPass ? '<i class="fa-solid fa-eye-slash"></i>' : '<i class="fa-solid fa-eye"></i>';
     };
 
+    // 1-Click Guest Buttons
     document.getElementById('guestBtn').onclick = () => {
-        setSession({ email: 'guest@gigsync.local', phone: '9876543210' });
+        setSession({ email: 'guest.customer@gigsync.local', phone: '9876543210', role: 'customer' });
         unlockApp();
-        toast('Logged in as Guest — Exploring Tier-2/3 Marketplace');
+        setMode('customer');
+        showView('home');
+        toast('Logged in as Guest Customer');
     };
+
+    document.getElementById('guestWorkerBtn')?.addEventListener('click', () => {
+        setSession({ email: 'guest.worker@gigsync.local', phone: '9845011223', role: 'worker' });
+        unlockApp();
+        setMode('worker');
+        showView('worker-home');
+        toast('Logged in as Guest Worker (Workspace Active)');
+    });
+
+    document.getElementById('guestAdminBtn')?.addEventListener('click', () => {
+        setSession({ email: 'admin@gigsync.app', phone: '9999999999', role: 'admin' });
+        unlockApp();
+        setMode('admin');
+        showView('admin');
+        toast('Logged in as Cluster Admin (3.5mm Hardware Console Active)');
+    });
 
     document.getElementById('authForm').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -322,6 +410,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const users = loadUsers();
         const passwordHash = await hashPassword(password);
+        const selectedRole = state.selectedRole;
 
         const findUser = (id, list) => {
             const p = normalizeIdentifier(id);
@@ -339,13 +428,27 @@ document.addEventListener('DOMContentLoaded', () => {
             const newUser = {
                 email: parsed.type === 'email' ? parsed.key : '',
                 phone: parsed.type === 'phone' ? parsed.key : '',
+                role: selectedRole,
                 passwordHash
             };
             users.push(newUser);
             saveUsers(users);
             setSession(newUser);
             unlockApp();
-            toast('Account created! Welcome to GigSync.');
+
+            if (selectedRole === 'admin') {
+                setMode('admin');
+                showView('admin');
+                toast('Admin account created! Welcome to 3.5mm Gateway Console.');
+            } else if (selectedRole === 'worker') {
+                setMode('worker');
+                showView('worker-home');
+                toast('Worker account created! Welcome to your Workspace.');
+            } else {
+                setMode('customer');
+                showView('home');
+                toast('Customer account created! Welcome to GigSync.');
+            }
             return;
         }
 
@@ -355,9 +458,24 @@ document.addEventListener('DOMContentLoaded', () => {
             err.classList.remove('hidden');
             return;
         }
-        setSession(user);
+
+        const activeRole = user.role || selectedRole;
+        setSession({ ...user, role: activeRole });
         unlockApp();
-        toast('Welcome back to GigSync!');
+
+        if (activeRole === 'admin') {
+            setMode('admin');
+            showView('admin');
+            toast('Welcome back to Cluster Admin & 3.5mm Gateway!');
+        } else if (activeRole === 'worker') {
+            setMode('worker');
+            showView('worker-home');
+            toast('Welcome back to your Worker Workspace!');
+        } else {
+            setMode('customer');
+            showView('home');
+            toast('Welcome back to GigSync!');
+        }
     });
 
     document.getElementById('logoutBtn').onclick = () => {
@@ -372,11 +490,38 @@ document.addEventListener('DOMContentLoaded', () => {
             users.push({
                 email: 'demo@gigsync.app',
                 phone: '9876543210',
+                role: 'customer',
+                passwordHash: await hashPassword(DEMO_PASSWORD)
+            });
+            users.push({
+                email: 'worker@gigsync.app',
+                phone: '9845011223',
+                role: 'worker',
+                passwordHash: await hashPassword(DEMO_PASSWORD)
+            });
+            users.push({
+                email: 'admin@gigsync.app',
+                phone: '9999999999',
+                role: 'admin',
                 passwordHash: await hashPassword(DEMO_PASSWORD)
             });
             saveUsers(users);
         }
-        if (getSession()) unlockApp();
+
+        const session = getSession();
+        if (session) {
+            unlockApp();
+            if (session.role === 'admin') {
+                setMode('admin');
+                showView('admin');
+            } else if (session.role === 'worker') {
+                setMode('worker');
+                showView('worker-home');
+            } else {
+                setMode('customer');
+                showView('home');
+            }
+        }
     })();
 
     /* ---------- UI Helpers & Toast ---------- */
@@ -1646,5 +1791,68 @@ activity and earnings generated via the GigSync platform.
             try { speechRecognizer.stop(); } catch (err) {}
         }
     });
+
+    /* ======================================================================
+       ADMIN 3.5MM CELLULAR HARDWARE HUB & REAL-TIME LOGS
+       ====================================================================== */
+    const adminStartLineBtn = document.getElementById('adminStartLineBtn');
+    const adminOpenHandsetBtn = document.getElementById('adminOpenHandsetBtn');
+    const refreshCallLogsBtn = document.getElementById('refreshCallLogsBtn');
+    const adminLineStatusText = document.getElementById('adminLineStatusText');
+    const adminCallLogsBody = document.getElementById('adminCallLogsBody');
+
+    adminOpenHandsetBtn?.addEventListener('click', openPhoneModal);
+
+    adminStartLineBtn?.addEventListener('click', () => {
+        if (!speechRecognizer) {
+            toast('Speech recognition not supported in this browser.');
+            return;
+        }
+        isLineMonitorActive = !isLineMonitorActive;
+        if (isLineMonitorActive) {
+            adminStartLineBtn.innerHTML = '<i class="fa-solid fa-pause"></i> <span>Stop 3.5mm Monitor</span>';
+            adminStartLineBtn.style.background = '#DC2626';
+            if (adminLineStatusText) adminLineStatusText.innerHTML = '🟢 <strong>3.5mm Cellular Line Active:</strong> Listening to Phone Audio Jack on this laptop...';
+            toast('🎧 3.5mm Cellular Audio Gateway LIVE on this laptop!');
+            try { speechRecognizer.start(); } catch (err) {}
+        } else {
+            adminStartLineBtn.innerHTML = '<i class="fa-solid fa-microphone"></i> <span>Start 3.5mm Line Monitor</span>';
+            adminStartLineBtn.style.background = '#D97706';
+            if (adminLineStatusText) adminLineStatusText.textContent = '3.5mm Hardware Monitor Standby · Ready to process calls on any laptop';
+            toast('3.5mm Line Monitor paused.');
+            try { speechRecognizer.stop(); } catch (err) {}
+        }
+    });
+
+    async function fetchAndRenderCallLogs() {
+        if (!adminCallLogsBody) return;
+        try {
+            const res = await fetch('http://localhost:8089/api/call-logs');
+            const data = await res.json();
+            if (data.status === 'success' && data.logs && data.logs.length > 0) {
+                adminCallLogsBody.innerHTML = data.logs.map(l => `
+                    <tr style="border-bottom:1px solid var(--gs-line)">
+                        <td style="padding:10px"><b>+91 ${l.caller_phone}</b><br><span class="pill ${l.caller_role === 'worker' ? 'pill-blue' : 'pill-green'}" style="font-size:10px">${l.caller_role}</span></td>
+                        <td style="padding:10px;max-width:320px">${l.transcript}</td>
+                        <td style="padding:10px"><span class="pill pill-amber">${l.intent_detected || 'Tool Executed'}</span></td>
+                        <td style="padding:10px">${l.duration_seconds || 24}s</td>
+                        <td style="padding:10px"><span class="pill pill-green">${l.status || 'Completed'}</span></td>
+                    </tr>
+                `).join('');
+            }
+        } catch (err) {
+            console.warn('Call logs fetch:', err.message);
+        }
+    }
+
+    refreshCallLogsBtn?.addEventListener('click', () => {
+        fetchAndRenderCallLogs();
+        toast('Call logs updated from SQLite database!');
+    });
+
+    // Auto-fetch logs when in admin mode
+    if (state.mode === 'admin') {
+        fetchAndRenderCallLogs();
+    }
 });
 
