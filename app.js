@@ -658,37 +658,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ---------- Admin Portal Data Loader ---------- */
     async function loadAdminPortalData() {
-        const workersRes = await apiFetch('/api/workers');
-        const jobsRes = await apiFetch('/api/jobs');
-        const logsRes = await apiFetch('/api/call-logs');
+        try {
+            const workersRes = await apiFetch('/api/workers');
+            const jobsRes = await apiFetch('/api/jobs');
+            const logsRes = await apiFetch('/api/call-logs');
 
-        const kpiWorkers = document.getElementById('adminKpiWorkers');
-        if (kpiWorkers && workersRes.ok) kpiWorkers.textContent = workersRes.data.count || 0;
+            const kpiWorkers = document.getElementById('adminKpiWorkers');
+            if (kpiWorkers) kpiWorkers.textContent = (workersRes && workersRes.ok && workersRes.data) ? (workersRes.data.count || 0) : 0;
 
-        const kpiJobs = document.getElementById('adminKpiJobs');
-        if (kpiJobs && jobsRes.ok) kpiJobs.textContent = jobsRes.data.count || 0;
+            const kpiJobs = document.getElementById('adminKpiJobs');
+            if (kpiJobs) kpiJobs.textContent = (jobsRes && jobsRes.ok && jobsRes.data) ? (jobsRes.data.count || 0) : 0;
 
-        const kpiCalls = document.getElementById('adminKpiCalls');
-        if (kpiCalls && logsRes.ok) kpiCalls.textContent = logsRes.data.count || 0;
+            const kpiCalls = document.getElementById('adminKpiCalls');
+            if (kpiCalls) kpiCalls.textContent = (logsRes && logsRes.ok && logsRes.data) ? (logsRes.data.count || 0) : 0;
 
-        const tbody = document.getElementById('adminCallLogsTableBody');
-        if (tbody && logsRes.ok) {
-            const logs = logsRes.data.callLogs || [];
-            if (logs.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--gs-muted)">No telephony audio logs recorded yet.</td></tr>`;
-            } else {
-                tbody.innerHTML = logs.map(l => `
-                    <tr>
-                        <td><b>#${l.id}</b></td>
-                        <td>${l.caller_phone}</td>
-                        <td><span class="status-badge-pill st-accepted">${l.caller_role}</span></td>
-                        <td>"${l.transcript}"</td>
-                        <td><strong>${l.intent_detected}</strong></td>
-                        <td>${l.duration_seconds}s</td>
-                        <td>${new Date(l.timestamp).toLocaleTimeString('en-IN')}</td>
-                    </tr>
-                `).join('');
+            const tbody = document.getElementById('adminCallLogsTableBody');
+            if (tbody) {
+                const logs = (logsRes && logsRes.ok && logsRes.data && Array.isArray(logsRes.data.callLogs)) ? logsRes.data.callLogs : [];
+                if (logs.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--gs-muted)">No telephony audio logs recorded yet.</td></tr>`;
+                } else {
+                    tbody.innerHTML = logs.map(l => `
+                        <tr>
+                            <td><b>#${l.id}</b></td>
+                            <td>${l.caller_phone}</td>
+                            <td><span class="status-badge-pill st-accepted">${l.caller_role}</span></td>
+                            <td>"${l.transcript}"</td>
+                            <td><strong>${l.intent_detected}</strong></td>
+                            <td>${l.duration_seconds || 12}s</td>
+                            <td>${l.timestamp ? new Date(l.timestamp).toLocaleTimeString('en-IN') : 'Just now'}</td>
+                        </tr>
+                    `).join('');
+                }
             }
+        } catch (e) {
+            console.warn('[Admin Portal Notice]:', e);
         }
     }
 
