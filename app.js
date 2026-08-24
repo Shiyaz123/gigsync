@@ -1,6 +1,6 @@
 /* ==========================================================================
    GigSync — Desktop-First Interactive Client Controller
-   Real Authentication · SQLite Persistence · Zero Dummy Data · Voice AI Engine
+   Initial Landing Login Gateway · Role Switcher (Customer, Worker, Admin)
    ========================================================================== */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -9,7 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
         token: localStorage.getItem('gigsync_token') || null,
         user: null,
         city: localStorage.getItem('gigsync_city') || 'Ramanagara',
-        portal: 'customer', // 'customer' | 'worker'
+        portal: 'gateway', // 'gateway' | 'customer' | 'worker' | 'admin'
         customerView: 'home',
         workerView: 'dashboard',
         workers: [],
@@ -77,16 +77,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ---------- Navigation / View Controllers ---------- */
 
-    // Switch between Customer and Worker Portals
+    // Switch between Gateway (Login screen), Customer, Worker, and Admin Portals
     function switchPortal(targetPortal) {
         state.portal = targetPortal;
+        document.getElementById('gatewayPortal')?.classList.toggle('active', targetPortal === 'gateway');
         document.getElementById('customerPortal')?.classList.toggle('active', targetPortal === 'customer');
         document.getElementById('workerPortal')?.classList.toggle('active', targetPortal === 'worker');
+        document.getElementById('adminPortal')?.classList.toggle('active', targetPortal === 'admin');
 
         if (targetPortal === 'worker') {
             loadWorkerDashboardData();
-        } else {
+        } else if (targetPortal === 'customer') {
             loadCustomerHomeData();
+        } else if (targetPortal === 'admin') {
+            loadAdminPortalData();
         }
     }
 
@@ -143,16 +147,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('switchPortalBtn')?.addEventListener('click', () => {
         if (!state.user) {
-            openAuthModal('worker');
+            switchPortal('gateway');
         } else if (state.user.role === 'worker') {
             switchPortal('worker');
         } else {
-            toast('You are logged in as Customer. Switching to Worker Workspace demo mode.');
+            toast('Switching to Worker Workspace demo mode.');
             switchPortal('worker');
         }
     });
 
     document.getElementById('workerSwitchToCustBtn')?.addEventListener('click', () => switchPortal('customer'));
+    document.getElementById('adminSwitchToCustomerBtn')?.addEventListener('click', () => switchPortal('customer'));
+    document.getElementById('adminSwitchToWorkerBtn')?.addEventListener('click', () => switchPortal('worker'));
+
     document.getElementById('dropdownWorkerPortalBtn')?.addEventListener('click', () => {
         closeUserDropdown();
         switchPortal('worker');
@@ -165,16 +172,16 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('gigsync_city', newCity);
 
         // Update all dynamic city placeholders
-        document.getElementById('activeCityLabel').textContent = newCity;
-        document.getElementById('heroCityName').textContent = newCity;
+        const activeCityLabel = document.getElementById('activeCityLabel');
+        if (activeCityLabel) activeCityLabel.textContent = newCity;
+        const heroCityName = document.getElementById('heroCityName');
+        if (heroCityName) heroCityName.textContent = newCity;
         document.querySelectorAll('.text-city-dynamic').forEach(el => { el.textContent = newCity; });
 
-        // Update active tile in modal
         document.querySelectorAll('.city-tile').forEach(tile => {
             tile.classList.toggle('active', tile.dataset.city === newCity);
         });
 
-        toast(`📍 Location updated to ${newCity}`);
         if (state.portal === 'customer') {
             loadCustomerHomeData();
             loadFindWorkersData();
@@ -191,30 +198,31 @@ document.addEventListener('DOMContentLoaded', () => {
             if (c) {
                 updateActiveCity(c);
                 locationModal?.classList.add('hidden');
+                toast(`📍 Location updated to ${c}`);
             }
         });
     });
 
     document.getElementById('detectGpsLocationBtn')?.addEventListener('click', () => {
         if (!navigator.geolocation) {
-            toast('Geolocation is not supported by your browser.');
+            toast('Geolocation is not supported.');
             return;
         }
-        toast('Detecting GPS location in Karnataka...');
+        toast('Detecting GPS location...');
         navigator.geolocation.getCurrentPosition(
             () => {
                 updateActiveCity('Ramanagara');
                 locationModal?.classList.add('hidden');
+                toast('📍 Location confirmed: Ramanagara');
             },
             () => {
-                toast('GPS permission denied. Using Ramanagara.');
                 updateActiveCity('Ramanagara');
                 locationModal?.classList.add('hidden');
             }
         );
     });
 
-    /* ---------- Real-Time Database Fetching (Zero Dummy Data) ---------- */
+    /* ---------- Real-Time Database Fetching ---------- */
 
     // 1. Customer Home Feed
     async function loadCustomerHomeData() {
@@ -379,7 +387,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }).join('');
     }
 
-    /* ---------- Worker Portal Real-Time Data (No Dummy Data) ---------- */
+    /* ---------- Worker Portal Real-Time Data ---------- */
 
     async function loadWorkerDashboardData() {
         const res = await apiFetch('/api/jobs');
@@ -388,10 +396,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const opps = res.data.opportunities || [];
             state.opportunities = opps;
 
-            // KPI Counts
             const activeCount = jobs.filter(j => j.status === 'Accepted' || j.status === 'On the Way' || j.status === 'In Progress').length;
-            const todayCompleted = jobs.filter(j => j.status === 'Completed').length;
-
             document.getElementById('kpiTodayJobs').textContent = jobs.length;
             document.getElementById('kpiActiveJobs').textContent = activeCount;
 
@@ -399,7 +404,6 @@ document.addEventListener('DOMContentLoaded', () => {
             renderWorkerActiveJobs(jobs.filter(j => j.status !== 'Completed' && j.status !== 'Cancelled'));
         }
 
-        // Fetch Real Earnings
         if (state.user && state.user.profile && state.user.profile.id) {
             const earnRes = await apiFetch(`/api/workers/${state.user.profile.id}/earnings`);
             if (earnRes.ok && earnRes.data.earnings) {
@@ -600,6 +604,67 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('wProfAbout').value = p.about || '';
     }
 
+    /* ---------- Admin Portal Data Loader ---------- */
+    async function loadAdminPortalData() {
+        const workersRes = await apiFetch('/api/workers');
+        const jobsRes = await apiFetch('/api/jobs');
+        const logsRes = await apiFetch('/api/call-logs');
+
+        const kpiWorkers = document.getElementById('adminKpiWorkers');
+        if (kpiWorkers && workersRes.ok) kpiWorkers.textContent = workersRes.data.count || 0;
+
+        const kpiJobs = document.getElementById('adminKpiJobs');
+        if (kpiJobs && jobsRes.ok) kpiJobs.textContent = jobsRes.data.count || 0;
+
+        const kpiCalls = document.getElementById('adminKpiCalls');
+        if (kpiCalls && logsRes.ok) kpiCalls.textContent = logsRes.data.count || 0;
+
+        const tbody = document.getElementById('adminCallLogsTableBody');
+        if (tbody && logsRes.ok) {
+            const logs = logsRes.data.callLogs || [];
+            if (logs.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--gs-muted)">No telephony audio logs recorded yet.</td></tr>`;
+            } else {
+                tbody.innerHTML = logs.map(l => `
+                    <tr>
+                        <td><b>#${l.id}</b></td>
+                        <td>${l.caller_phone}</td>
+                        <td><span class="status-badge-pill st-accepted">${l.caller_role}</span></td>
+                        <td>"${l.transcript}"</td>
+                        <td><strong>${l.intent_detected}</strong></td>
+                        <td>${l.duration_seconds}s</td>
+                        <td>${new Date(l.timestamp).toLocaleTimeString('en-IN')}</td>
+                    </tr>
+                `).join('');
+            }
+        }
+    }
+
+    document.getElementById('adminRefreshLogsBtn')?.addEventListener('click', () => {
+        loadAdminPortalData();
+        toast('Admin telemetry logs refreshed.');
+    });
+
+    document.getElementById('adminSimulateCallBtn')?.addEventListener('click', async () => {
+        toast('Simulating 3.5mm jack incoming call from Ramanagara...');
+        const res = await apiFetch('/api/ai/voice-call', {
+            method: 'POST',
+            body: JSON.stringify({
+                callerPhone: '9845099887',
+                callerRole: 'worker',
+                callerName: 'Ramesh Kumar',
+                city: state.city,
+                speechText: 'Naale 10 inda 2 varege free iddini.'
+            })
+        });
+
+        if (res.ok) {
+            toast(`Audio Gateway processed call: "${res.data.spokenResponse}"`);
+            speakText(res.data.spokenResponse);
+            loadAdminPortalData();
+        }
+    });
+
     /* ---------- Worker Global Action Hooks ---------- */
     window._gigsyncWorkerAcceptJob = async (jobId) => {
         const res = await apiFetch(`/api/jobs/${jobId}`, {
@@ -666,8 +731,11 @@ document.addEventListener('DOMContentLoaded', () => {
     window._gigsyncPostOpenJob = () => switchCustomerView('post-job');
 
     window._gigsyncOpenWorkerReg = (city) => {
-        openAuthModal('worker');
-        document.getElementById('authCitySelect').value = city;
+        switchPortal('gateway');
+        setGatewayRole('worker');
+        setGatewayMode('register');
+        const cSel = document.getElementById('gCitySelect');
+        if (cSel) cSel.value = city;
     };
 
     window._gigsyncCompleteCustomerJob = async (jobId) => {
@@ -700,10 +768,9 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('voicePostBox')?.classList.remove('hidden');
     });
 
-    // Voice dictation inside Post a Job
     document.getElementById('voicePostMicBtn')?.addEventListener('click', () => {
         if (!speechRecognizer) {
-            toast('Speech recognition not supported in this browser. Please type the problem.');
+            toast('Speech recognition not supported in this browser.');
             return;
         }
         const out = document.getElementById('voicePostTranscript');
@@ -766,6 +833,7 @@ document.addEventListener('DOMContentLoaded', () => {
             problem_description: problem,
             location,
             city: state.city,
+            requested_date: timing.includes('Tomorrow') ? 'Tomorrow' : 'Today',
             requested_time: timing,
             budget,
             worker_id: workerId,
@@ -813,9 +881,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function sendAiTurn(speechText) {
         if (!speechText) return;
 
-        // Append User dialogue line
         appendAiDialogue('CALLER', speechText);
-
         aiVoiceStateLabel.textContent = 'Thinking & checking database...';
         aiModalWaveBars?.classList.remove('hidden');
 
@@ -858,7 +924,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     aiModalBigMicBtn?.addEventListener('click', () => {
         if (!speechRecognizer) {
-            toast('Speech recognition not supported in this browser.');
+            toast('Speech recognition not supported.');
             return;
         }
 
@@ -955,7 +1021,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         if (res.ok) {
-            toast('Profile details updated in SQLite database!');
+            toast('Profile details updated in SQLite database & Firebase!');
         }
     });
 
@@ -982,69 +1048,68 @@ Date of Verification: ${new Date().toLocaleDateString('en-IN')}
         toast('Work statement downloaded!');
     });
 
-    /* ---------- Real Authentication Subsystem ---------- */
+    /* ---------- GATEWAY LANDING AUTHENTICATION CONTROLLER ---------- */
 
-    const authModal = document.getElementById('authModal');
-    let authMode = 'login'; // 'login' | 'register'
-    let selectedAuthRole = 'customer'; // 'customer' | 'worker'
+    let gatewayAuthMode = 'login'; // 'login' | 'register'
+    let selectedGatewayRole = 'customer'; // 'customer' | 'worker' | 'admin'
 
-    function openAuthModal(defaultRole = 'customer') {
-        selectedAuthRole = defaultRole;
-        authModal?.classList.remove('hidden');
-        setAuthRole(defaultRole);
+    function setGatewayRole(role) {
+        selectedGatewayRole = role;
+        document.getElementById('gRoleCardCustomer')?.classList.toggle('active', role === 'customer');
+        document.getElementById('gRoleCardWorker')?.classList.toggle('active', role === 'worker');
+        document.getElementById('gRoleCardAdmin')?.classList.toggle('active', role === 'admin');
+
+        document.getElementById('gWorkerExtraFields')?.classList.toggle('hidden', role !== 'worker' || gatewayAuthMode === 'login');
     }
 
-    function setAuthRole(role) {
-        selectedAuthRole = role;
-        document.getElementById('roleCardCustomer')?.classList.toggle('active', role === 'customer');
-        document.getElementById('roleCardWorker')?.classList.toggle('active', role === 'worker');
-        document.getElementById('workerExtraFields')?.classList.toggle('hidden', role !== 'worker' || authMode === 'login');
+    function setGatewayMode(mode) {
+        gatewayAuthMode = mode;
+        const isReg = mode === 'register';
+
+        document.getElementById('gTabLogin')?.classList.toggle('active', !isReg);
+        document.getElementById('gTabRegister')?.classList.toggle('active', isReg);
+        document.getElementById('gNameGroup')?.classList.toggle('hidden', !isReg);
+        document.getElementById('gWorkerExtraFields')?.classList.toggle('hidden', selectedGatewayRole !== 'worker' || !isReg);
+
+        const formTitle = document.getElementById('gatewayFormTitle');
+        const submitBtn = document.getElementById('gAuthSubmitBtn');
+
+        if (formTitle) formTitle.textContent = isReg ? 'Create Your GigSync Account' : 'Sign In to GigSync';
+        if (submitBtn) submitBtn.textContent = isReg ? 'Create Account & Enter' : 'Sign In';
     }
 
-    document.getElementById('authTabLogin')?.addEventListener('click', () => {
-        authMode = 'login';
-        document.getElementById('authTabLogin')?.classList.add('active');
-        document.getElementById('authTabRegister')?.classList.remove('active');
-        document.getElementById('authNameGroup')?.classList.add('hidden');
-        document.getElementById('authRolePickerWrap')?.classList.add('hidden');
-        document.getElementById('workerExtraFields')?.classList.add('hidden');
-        document.getElementById('authSubmitBtn').textContent = 'Sign In';
+    document.getElementById('gRoleCardCustomer')?.addEventListener('click', () => setGatewayRole('customer'));
+    document.getElementById('gRoleCardWorker')?.addEventListener('click', () => setGatewayRole('worker'));
+    document.getElementById('gRoleCardAdmin')?.addEventListener('click', () => setGatewayRole('admin'));
+
+    document.getElementById('gTabLogin')?.addEventListener('click', () => setGatewayMode('login'));
+    document.getElementById('gTabRegister')?.addEventListener('click', () => setGatewayMode('register'));
+
+    document.getElementById('continueGuestBtn')?.addEventListener('click', () => {
+        toast('Exploring GigSync Marketplace as Guest Customer.');
+        switchPortal('customer');
     });
 
-    document.getElementById('authTabRegister')?.addEventListener('click', () => {
-        authMode = 'register';
-        document.getElementById('authTabRegister')?.classList.add('active');
-        document.getElementById('authTabLogin')?.classList.remove('active');
-        document.getElementById('authNameGroup')?.classList.remove('hidden');
-        document.getElementById('authRolePickerWrap')?.classList.remove('hidden');
-        document.getElementById('workerExtraFields')?.classList.toggle('hidden', selectedAuthRole !== 'worker');
-        document.getElementById('authSubmitBtn').textContent = 'Create Account';
-    });
-
-    document.getElementById('roleCardCustomer')?.addEventListener('click', () => setAuthRole('customer'));
-    document.getElementById('roleCardWorker')?.addEventListener('click', () => setAuthRole('worker'));
-    document.getElementById('closeAuthModalBtn')?.addEventListener('click', () => authModal?.classList.add('hidden'));
-
-    document.getElementById('realAuthForm')?.addEventListener('submit', async (e) => {
+    document.getElementById('gatewayAuthForm')?.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const errEl = document.getElementById('authErrorMsg');
+        const errEl = document.getElementById('gAuthError');
         errEl?.classList.add('hidden');
 
-        const phone = document.getElementById('authPhoneInput').value.trim();
-        const password = document.getElementById('authPasswordInput').value;
-        const name = document.getElementById('authNameInput')?.value.trim();
-        const city = document.getElementById('authCitySelect')?.value || state.city;
-        const trade = document.getElementById('authWorkerTradeSelect')?.value || 'Master Electrician';
-        const tools = document.getElementById('authWorkerTools')?.value || 'Standard tool kit';
+        const phone = document.getElementById('gPhoneInput').value.trim();
+        const password = document.getElementById('gPasswordInput').value;
+        const name = document.getElementById('gNameInput')?.value.trim();
+        const city = document.getElementById('gCitySelect')?.value || state.city;
+        const trade = document.getElementById('gWorkerTradeSelect')?.value || 'Master Electrician';
+        const tools = document.getElementById('gWorkerTools')?.value || 'Standard tool kit';
 
-        if (authMode === 'register') {
+        if (gatewayAuthMode === 'register') {
             const res = await apiFetch('/api/auth/register', {
                 method: 'POST',
                 body: JSON.stringify({
-                    name,
+                    name: name || (selectedGatewayRole === 'admin' ? 'Admin Manager' : 'User'),
                     phone,
                     password,
-                    role: selectedAuthRole,
+                    role: selectedGatewayRole,
                     city,
                     trade,
                     tools
@@ -1053,7 +1118,6 @@ Date of Verification: ${new Date().toLocaleDateString('en-IN')}
 
             if (res.ok && res.data.token) {
                 applyAuthSession(res.data.token, res.data.user);
-                authModal?.classList.add('hidden');
                 toast(`Welcome to GigSync, ${res.data.user.name}!`);
             } else {
                 errEl.textContent = res.data.message || 'Registration failed.';
@@ -1067,10 +1131,9 @@ Date of Verification: ${new Date().toLocaleDateString('en-IN')}
 
             if (res.ok && res.data.token) {
                 applyAuthSession(res.data.token, res.data.user);
-                authModal?.classList.add('hidden');
                 toast(`Welcome back, ${res.data.user.name}!`);
             } else {
-                errEl.textContent = res.data.message || 'Invalid credentials.';
+                errEl.textContent = res.data.message || 'Invalid mobile number or password.';
                 errEl.classList.remove('hidden');
             }
         }
@@ -1082,25 +1145,34 @@ Date of Verification: ${new Date().toLocaleDateString('en-IN')}
         localStorage.setItem('gigsync_token', token);
 
         // Update Topbar
-        document.getElementById('userDisplayName').textContent = user.name;
-        document.getElementById('userInitials').textContent = user.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
-        document.getElementById('dropdownUserName').textContent = user.name;
-        document.getElementById('dropdownUserRole').textContent = `${user.role.toUpperCase()} MODE`;
+        const displayName = document.getElementById('userDisplayName');
+        if (displayName) displayName.textContent = user.name;
+        const initials = document.getElementById('userInitials');
+        if (initials) initials.textContent = user.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
 
-        // Update Worker Sidebar if worker
+        const dropName = document.getElementById('dropdownUserName');
+        if (dropName) dropName.textContent = user.name;
+        const dropRole = document.getElementById('dropdownUserRole');
+        if (dropRole) dropRole.textContent = `${user.role.toUpperCase()} MODE`;
+
         if (user.role === 'worker') {
             document.getElementById('sidebarWorkerName').textContent = user.name;
             document.getElementById('sidebarWorkerTrade').textContent = user.profile?.trade || 'Worker';
             document.getElementById('sidebarWorkerInitials').textContent = user.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
             document.getElementById('workerGreeting').textContent = `Good afternoon, ${user.name.split(' ')[0]}`;
             switchPortal('worker');
+        } else if (user.role === 'admin') {
+            switchPortal('admin');
         } else {
             switchPortal('customer');
         }
     }
 
     async function checkExistingAuth() {
-        if (!state.token) return;
+        if (!state.token) {
+            switchPortal('gateway');
+            return;
+        }
         const res = await apiFetch('/api/auth/me');
         if (res.ok && res.data.user) {
             applyAuthSession(state.token, res.data.user);
@@ -1108,6 +1180,7 @@ Date of Verification: ${new Date().toLocaleDateString('en-IN')}
             localStorage.removeItem('gigsync_token');
             state.token = null;
             state.user = null;
+            switchPortal('gateway');
         }
     }
 
@@ -1118,7 +1191,7 @@ Date of Verification: ${new Date().toLocaleDateString('en-IN')}
     userMenuBtn?.addEventListener('click', (e) => {
         e.stopPropagation();
         if (!state.user) {
-            openAuthModal('customer');
+            switchPortal('gateway');
         } else {
             userDropdownMenu?.classList.toggle('hidden');
         }
@@ -1129,23 +1202,32 @@ Date of Verification: ${new Date().toLocaleDateString('en-IN')}
     }
     document.addEventListener('click', closeUserDropdown);
 
+    // Logout Handlers
     document.getElementById('dropdownLogoutBtn')?.addEventListener('click', async () => {
         await apiFetch('/api/auth/logout', { method: 'POST' });
         localStorage.removeItem('gigsync_token');
         state.token = null;
         state.user = null;
         toast('Logged out successfully.');
-        location.reload();
+        switchPortal('gateway');
     });
 
-    // Worker Logout Button in Sidebar
     document.getElementById('workerLogoutBtn')?.addEventListener('click', async () => {
         await apiFetch('/api/auth/logout', { method: 'POST' });
         localStorage.removeItem('gigsync_token');
         state.token = null;
         state.user = null;
         toast('Logged out.');
-        location.reload();
+        switchPortal('gateway');
+    });
+
+    document.getElementById('adminLogoutBtn')?.addEventListener('click', async () => {
+        await apiFetch('/api/auth/logout', { method: 'POST' });
+        localStorage.removeItem('gigsync_token');
+        state.token = null;
+        state.user = null;
+        toast('Admin logged out.');
+        switchPortal('gateway');
     });
 
     // Filter Buttons
@@ -1156,5 +1238,4 @@ Date of Verification: ${new Date().toLocaleDateString('en-IN')}
     // Initial Startup
     updateActiveCity(state.city);
     checkExistingAuth();
-    loadCustomerHomeData();
 });

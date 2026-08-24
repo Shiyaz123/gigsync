@@ -21,9 +21,171 @@
     <div id="appContainer" class="desktop-app-layout">
 
         <!-- ==================================================================
+             0. GATEWAY LANDING & LOGIN SCREEN (DEFAULT FIRST SCREEN)
+             ================================================================== -->
+        <div id="gatewayPortal" class="portal-container active">
+            <div class="gateway-screen-layout">
+                <!-- Left Pitch & Features Column -->
+                <div class="gateway-left-panel">
+                    <div>
+                        <div class="gateway-brand-hero">
+                            <div class="gateway-brand-badge">G</div>
+                            <div class="gateway-brand-title">Gig<span>Sync</span></div>
+                        </div>
+
+                        <div class="gateway-pitch">
+                            <h2>Hyperlocal Work Marketplace for India's Growing Cities</h2>
+                            <p>Connecting skilled local electricians, plumbers, carpenters, mechanics, and technicians directly with neighborhood jobs.</p>
+
+                            <div class="gateway-features-list">
+                                <div class="gateway-feature-row">
+                                    <div class="gateway-feature-icon"><i class="fa-solid fa-bolt"></i></div>
+                                    <div class="gateway-feature-text">
+                                        <strong>Direct &amp; Zero Commission</strong>
+                                        <span>Fair pricing with direct customer-to-worker payment.</span>
+                                    </div>
+                                </div>
+                                <div class="gateway-feature-row">
+                                    <div class="gateway-feature-icon"><i class="fa-solid fa-microphone"></i></div>
+                                    <div class="gateway-feature-text">
+                                        <strong>AI Voice Assistant in Kannada &amp; English</strong>
+                                        <span>Order services or manage worker availability by speaking naturally.</span>
+                                    </div>
+                                </div>
+                                <div class="gateway-feature-row">
+                                    <div class="gateway-feature-icon"><i class="fa-solid fa-map-pin"></i></div>
+                                    <div class="gateway-feature-text">
+                                        <strong>Tier-2 &amp; Tier-3 Regional Focus</strong>
+                                        <span>Ramanagara, Chitradurga, Mandya, Hassan, Tumakuru, Shivamogga, etc.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="gateway-city-badges-row">
+                        <span class="city-pill-sm">📍 Ramanagara</span>
+                        <span class="city-pill-sm">📍 Chitradurga</span>
+                        <span class="city-pill-sm">📍 Mandya</span>
+                        <span class="city-pill-sm">📍 Hassan</span>
+                        <span class="city-pill-sm">📍 Tumakuru</span>
+                        <span class="city-pill-sm">📍 Shivamogga</span>
+                    </div>
+                </div>
+
+                <!-- Right Authentication & Role Selection Column -->
+                <div class="gateway-right-panel">
+                    <div class="gateway-auth-box">
+                        <h2 id="gatewayFormTitle">Sign In to GigSync</h2>
+                        <p class="subtext">Select your role to access your personalized workspace:</p>
+
+                        <!-- 3-Role Picker: Customer, Worker, Admin -->
+                        <div class="role-tri-picker" id="gatewayRolePicker">
+                            <label class="role-tri-card active" id="gRoleCardCustomer">
+                                <input type="radio" name="gatewayRole" value="customer" checked>
+                                <i class="fa-solid fa-user"></i>
+                                <strong>Customer</strong>
+                                <small>Hire Specialists</small>
+                            </label>
+                            <label class="role-tri-card" id="gRoleCardWorker">
+                                <input type="radio" name="gatewayRole" value="worker">
+                                <i class="fa-solid fa-hammer"></i>
+                                <strong>Worker</strong>
+                                <small>Find Gigs &amp; Earn</small>
+                            </label>
+                            <label class="role-tri-card" id="gRoleCardAdmin">
+                                <input type="radio" name="gatewayRole" value="admin">
+                                <i class="fa-solid fa-shield-halved"></i>
+                                <strong>Admin</strong>
+                                <small>Telephony &amp; Logs</small>
+                            </label>
+                        </div>
+
+                        <!-- Auth Mode Switcher (Sign In vs Register) -->
+                        <div class="auth-tab-row">
+                            <button type="button" class="auth-tab-pill active" id="gTabLogin">Sign In</button>
+                            <button type="button" class="auth-tab-pill" id="gTabRegister">Create Account</button>
+                        </div>
+
+                        <form id="gatewayAuthForm">
+                            <!-- Name Field (Register Only) -->
+                            <div class="form-group hidden" id="gNameGroup">
+                                <label class="form-label">Full Name</label>
+                                <input type="text" id="gNameInput" class="form-control" placeholder="e.g. Ramesh Kumar / Kavya Rao">
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Mobile Number</label>
+                                <div class="phone-input-row">
+                                    <span class="phone-prefix">🇮🇳 +91</span>
+                                    <input type="tel" id="gPhoneInput" class="form-control" placeholder="e.g. 9876543210" required>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Password</label>
+                                <input type="password" id="gPasswordInput" class="form-control" placeholder="Enter your password" required>
+                            </div>
+
+                            <!-- Worker Specific Fields -->
+                            <div id="gWorkerExtraFields" class="hidden">
+                                <div class="form-group">
+                                    <label class="form-label">Profession / Trade</label>
+                                    <select id="gWorkerTradeSelect" class="form-control">
+                                        <option value="Master Electrician">⚡ Master Electrician</option>
+                                        <option value="Plumbing Specialist">🔧 Plumbing Specialist</option>
+                                        <option value="General Carpenter">🔨 General Carpenter</option>
+                                        <option value="Two-Wheeler Mechanic">🏍️ Two-Wheeler Mechanic</option>
+                                        <option value="AC & Fridge Tech">❄️ AC &amp; Fridge Tech</option>
+                                        <option value="Appliance Repair Tech">🔌 Appliance Repair Tech</option>
+                                        <option value="Painter">🎨 Painter</option>
+                                        <option value="Tailor">🧵 Tailor</option>
+                                        <option value="Home Cleaner">🧹 Cleaner</option>
+                                        <option value="Welder">👨‍🏭 Welder</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Equipped Tools</label>
+                                    <input type="text" id="gWorkerTools" class="form-control" placeholder="e.g. Standard tool kit, Multimeter, Drill">
+                                </div>
+                            </div>
+
+                            <div class="form-group" id="gCityGroup">
+                                <label class="form-label">City / Town</label>
+                                <select id="gCitySelect" class="form-control">
+                                    <option value="Ramanagara">Ramanagara (Karnataka)</option>
+                                    <option value="Chitradurga">Chitradurga (Karnataka)</option>
+                                    <option value="Mandya">Mandya (Karnataka)</option>
+                                    <option value="Hassan">Hassan (Karnataka)</option>
+                                    <option value="Tumakuru">Tumakuru (Karnataka)</option>
+                                    <option value="Shivamogga">Shivamogga (Karnataka)</option>
+                                    <option value="Davangere">Davangere (Karnataka)</option>
+                                    <option value="Belagavi">Belagavi (Karnataka)</option>
+                                    <option value="Hubballi">Hubballi (Karnataka)</option>
+                                    <option value="Kannur">Kannur (Kerala)</option>
+                                    <option value="Kasaragod">Kasaragod (Kerala)</option>
+                                </select>
+                            </div>
+
+                            <p id="gAuthError" class="auth-error-text hidden"></p>
+
+                            <button type="submit" class="btn btn-primary btn-lg btn-block" id="gAuthSubmitBtn">
+                                Sign In
+                            </button>
+                        </form>
+
+                        <button type="button" class="guest-continue-btn" id="continueGuestBtn">
+                            <i class="fa-solid fa-arrow-right"></i> Or Explore Marketplace as Guest Customer
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================================================================
              A. CUSTOMER INTERFACE PORTAL
              ================================================================== -->
-        <div id="customerPortal" class="portal-container active">
+        <div id="customerPortal" class="portal-container">
 
             <!-- DESKTOP TOP NAVIGATION BAR -->
             <header class="desktop-topbar">
@@ -907,6 +1069,102 @@
                     </section>
 
                 </main>
+            </div>
+        <!-- ==================================================================
+             C. ADMIN INTERFACE PORTAL (TELEPHONY & SYSTEM GATEWAY)
+             ================================================================== -->
+        <div id="adminPortal" class="portal-container">
+            <div class="admin-layout-container">
+                <!-- Admin Header -->
+                <div class="admin-header-row">
+                    <div class="admin-title-col">
+                        <div style="display:flex;align-items:center;gap:12px">
+                            <div class="brand-badge-lg" style="background:#1E1B4B;color:#818CF8">G</div>
+                            <div>
+                                <h1>GigSync Administration &amp; Telephony Gateway</h1>
+                                <p>Platform Operations · 3.5mm Audio Bridge · Real-Time Call Telemetry</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display:flex;gap:12px;align-items:center">
+                        <button type="button" class="btn btn-outline" id="adminSwitchToCustomerBtn">
+                            <i class="fa-solid fa-store"></i> Customer View
+                        </button>
+                        <button type="button" class="btn btn-outline" id="adminSwitchToWorkerBtn">
+                            <i class="fa-solid fa-hammer"></i> Worker View
+                        </button>
+                        <button type="button" class="btn btn-danger-ghost" id="adminLogoutBtn">
+                            <i class="fa-solid fa-right-from-bracket"></i> Sign Out
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Admin Metrics -->
+                <div class="worker-kpi-grid" style="margin-bottom:28px">
+                    <div class="kpi-card">
+                        <span class="kpi-label">Registered Workers</span>
+                        <strong class="kpi-value" id="adminKpiWorkers">0</strong>
+                    </div>
+                    <div class="kpi-card">
+                        <span class="kpi-label">Total Jobs Dispatched</span>
+                        <strong class="kpi-value" id="adminKpiJobs">0</strong>
+                    </div>
+                    <div class="kpi-card">
+                        <span class="kpi-label">Cloud Firestore Status</span>
+                        <strong class="kpi-value" style="color:var(--gs-green-dark);font-size:20px">🟢 Connected</strong>
+                    </div>
+                    <div class="kpi-card">
+                        <span class="kpi-label">Telephony Voice Calls</span>
+                        <strong class="kpi-value" id="adminKpiCalls">0</strong>
+                    </div>
+                </div>
+
+                <!-- 3.5mm Audio Hardware Gateway Studio -->
+                <div class="admin-telephony-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                        <div>
+                            <h3 style="font-size:18px"><i class="fa-solid fa-headset" style="color:var(--gs-indigo)"></i> 3.5mm Audio Jack / Telephony Gateway Bridge</h3>
+                            <p style="font-size:13px;color:var(--gs-muted)">Connect any normal laptop to mobile phone 3.5mm jack or USB audio interface to handle automatic voice calls.</p>
+                        </div>
+                        <span class="duty-status-badge duty-on" id="audioBridgeStatus">🟢 Audio Gateway Ready</span>
+                    </div>
+
+                    <div style="display:flex;gap:12px;margin-top:14px">
+                        <button type="button" class="btn btn-primary" id="adminSimulateCallBtn">
+                            <i class="fa-solid fa-phone-volume"></i> Test Simulated Telephony Call (Kannada)
+                        </button>
+                        <button type="button" class="btn btn-ghost" id="adminRefreshLogsBtn">
+                            <i class="fa-solid fa-rotate"></i> Refresh Telemetry Logs
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Real-Time Voice Call Logs -->
+                <div class="section-container">
+                    <div class="section-header-desktop">
+                        <h2 class="section-title-desktop">Recent Telephony &amp; AI Call Logs</h2>
+                    </div>
+
+                    <div class="earnings-table-card">
+                        <table class="standard-desktop-table">
+                            <thead>
+                                <tr>
+                                    <th>Call ID</th>
+                                    <th>Caller Phone</th>
+                                    <th>Role</th>
+                                    <th>Spoken Transcript</th>
+                                    <th>Intent Detected</th>
+                                    <th>Duration</th>
+                                    <th>Timestamp</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminCallLogsTableBody">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
 
