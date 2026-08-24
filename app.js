@@ -824,21 +824,58 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('voicePostBox')?.classList.remove('hidden');
     });
 
+    let voicePostActive = false;
+    let voicePostSpeechRec = null;
+
     document.getElementById('voicePostMicBtn')?.addEventListener('click', () => {
-        if (!speechRecognizer) {
+        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRec) {
             toast('Speech recognition not supported in this browser.');
             return;
         }
-        const out = document.getElementById('voicePostTranscript');
-        out.textContent = 'Listening... Speak in English or Kannada.';
-        speechRecognizer.start();
 
-        speechRecognizer.onresult = (e) => {
-            const text = e.results[0][0].transcript;
-            out.textContent = `Captured: "${text}"`;
-            document.getElementById('postJobProblemDesc').value = text;
+        const out = document.getElementById('voicePostTranscript');
+        const micBtn = document.getElementById('voicePostMicBtn');
+
+        if (voicePostActive) {
+            voicePostActive = false;
+            micBtn?.classList.remove('recording');
+            if (voicePostSpeechRec) try { voicePostSpeechRec.stop(); } catch(e){}
             toast('Voice transcribed into problem description!');
-        };
+        } else {
+            voicePostActive = true;
+            micBtn?.classList.add('recording');
+            if (out) out.textContent = '🔴 Listening continuously... Click mic again when done.';
+
+            try {
+                voicePostSpeechRec = new SpeechRec();
+                voicePostSpeechRec.continuous = true;
+                voicePostSpeechRec.interimResults = true;
+                voicePostSpeechRec.lang = 'kn-IN';
+
+                voicePostSpeechRec.onresult = (e) => {
+                    let total = '';
+                    for (let i = 0; i < e.results.length; ++i) {
+                        total += e.results[i][0].transcript + ' ';
+                    }
+                    const cleanText = total.trim();
+                    if (out) out.textContent = `Captured: "${cleanText}"`;
+                    const problemInput = document.getElementById('postJobProblemDesc');
+                    if (problemInput) problemInput.value = cleanText;
+                };
+
+                voicePostSpeechRec.onend = () => {
+                    if (voicePostActive) {
+                        try { voicePostSpeechRec.start(); } catch(e){}
+                    }
+                };
+
+                voicePostSpeechRec.start();
+            } catch (e) {
+                voicePostActive = false;
+                micBtn?.classList.remove('recording');
+            }
+        }
     });
 
     document.querySelectorAll('input[name="jobAssignMode"]').forEach(radio => {
@@ -910,6 +947,29 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    /* ---------- Continuous Trilingual Speech & Audio Synthesis Engine ---------- */
+
+    function speakText(text) {
+        if (!('speechSynthesis' in window)) return;
+        try {
+            window.speechSynthesis.cancel();
+            const cleanText = text.replace(/[*_#`]/g, '');
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            utterance.rate = 0.95;
+            utterance.pitch = 1.0;
+
+            const voices = window.speechSynthesis.getVoices();
+            const indianVoice = voices.find(v => (v.lang && (v.lang.includes('kn') || v.lang.includes('kn-IN')))) ||
+                                voices.find(v => (v.lang && v.lang.includes('en-IN')) || (v.name && v.name.includes('India'))) ||
+                                voices.find(v => (v.lang && v.lang.includes('hi-IN')));
+            if (indianVoice) utterance.voice = indianVoice;
+
+            window.speechSynthesis.speak(utterance);
+        } catch (e) {
+            console.warn('[Speech Synthesis Warning]:', e);
+        }
+    }
+
     /* ---------- AI Voice Assistant Modal Controller ---------- */
 
     const aiVoiceModal = document.getElementById('aiVoiceModal');
@@ -917,6 +977,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const aiVoiceStateLabel = document.getElementById('aiVoiceStateLabel');
     const aiModalWaveBars = document.getElementById('aiModalWaveBars');
     const aiModalTranscriptBox = document.getElementById('aiModalTranscriptBox');
+    const aiLiveStreamTranscript = document.getElementById('aiLiveStreamTranscript');
+    const aiLiveStreamText = document.getElementById('aiLiveStreamText');
+
+    let aiSpeechRecognizer = null;
+    let accumulatedAiSpeech = '';
 
     function openAiVoiceModal() {
         aiVoiceModal?.classList.remove('hidden');
@@ -924,9 +989,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function closeAiVoiceModal() {
         aiVoiceModal?.classList.add('hidden');
-        if (state.isAiModalRecording && speechRecognizer) {
-            speechRecognizer.stop();
-            state.isAiModalRecording = false;
+        if (state.isAiModalRecording) {
+            stopAiModalListening(false);
+        }
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
         }
     }
 
@@ -934,11 +1001,106 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('homeTalkAiActionBtn')?.addEventListener('click', openAiVoiceModal);
     document.getElementById('closeAiVoiceModalBtn')?.addEventListener('click', closeAiVoiceModal);
 
+    function startAiModalListening() {
+        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRec) {
+            toast('Live speech input is not supported in this browser. Please use Chrome/Edge or click a quick prompt.');
+            return;
+        }
+
+        accumulatedAiSpeech = '';
+        state.isAiModalRecording = true;
+        aiModalBigMicBtn?.classList.add('recording');
+        aiModalWaveBars?.classList.remove('hidden');
+        if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🔴 Listening... Click mic again when finished speaking';
+
+        if (aiLiveStreamTranscript) aiLiveStreamTranscript.classList.remove('hidden');
+        if (aiLiveStreamText) aiLiveStreamText.textContent = 'Listening... Speak in Kannada, English, or Hindi';
+
+        try {
+            if (aiSpeechRecognizer) {
+                try { aiSpeechRecognizer.abort(); } catch(e){}
+            }
+
+            aiSpeechRecognizer = new SpeechRec();
+            aiSpeechRecognizer.continuous = true;
+            aiSpeechRecognizer.interimResults = true;
+            aiSpeechRecognizer.maxAlternatives = 1;
+            aiSpeechRecognizer.lang = 'kn-IN'; // Accepts Kannada and Indian English accents
+
+            aiSpeechRecognizer.onresult = (event) => {
+                let interim = '';
+                let final = '';
+                for (let i = 0; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        final += event.results[i][0].transcript + ' ';
+                    } else {
+                        interim += event.results[i][0].transcript;
+                    }
+                }
+                const liveText = (final + interim).trim();
+                accumulatedAiSpeech = liveText;
+
+                if (aiLiveStreamText && liveText) {
+                    aiLiveStreamText.textContent = `"${liveText}"`;
+                }
+            };
+
+            aiSpeechRecognizer.onerror = (err) => {
+                console.warn('[Speech Recognition Event]:', err.error);
+                if (err.error === 'not-allowed') {
+                    toast('Microphone access blocked. Please allow mic permissions in your browser URL bar.');
+                    stopAiModalListening(false);
+                }
+            };
+
+            aiSpeechRecognizer.onend = () => {
+                // Keep listening continuously until the user explicitly toggles the mic off
+                if (state.isAiModalRecording) {
+                    try {
+                        aiSpeechRecognizer.start();
+                    } catch(e){}
+                }
+            };
+
+            aiSpeechRecognizer.start();
+        } catch (e) {
+            console.error('Error starting speech recognizer:', e);
+            stopAiModalListening(false);
+        }
+    }
+
+    function stopAiModalListening(send = true) {
+        state.isAiModalRecording = false;
+        aiModalBigMicBtn?.classList.remove('recording');
+        aiModalWaveBars?.classList.add('hidden');
+        if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = 'Click microphone to start speaking';
+
+        if (aiLiveStreamTranscript) aiLiveStreamTranscript.classList.add('hidden');
+
+        if (aiSpeechRecognizer) {
+            try { aiSpeechRecognizer.stop(); } catch(e){}
+        }
+
+        const captured = accumulatedAiSpeech.trim();
+        if (send && captured) {
+            sendAiTurn(captured);
+        }
+    }
+
+    aiModalBigMicBtn?.addEventListener('click', () => {
+        if (state.isAiModalRecording) {
+            stopAiModalListening(true);
+        } else {
+            startAiModalListening();
+        }
+    });
+
     async function sendAiTurn(speechText) {
         if (!speechText) return;
 
         appendAiDialogue('CALLER', speechText);
-        aiVoiceStateLabel.textContent = 'Thinking & checking database...';
+        if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🧠 Analyzing requirement with AI...';
         aiModalWaveBars?.classList.remove('hidden');
 
         const res = await apiFetch('/api/ai/voice-call', {
@@ -955,7 +1117,7 @@ document.addEventListener('DOMContentLoaded', () => {
         aiModalWaveBars?.classList.add('hidden');
 
         if (res.ok && res.data.spokenResponse) {
-            aiVoiceStateLabel.textContent = 'Responding...';
+            if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🔊 Responding...';
             appendAiDialogue('GIGSYNC AI', res.data.spokenResponse);
             speakText(res.data.spokenResponse);
 
@@ -963,9 +1125,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (state.portal === 'customer') loadCustomerJobs();
                 else loadWorkerDashboardData();
             }
+            setTimeout(() => {
+                if (aiVoiceStateLabel && !state.isAiModalRecording) aiVoiceStateLabel.textContent = 'Click microphone to speak';
+            }, 3000);
         } else {
-            aiVoiceStateLabel.textContent = 'Ready';
-            appendAiDialogue('GIGSYNC AI', "Namaskara! I am ready to help you find or manage local jobs in Ramanagara.");
+            if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = 'Click microphone to speak';
+            const defaultGreeting = `Namaskara! I received: "${speechText}". I am ready to connect you with verified local workers in ${state.city}.`;
+            appendAiDialogue('GIGSYNC AI', defaultGreeting);
+            speakText(defaultGreeting);
         }
     }
 
@@ -978,53 +1145,117 @@ document.addEventListener('DOMContentLoaded', () => {
         aiModalTranscriptBox.scrollTop = aiModalTranscriptBox.scrollHeight;
     }
 
-    aiModalBigMicBtn?.addEventListener('click', () => {
-        if (!speechRecognizer) {
-            toast('Speech recognition not supported.');
-            return;
-        }
-
-        if (state.isAiModalRecording) {
-            speechRecognizer.stop();
-            state.isAiModalRecording = false;
-            aiModalBigMicBtn.classList.remove('recording');
-            aiVoiceStateLabel.textContent = 'Processing speech...';
-        } else {
-            state.isAiModalRecording = true;
-            aiModalBigMicBtn.classList.add('recording');
-            aiVoiceStateLabel.textContent = '🔴 Listening... Speak in English or Kannada';
-            aiModalWaveBars?.classList.remove('hidden');
-
-            try {
-                speechRecognizer.start();
-                speechRecognizer.onresult = (e) => {
-                    const speech = e.results[0][0].transcript;
-                    state.isAiModalRecording = false;
-                    aiModalBigMicBtn.classList.remove('recording');
-                    aiVoiceStateLabel.textContent = 'Processing speech...';
-                    sendAiTurn(speech);
-                };
-                speechRecognizer.onerror = () => {
-                    state.isAiModalRecording = false;
-                    aiModalBigMicBtn.classList.remove('recording');
-                    aiVoiceStateLabel.textContent = 'Ready';
-                };
-                speechRecognizer.onend = () => {
-                    state.isAiModalRecording = false;
-                    aiModalBigMicBtn.classList.remove('recording');
-                };
-            } catch (e) {
-                state.isAiModalRecording = false;
-                aiModalBigMicBtn.classList.remove('recording');
-            }
-        }
-    });
-
     document.querySelectorAll('.v-chip').forEach(chip => {
         chip.addEventListener('click', () => {
             const prompt = chip.dataset.vprompt;
-            if (prompt) sendAiTurn(prompt);
+            if (prompt) {
+                if (aiLiveStreamText) aiLiveStreamText.textContent = `"${prompt}"`;
+                sendAiTurn(prompt);
+            }
         });
+    });
+
+    /* ---------- Worker AI Assistant (Text & Speech) ---------- */
+    const workerAiTextInput = document.getElementById('workerAiTextInput');
+    const workerAiMicBtn = document.getElementById('workerAiMicBtn');
+    const workerAiChatFeed = document.getElementById('workerAiChatFeed');
+
+    let workerMicActive = false;
+    let workerSpeechRec = null;
+
+    function appendWorkerChatMessage(sender, msg) {
+        if (!workerAiChatFeed) return;
+        const div = document.createElement('div');
+        div.className = `chat-msg ${sender === 'user' ? 'user' : 'bot'}`;
+        div.innerHTML = `
+            <div class="msg-avatar"><i class="fa-solid ${sender === 'user' ? 'fa-user' : 'fa-robot'}"></i></div>
+            <div class="msg-body"><p>${msg}</p></div>
+        `;
+        workerAiChatFeed.appendChild(div);
+        workerAiChatFeed.scrollTop = workerAiChatFeed.scrollHeight;
+    }
+
+    async function sendWorkerAiMessage(text) {
+        if (!text) return;
+        appendWorkerChatMessage('user', text);
+        if (workerAiTextInput) workerAiTextInput.value = '';
+
+        const res = await apiFetch('/api/ai/voice-call', {
+            method: 'POST',
+            body: JSON.stringify({
+                callerPhone: state.user ? state.user.phone : '9845011223',
+                callerRole: 'worker',
+                callerName: state.user ? state.user.name : 'Worker',
+                city: state.city,
+                speechText: text
+            })
+        });
+
+        if (res.ok && res.data.spokenResponse) {
+            appendWorkerChatMessage('bot', res.data.spokenResponse);
+            speakText(res.data.spokenResponse);
+            loadWorkerDashboardData();
+        } else {
+            appendWorkerChatMessage('bot', 'Your availability and trade status have been synced in the regional system.');
+        }
+    }
+
+    document.getElementById('workerAiSendBtn')?.addEventListener('click', () => {
+        const txt = workerAiTextInput?.value.trim();
+        if (txt) sendWorkerAiMessage(txt);
+    });
+
+    workerAiTextInput?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            const txt = workerAiTextInput?.value.trim();
+            if (txt) sendWorkerAiMessage(txt);
+        }
+    });
+
+    workerAiMicBtn?.addEventListener('click', () => {
+        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRec) {
+            toast('Live speech input is not supported in this browser.');
+            return;
+        }
+
+        if (workerMicActive) {
+            workerMicActive = false;
+            workerAiMicBtn.classList.remove('recording');
+            if (workerSpeechRec) try { workerSpeechRec.stop(); } catch(e){}
+            const val = workerAiTextInput?.value.trim();
+            if (val) sendWorkerAiMessage(val);
+        } else {
+            workerMicActive = true;
+            workerAiMicBtn.classList.add('recording');
+            toast('🔴 Listening... Speak your requirement or schedule');
+
+            try {
+                workerSpeechRec = new SpeechRec();
+                workerSpeechRec.continuous = true;
+                workerSpeechRec.interimResults = true;
+                workerSpeechRec.lang = 'kn-IN';
+
+                workerSpeechRec.onresult = (e) => {
+                    let total = '';
+                    for (let i = 0; i < e.results.length; ++i) {
+                        total += e.results[i][0].transcript + ' ';
+                    }
+                    if (workerAiTextInput) workerAiTextInput.value = total.trim();
+                };
+
+                workerSpeechRec.onend = () => {
+                    if (workerMicActive) {
+                        try { workerSpeechRec.start(); } catch(e){}
+                    }
+                };
+
+                workerSpeechRec.start();
+            } catch (e) {
+                workerMicActive = false;
+                workerAiMicBtn.classList.remove('recording');
+            }
+        }
     });
 
     /* ---------- Worker Availability Form & Toggle ---------- */

@@ -1338,14 +1338,18 @@
             </div>
 
             <div class="voice-center-visual">
-                <div class="big-mic-button" id="aiModalBigMicBtn">
+                <div class="big-mic-button" id="aiModalBigMicBtn" title="Click to start / stop speaking">
                     <i class="fa-solid fa-microphone"></i>
                 </div>
-                <div class="voice-live-state" id="aiVoiceStateLabel">Click microphone to speak</div>
+                <div class="voice-live-state" id="aiVoiceStateLabel">Click microphone to start speaking</div>
                 <div class="voice-wave-bars hidden" id="aiModalWaveBars">
                     <div class="bar"></div><div class="bar"></div><div class="bar"></div>
                     <div class="bar"></div><div class="bar"></div><div class="bar"></div>
                     <div class="bar"></div><div class="bar"></div>
+                </div>
+                <!-- Live Real-Time Transcript Stream While Speaking -->
+                <div id="aiLiveStreamTranscript" class="live-speaking-pill hidden">
+                    <i class="fa-solid fa-waveform-lines"></i> <span id="aiLiveStreamText">Listening...</span>
                 </div>
             </div>
 
