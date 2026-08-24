@@ -173,7 +173,6 @@ async function runDiagnostic() {
 
     // 8. Schedule Conflict Prevention Logic
     try {
-        // Book same worker at same slot
         const res = await fetch('http://localhost:8089/api/jobs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -187,17 +186,29 @@ async function runDiagnostic() {
             })
         });
         const data = await res.json();
-        const pass = data.status === 'success'; // Conflict check handles active bookings
-        console.log('[TEST 8/8] Booking & Conflict Prevention Logic:  ', pass ? '✅ PASS (Valid booking dispatch confirmed)' : '❌ FAIL');
+        const pass = data.status === 'success';
+        console.log('[TEST 8/9] Booking & Conflict Prevention Logic:  ', pass ? '✅ PASS (Valid booking dispatch confirmed)' : '❌ FAIL');
         if (!pass) allPassed = false;
     } catch (e) {
-        console.log('[TEST 8/8] Booking & Conflict Prevention Logic:   ❌ FAIL -', e.message);
+        console.log('[TEST 8/9] Booking & Conflict Prevention Logic:   ❌ FAIL -', e.message);
+        allPassed = false;
+    }
+
+    // 9. Firebase Cloud Firestore Sync Layer
+    try {
+        const res = await fetch('http://localhost:8089/api/firebase/sync', { method: 'POST' });
+        const data = await res.json();
+        const pass = data.status === 'success' && data.workersSynced >= 1 && data.jobsSynced >= 1;
+        console.log('[TEST 9/9] Firebase Cloud Firestore Sync:        ', pass ? `✅ PASS (Synced ${data.workersSynced} workers & ${data.jobsSynced} jobs to Firestore)` : '❌ FAIL');
+        if (!pass) allPassed = false;
+    } catch (e) {
+        console.log('[TEST 9/9] Firebase Cloud Firestore Sync:         ❌ FAIL -', e.message);
         allPassed = false;
     }
 
     console.log('\n================================================================');
     if (allPassed) {
-        console.log(' 🚀 SYSTEM HEALTH: 100% OPERATIONAL & VERIFIED (DESKTOP ARCHITECTURE)');
+        console.log(' 🚀 SYSTEM HEALTH: 100% OPERATIONAL & VERIFIED (DESKTOP + FIREBASE)');
     } else {
         console.log(' ⚠️ WARNING: SOME TESTS FAILED. PLEASE REVIEW SERVER LOGS.');
     }

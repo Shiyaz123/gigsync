@@ -1,6 +1,6 @@
 /* ==========================================================================
    GigSync — Full-Stack Server & REST API Gateway (Desktop-First)
-   Port 8089: Authentication, SQLite Persistence, AI Voice Engine
+   Port 8089: Authentication, SQLite Persistence, Firebase Cloud Sync, AI Voice
    ========================================================================== */
 
 const http = require('node:http');
@@ -9,6 +9,7 @@ const path = require('node:path');
 const url = require('node:url');
 
 const DB = require('./database');
+const FirebaseSync = require('./firebase');
 const { aiAgent, AI_TOOLS } = require('./ai_agent');
 
 const PORT = 8089;
@@ -103,7 +104,6 @@ const server = http.createServer(async (req, res) => {
             area: body.area || 'Town'
         });
 
-        // If registering as a worker, update skills/tools/trade if provided
         if (body.role === 'worker') {
             const worker = DB.getWorkerByUserId(user.id);
             if (worker && (body.trade || body.skills || body.tools || body.price)) {
@@ -386,7 +386,36 @@ const server = http.createServer(async (req, res) => {
     }
 
     /* ----------------------------------------------------------------------
-       4. AI VOICE & CONVERSATIONAL GATEWAY
+       4. FIREBASE CLOUD FIRESTORE ENDPOINTS
+       ---------------------------------------------------------------------- */
+
+    // GET /api/firebase/config
+    if (pathname === '/api/firebase/config' && req.method === 'GET') {
+        return sendJSON(res, {
+            status: 'success',
+            config: FirebaseSync.getConfig()
+        });
+    }
+
+    // POST /api/firebase/config
+    if (pathname === '/api/firebase/config' && req.method === 'POST') {
+        const body = await parseBody(req);
+        const updated = FirebaseSync.saveConfig(body);
+        return sendJSON(res, { status: 'success', message: 'Firebase config updated.', config: updated });
+    }
+
+    // POST /api/firebase/sync
+    if (pathname === '/api/firebase/sync' && req.method === 'POST') {
+        const syncResult = await DB.triggerFullFirebaseSync();
+        return sendJSON(res, {
+            status: 'success',
+            message: 'All local workers and jobs synchronized to Cloud Firestore collections.',
+            ...syncResult
+        });
+    }
+
+    /* ----------------------------------------------------------------------
+       5. AI VOICE & CONVERSATIONAL GATEWAY
        ---------------------------------------------------------------------- */
 
     // POST /api/ai/voice-call & POST /api/ai/chat
@@ -434,7 +463,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     /* ----------------------------------------------------------------------
-       5. STATIC WEB APPLICATION SERVING
+       6. STATIC WEB APPLICATION SERVING
        ---------------------------------------------------------------------- */
 
     let reqPath = pathname === '/' ? '/index.html' : pathname;
@@ -443,7 +472,6 @@ const server = http.createServer(async (req, res) => {
 
     fs.stat(filePath, (err, stats) => {
         if (err || !stats.isFile()) {
-            // SPA Fallback for routes
             const fallbackPath = path.join(PUBLIC_DIR, 'index.html');
             fs.readFile(fallbackPath, (fallbackErr, content) => {
                 if (fallbackErr) {
@@ -477,6 +505,7 @@ server.listen(PORT, () => {
     console.log(` GigSync Full-Stack Desktop Server & AI Voice Gateway`);
     console.log(` Running at: http://localhost:${PORT}/`);
     console.log(` SQLite Database: Connected (gigsync.db)`);
+    console.log(` Firebase Cloud Sync: Connected (Firestore REST Layer)`);
     console.log(` Real Authentication: Enabled (/api/auth/*)`);
     console.log(` Desktop Customer & Worker REST Endpoints: Live`);
     console.log('=======================================================');

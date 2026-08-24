@@ -1,13 +1,14 @@
 /* ==========================================================================
-   GigSync — Central SQLite Database Layer (Real Backend Persistence)
-   Zero-external-dependency persistence using native Node.js SQLite
-   No dummy users, no pre-seeded mock records.
+   GigSync — Central SQLite Database Layer with Firebase Firestore Sync
+   Dual Persistence: Instant Local SQLite + Real-Time Firebase Cloud Sync
    ========================================================================== */
 
 const { DatabaseSync } = require('node:sqlite');
 const path = require('node:path');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
+
+const FirebaseSync = require('./firebase');
 
 const DB_PATH = path.join(__dirname, '..', 'gigsync.db');
 const db = new DatabaseSync(DB_PATH);
@@ -171,13 +172,17 @@ const DB = {
                 INSERT INTO workers (user_id, name, phone, trade, service, initials, city, area, service_areas)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
-            workerStmt.run(userId, name, cleanPhone, 'General Specialist', 'general', initials, city, area, `${city}, Nearby Areas`);
+            const wRes = workerStmt.run(userId, name, cleanPhone, 'General Specialist', 'general', initials, city, area, `${city}, Nearby Areas`);
+            const createdWorker = this.getWorkerById(Number(wRes.lastInsertRowid));
+            FirebaseSync.syncWorker(createdWorker).catch(e => console.warn('[Firebase Sync Error]:', e));
         } else {
             const custStmt = db.prepare(`
                 INSERT INTO customers (user_id, name, phone, email, city, area)
                 VALUES (?, ?, ?, ?, ?, ?)
             `);
-            custStmt.run(userId, name, cleanPhone, email || null, city, area);
+            const cRes = custStmt.run(userId, name, cleanPhone, email || null, city, area);
+            const createdCust = this.getCustomerById(Number(cRes.lastInsertRowid));
+            FirebaseSync.syncCustomer(createdCust).catch(e => console.warn('[Firebase Sync Error]:', e));
         }
 
         return this.getUserById(userId);
@@ -192,6 +197,10 @@ const DB = {
     getUserById(id) {
         const user = db.prepare('SELECT id, name, phone, email, role, city, area, created_at FROM users WHERE id = ?').get(id);
         return user || null;
+    },
+
+    getCustomerById(id) {
+        return db.prepare('SELECT * FROM customers WHERE id = ?').get(id) || null;
     },
 
     authenticateUser(phone, password) {
@@ -312,7 +321,9 @@ const DB = {
             data.about || ''
         );
 
-        return this.getWorkerById(Number(res.lastInsertRowid));
+        const created = this.getWorkerById(Number(res.lastInsertRowid));
+        FirebaseSync.syncWorker(created).catch(e => console.warn('[Firebase Sync Error]:', e));
+        return created;
     },
 
     updateWorkerProfile(id, updates = {}) {
@@ -333,7 +344,9 @@ const DB = {
 
         params.push(id);
         db.prepare(`UPDATE workers SET ${fields.join(', ')} WHERE id = ?`).run(...params);
-        return this.getWorkerById(id);
+        const updated = this.getWorkerById(id);
+        FirebaseSync.syncWorker(updated).catch(e => console.warn('[Firebase Sync Error]:', e));
+        return updated;
     },
 
     updateWorkerAvailabilityStatus(workerIdOrPhone, isAvailable) {
@@ -346,7 +359,9 @@ const DB = {
 
         if (!worker) return null;
         db.prepare('UPDATE workers SET is_available = ? WHERE id = ?').run(isAvailable ? 1 : 0, worker.id);
-        return this.getWorkerById(worker.id);
+        const updated = this.getWorkerById(worker.id);
+        FirebaseSync.syncWorker(updated).catch(e => console.warn('[Firebase Sync Error]:', e));
+        return updated;
     },
 
     // ---------------- SCHEDULE & CONFLICT CHECK ----------------
@@ -408,7 +423,6 @@ const DB = {
     },
 
     checkScheduleConflict(workerId, requestedDate, requestedTime) {
-        // Check if worker already has an active booking for this date & time
         const conflict = db.prepare(`
             SELECT * FROM jobs
             WHERE worker_id = ?
@@ -456,7 +470,9 @@ const DB = {
             jobData.payment_method || 'Cash'
         );
 
-        return this.getJobById(jobId);
+        const created = this.getJobById(jobId);
+        FirebaseSync.syncJob(created).catch(e => console.warn('[Firebase Sync Error]:', e));
+        return created;
     },
 
     getJobById(id) {
@@ -520,7 +536,6 @@ const DB = {
 
         if (status === 'Completed') {
             fields.push("completed_at = CURRENT_TIMESTAMP", "payment_status = 'Paid'");
-            // Increment completed jobs on worker
             if (job.worker_id) {
                 db.prepare('UPDATE workers SET jobs_completed = jobs_completed + 1 WHERE id = ?').run(job.worker_id);
             }
@@ -528,7 +543,9 @@ const DB = {
 
         params.push(jobId);
         db.prepare(`UPDATE jobs SET ${fields.join(', ')} WHERE id = ?`).run(...params);
-        return this.getJobById(jobId);
+        const updated = this.getJobById(jobId);
+        FirebaseSync.syncJob(updated).catch(e => console.warn('[Firebase Sync Error]:', e));
+        return updated;
     },
 
     submitJobReview(jobId, rating, review) {
@@ -537,7 +554,6 @@ const DB = {
 
         db.prepare('UPDATE jobs SET rating = ?, review = ? WHERE id = ?').run(rating, review, jobId);
 
-        // Update worker average rating if worker was assigned
         if (job.worker_id) {
             const avgRow = db.prepare('SELECT AVG(rating) as avg_rating FROM jobs WHERE worker_id = ? AND rating IS NOT NULL').get(job.worker_id);
             if (avgRow && avgRow.avg_rating) {
@@ -546,7 +562,9 @@ const DB = {
             }
         }
 
-        return this.getJobById(jobId);
+        const updated = this.getJobById(jobId);
+        FirebaseSync.syncJob(updated).catch(e => console.warn('[Firebase Sync Error]:', e));
+        return updated;
     },
 
     // ---------------- EARNINGS & DIGITAL WORK RECORD ----------------
@@ -605,6 +623,23 @@ const DB = {
 
     getAllCallLogs() {
         return db.prepare('SELECT * FROM call_logs ORDER BY timestamp DESC LIMIT 50').all();
+    },
+
+    // Trigger complete sync of all SQLite records to Firebase
+    async triggerFullFirebaseSync() {
+        const allWorkers = this.getAllWorkers();
+        const allJobs = this.getAllJobs();
+        const results = { workersSynced: 0, jobsSynced: 0 };
+
+        for (const w of allWorkers) {
+            await FirebaseSync.syncWorker(w);
+            results.workersSynced++;
+        }
+        for (const j of allJobs) {
+            await FirebaseSync.syncJob(j);
+            results.jobsSynced++;
+        }
+        return results;
     }
 };
 
