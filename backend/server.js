@@ -129,12 +129,20 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, { status: 'success', count: logs.length, logs });
     }
 
-    // POST /api/ai/voice-call (Main AI Telephony / Call Processing Engine)
-    if (pathname === '/api/ai/voice-call' && req.method === 'POST') {
+    // GET /api/workers/:id/schedule
+    if (pathname.startsWith('/api/workers/') && pathname.endsWith('/schedule') && req.method === 'GET') {
+        const id = pathname.replace('/api/workers/', '').replace('/schedule', '');
+        const sched = DB.getWorkerSchedule(id);
+        if (!sched) return sendJSON(res, { status: 'error', message: 'Worker not found' }, 404);
+        return sendJSON(res, { status: 'success', schedule: sched });
+    }
+
+    // POST /api/ai/voice-call and /api/ai/chat (Main AI Telephony & Chat Processing Engine)
+    if ((pathname === '/api/ai/voice-call' || pathname === '/api/ai/chat') && req.method === 'POST') {
         const body = await parseBody(req);
         const callerPhone = body.callerPhone || '9876543210';
         const callerRole = body.callerRole || 'customer';
-        const speechText = body.speechText || 'I need an electrician tomorrow morning.';
+        const speechText = body.speechText || body.message || 'I need an electrician tomorrow morning.';
 
         try {
             const callResult = await aiAgent.processCallTurn(callerPhone, callerRole, speechText);
@@ -146,6 +154,8 @@ const server = http.createServer(async (req, res) => {
                 toolExecuted: callResult.toolExecuted,
                 toolArgs: callResult.toolArgs,
                 toolResult: callResult.toolResult,
+                cardType: callResult.cardType,
+                cardData: callResult.cardData,
                 callerRole: callResult.callerRole
             });
         } catch (err) {

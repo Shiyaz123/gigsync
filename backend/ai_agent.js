@@ -210,92 +210,192 @@ class AIAgent {
         this.apiKey = process.env.GEMINI_API_KEY || '';
     }
 
-    // Process spoken text from a phone call or web audio
+    // Process spoken text or chat message from customer or worker
     async processCallTurn(callerPhone, callerRole, userSpeech, sessionContext = {}) {
-        const lower = (userSpeech || '').toLowerCase().trim();
+        const raw = (userSpeech || '').trim();
+        const lower = raw.toLowerCase();
         let toolName = null;
         let toolArgs = {};
         let spokenResponse = '';
+        let cardType = null;
+        let cardData = null;
 
-        // 1. Customer Booking / Looking for Worker (English, Kannada, Hindi)
-        const isCustomerBooking = (callerRole === 'customer') ||
-            lower.includes('need') || lower.includes('want') || lower.includes('beku') || lower.includes('chahiye') ||
-            lower.includes('leak') || lower.includes('repair') || lower.includes('fix') || lower.includes('urgent') ||
-            lower.includes('book') || lower.includes('fitting') || lower.includes('problem') ||
-            (lower.includes('plumber') && !lower.includes('i am a plumber') && !lower.includes('nan plumber')) ||
-            (lower.includes('electrician') && !lower.includes('i am an electrician') && !lower.includes('nan electrician'));
+        // Helper: Detect language/script
+        const isKannadaScript = /[\u0C80-\u0CFF]/.test(raw);
 
-        if (isCustomerBooking && !lower.includes('i am') && !lower.includes('available') && !lower.includes('iddini')) {
-            let service = 'Electrical';
-            let problem = 'General Repair';
-            let tools = ['multimeter'];
-            if (lower.includes('plumb') || lower.includes('pipe') || lower.includes('tap') || lower.includes('leak') || lower.includes('motor') || lower.includes('tank') || lower.includes('neeru')) {
-                service = 'Plumbing';
-                problem = 'Water pipe leak & tap valve repair';
-                tools = ['pipe wrench', 'pressure tester'];
-            } else if (lower.includes('fan') || lower.includes('wiring') || lower.includes('switch') || lower.includes('electric') || lower.includes('fuse')) {
-                service = 'Electrical';
-                problem = 'Ceiling fan & switchboard repair';
-                tools = ['multimeter', 'wire stripper'];
-            } else if (lower.includes('bike') || lower.includes('scooter') || lower.includes('mechanic') || lower.includes('puncture')) {
-                service = 'Mechanics';
-                problem = 'Motorcycle starting & breakdown repair';
-                tools = ['spanner kit'];
-            } else if (lower.includes('door') || lower.includes('lock') || lower.includes('wood') || lower.includes('carpenter')) {
-                service = 'Carpentry';
-                problem = 'Door lock and wooden fitting repair';
-                tools = ['drill', 'chisels'];
-            } else if (lower.includes('ac') || lower.includes('fridge') || lower.includes('refrigerator')) {
-                service = 'AC & Appliances';
-                problem = 'Refrigerator cooling & AC service';
-                tools = ['gas gauge'];
+        // 1. WORKER SCHEDULE & AVAILABILITY INQUIRY (e.g. "What is this worker's schedule?", "Ramesh schedule enu?", "ರಮೇಶ್ ಶೆಡ್ಯೂಲ್ ಏನು?")
+        const isScheduleQuery = lower.includes('schedule') || lower.includes('timing') || lower.includes('hours') || 
+            lower.includes('samaya') || lower.includes('yavaaga') || lower.includes('ಯಾವಾಗ') || lower.includes('ಶೆಡ್ಯೂಲ್') || lower.includes('ಸಮಯ') ||
+            (lower.includes('when') && (lower.includes('free') || lower.includes('work') || lower.includes('available')));
+
+        if (isScheduleQuery && !lower.includes('my availability') && !lower.includes('update')) {
+            // Find worker mentioned or default to Ramesh / first active worker
+            const allWorkers = DB.getAllWorkers();
+            let targetWorker = allWorkers[0];
+            for (const w of allWorkers) {
+                const fName = w.name.toLowerCase().split(' ')[0];
+                if (lower.includes(fName) || raw.includes(w.name)) {
+                    targetWorker = w;
+                    break;
+                }
+            }
+            if (lower.includes('suresh') || raw.includes('ಸುರೇಶ್')) targetWorker = allWorkers.find(w => w.name.includes('Suresh')) || targetWorker;
+            if (lower.includes('anil') || raw.includes('ಅನಿಲ್')) targetWorker = allWorkers.find(w => w.name.includes('Anil')) || targetWorker;
+            if (lower.includes('manoj') || raw.includes('ಮನೋಜ್')) targetWorker = allWorkers.find(w => w.name.includes('Manoj')) || targetWorker;
+
+            const sched = DB.getWorkerSchedule(targetWorker.id);
+            const statusStr = targetWorker.is_available ? 'currently Available (On-Duty)' : 'currently Off-Duty';
+            
+            if (isKannadaScript) {
+                spokenResponse = `${targetWorker.name} (${targetWorker.trade}) ಅವರ ಕೆಲಸದ ಸಮಯ: ಸೋಮವಾರದಿಂದ ಶನಿವಾರದವರೆಗೆ ಬೆಳಿಗ್ಗೆ 8:30 ರಿಂದ ಸಂಜೆ 6:30 ರವರೆಗೆ. ಅವರು ಈಗ ಲಭ್ಯವಿದ್ದಾರೆ.`;
+            } else if (lower.includes('enu') || lower.includes('beku')) {
+                spokenResponse = `${targetWorker.name} (${targetWorker.trade}) avara timing: Monday to Saturday 8:30 AM to 6:30 PM. Iga ${targetWorker.area} nalli available iddini.`;
+            } else {
+                spokenResponse = `${targetWorker.name} (${targetWorker.trade}) works Mon–Sat 8:30 AM to 6:30 PM and is ${statusStr} in ${targetWorker.area}.`;
             }
 
-            const matchRes = AI_TOOLS.findMatchingWorkers({ service, problemDescription: problem, location: 'Ramanagara', requiredTools: tools });
-            const jobRes = AI_TOOLS.createJob({
-                customerPhone: callerPhone || '9876543210',
-                customerName: 'Phone Caller',
-                service,
-                problemDescription: problem,
-                location: lower.includes('vijaya') ? 'Vijaya Nagar, Ramanagara' : 'Ramanagara Town',
-                requestedTime: (lower.includes('today') || lower.includes('ivattu') || lower.includes('urgent')) ? 'Today Immediate' : 'Tomorrow Morning (10 AM)',
-                budget: '₹300–₹500'
-            });
+            return {
+                toolExecuted: 'getWorkerSchedule',
+                toolArgs: { workerId: targetWorker.id, workerName: targetWorker.name },
+                toolResult: { schedule: sched, worker: targetWorker },
+                cardType: 'workerSchedule',
+                cardData: { schedule: sched, worker: targetWorker },
+                spokenResponse,
+                callerRole: callerRole || 'customer'
+            };
+        }
 
-            const workerName = matchRes.recommendedWorker ? matchRes.recommendedWorker.name : 'Ramesh Kumar';
-            spokenResponse = `Namaskara! I found verified ${service} specialists in Ramanagara. I have dispatched your booking (${jobRes.jobId}) to ${workerName}, who is equipped with tools and available nearby.`;
+        // 2. DISCOVER NEARBY AVAILABLE WORKERS (e.g. "Show me workers available near me", "ಯಾರು ಲಭ್ಯವಿದ್ದಾರೆ", "Nearby workers")
+        const isDiscoverQuery = lower.includes('show me workers') || lower.includes('workers near') || lower.includes('available near') ||
+            lower.includes('nearby workers') || lower.includes('who is available') || lower.includes('list workers') ||
+            lower.includes('yaru available') || lower.includes('yaru iddare') || raw.includes('ಯಾರು ಲಭ್ಯ') || raw.includes('ಕೆಲಸಗಾರರು');
 
-            DB.addCallLog({
-                caller_phone: callerPhone,
-                caller_role: 'customer',
-                transcript: userSpeech,
-                intent_detected: `Book ${service}`,
-                actions_taken: JSON.stringify({ tool: 'createJob', args: jobRes, matched: matchRes }),
-                duration_seconds: 32,
-                status: 'Completed'
-            });
+        if (isDiscoverQuery) {
+            const availableWorkers = DB.getAllWorkers({ isAvailable: true });
+            
+            if (isKannadaScript) {
+                spokenResponse = `ರಾಮನಗರದಲ್ಲಿ ${availableWorkers.length} ಪರಿಣಿತ ಕೆಲಸಗಾರರು ಈಗ ಲಭ್ಯವಿದ್ದಾರೆ: ರಮೇಶ್ ಕುಮಾರ್ (ಎಲೆಕ್ಟ್ರಿಷಿಯನ್), ಸುರೇಶ್ ಗೌಡ (ಪ್ಲಂಬರ್), ಮನೋಜ್ (ಎಸಿ ಟೆಕ್). ನೀವು ನೇರವಾಗಿ ಆರ್ಡರ್ ಮಾಡಬಹುದು.`;
+            } else if (lower.includes('beku') || lower.includes('iddare')) {
+                spokenResponse = `Ramanagara dalli ${availableWorkers.length} verified workers available iddini: Ramesh (Electrician), Suresh (Plumber), Manoj (AC Tech). Neevu direct order madbahudu.`;
+            } else {
+                spokenResponse = `I found ${availableWorkers.length} verified local workers available right now in Ramanagara, including electricians, plumbers, mechanics, and appliance specialists.`;
+            }
 
             return {
-                toolExecuted: 'createJob',
-                toolArgs: { service, problem, location: 'Ramanagara' },
-                toolResult: { job: jobRes, match: matchRes },
+                toolExecuted: 'findWorkers',
+                toolArgs: { location: 'Ramanagara', availableOnly: true },
+                toolResult: { count: availableWorkers.length, workers: availableWorkers },
+                cardType: 'workerList',
+                cardData: { workers: availableWorkers },
                 spokenResponse,
                 callerRole: 'customer'
             };
         }
 
-        // 2. Worker Availability Spoken Intent (English, Kannada, Hindi)
-        if (lower.includes('available') || lower.includes('free') || lower.includes('duty') || lower.includes('iddini') || lower.includes('samaya') || (lower.includes('electrician') && (lower.includes('10') || lower.includes('am')))) {
+        // 3. CUSTOMER BOOKING / ORDER WORKER INTENT (English, Kannada script, Kanglish)
+        const isCustomerBooking = (callerRole === 'customer') ||
+            lower.includes('need') || lower.includes('want') || lower.includes('beku') || lower.includes('chahiye') ||
+            lower.includes('leak') || lower.includes('repair') || lower.includes('fix') || lower.includes('urgent') ||
+            lower.includes('book') || lower.includes('order') || lower.includes('fitting') || lower.includes('problem') ||
+            lower.includes('clean') || lower.includes('washing') || lower.includes('fridge') || lower.includes('fan') ||
+            raw.includes('ಬೇಕು') || raw.includes('ದುರಸ್ತಿ') || raw.includes('ಪ್ಲಂಬರ್') || raw.includes('ಎಲೆಕ್ಟ್ರಿಷಿಯನ್') || raw.includes('ಕೆಲಸ') ||
+            (lower.includes('plumber') && !lower.includes('i am a plumber') && !lower.includes('nan plumber')) ||
+            (lower.includes('electrician') && !lower.includes('i am an electrician') && !lower.includes('nan electrician'));
+
+        if (isCustomerBooking && !lower.includes('i am') && !lower.includes('available') && !lower.includes('iddini') && !lower.includes('duty')) {
+            let service = 'Electrical';
+            let problem = 'General Repair';
+            let tools = ['multimeter'];
+            let budget = '₹300–₹500';
+
+            if (lower.includes('plumb') || lower.includes('pipe') || lower.includes('tap') || lower.includes('leak') || lower.includes('motor') || lower.includes('tank') || lower.includes('neeru') || raw.includes('ಪ್ಲಂಬರ್') || raw.includes('ನೀರು') || raw.includes('ಸೋರಿಕೆ')) {
+                service = 'Plumbing';
+                problem = 'Water pipe leak & tap valve repair';
+                tools = ['pipe wrench', 'pressure tester'];
+                budget = '₹280–₹450';
+            } else if (lower.includes('washing') || lower.includes('machine') || lower.includes('fridge') || lower.includes('refrigerator') || lower.includes('ac') || lower.includes('appliance') || raw.includes('ವಾಷಿಂಗ್') || raw.includes('ಫ್ರಿಡ್ಜ್')) {
+                service = 'AC & Appliances';
+                problem = lower.includes('washing') ? 'Washing machine repair & motor check' : 'Refrigerator cooling & appliance service';
+                tools = ['gas gauge', 'motor tester'];
+                budget = '₹400–₹650';
+            } else if (lower.includes('clean') || lower.includes('house') || lower.includes('kitchen') || raw.includes('ಸ್ವಚ್ಛ')) {
+                service = 'Home Cleaning';
+                problem = 'Deep house & kitchen cleaning';
+                tools = ['vacuum cleaner', 'sanitizer kit'];
+                budget = '₹450–₹750';
+            } else if (lower.includes('fan') || lower.includes('wiring') || lower.includes('switch') || lower.includes('electric') || lower.includes('fuse') || raw.includes('ಎಲೆಕ್ಟ್ರಿಷಿಯನ್') || raw.includes('ಫ್ಯಾನ್') || raw.includes('ವೈರಿಂಗ್')) {
+                service = 'Electrical';
+                problem = 'Ceiling fan & switchboard wiring repair';
+                tools = ['multimeter', 'wire stripper'];
+                budget = '₹300–₹500';
+            } else if (lower.includes('bike') || lower.includes('scooter') || lower.includes('mechanic') || lower.includes('puncture') || raw.includes('ಮೆಕ್ಯಾನಿಕ್') || raw.includes('ಬೈಕ್')) {
+                service = 'Mechanics';
+                problem = 'Motorcycle starting & breakdown repair';
+                tools = ['spanner kit'];
+                budget = '₹250–₹400';
+            } else if (lower.includes('door') || lower.includes('lock') || lower.includes('wood') || lower.includes('carpenter') || raw.includes('ಬಡಗಿ') || raw.includes('ಬಾಗಿಲು')) {
+                service = 'Carpentry';
+                problem = 'Door lock and wooden furniture repair';
+                tools = ['drill', 'chisels'];
+                budget = '₹350–₹550';
+            }
+
+            const matchRes = AI_TOOLS.findMatchingWorkers({ service, problemDescription: problem, location: 'Ramanagara', requiredTools: tools });
+            const requestedTime = (lower.includes('today') || lower.includes('ivattu') || lower.includes('urgent') || raw.includes('ಇವತ್ತು')) ? 'Today (Immediate)' : 'Tomorrow Morning (10:00 AM)';
+            
+            const jobRes = AI_TOOLS.createJob({
+                customerPhone: callerPhone || '9876543210',
+                customerName: 'App User',
+                service,
+                problemDescription: problem,
+                location: lower.includes('vijaya') ? 'Vijaya Nagar, Ramanagara' : 'Ramanagara Town',
+                requestedTime,
+                budget
+            });
+
+            const workerName = matchRes.recommendedWorker ? matchRes.recommendedWorker.name : 'Ramesh Kumar';
+            
+            if (isKannadaScript) {
+                spokenResponse = `ನಮಸ್ಕಾರ! ನಿಮ್ಮ ${service} ಬುಕಿಂಗ್ (${jobRes.jobId}) ಸ್ವೀಕರಿಸಲಾಗಿದೆ. ರಾಮನಗರದ ಪರಿಣಿತ ${workerName} ಅವರಿಗೆ ಕೆಲಸ ನಿಗದಿಪಡಿಸಲಾಗಿದೆ (${requestedTime}).`;
+            } else if (lower.includes('beku') || lower.includes('madi') || lower.includes('kalsi')) {
+                spokenResponse = `Namaskara! Nimma ${service} booking (${jobRes.jobId}) confirm aagide. ${requestedTime} ge ${workerName} avaru nimma manege baruttare.`;
+            } else {
+                spokenResponse = `Namaskara! I have created your ${service} booking (${jobRes.jobId}) for ${requestedTime}. Assigned to nearby verified specialist ${workerName}.`;
+            }
+
+            DB.addCallLog({
+                caller_phone: callerPhone || '9876543210',
+                caller_role: 'customer',
+                transcript: userSpeech,
+                intent_detected: `Book ${service}`,
+                actions_taken: JSON.stringify({ tool: 'createJob', args: jobRes, matched: matchRes }),
+                duration_seconds: 28,
+                status: 'Completed'
+            });
+
+            return {
+                toolExecuted: 'createJob',
+                toolArgs: { service, problem, location: 'Ramanagara', requestedTime, budget },
+                toolResult: { job: jobRes, match: matchRes },
+                cardType: 'jobCreated',
+                cardData: { job: jobRes, matchedWorker: matchRes.recommendedWorker },
+                spokenResponse,
+                callerRole: 'customer'
+            };
+        }
+
+        // 4. WORKER AVAILABILITY UPDATE (English, Kannada script, Kanglish)
+        if (lower.includes('available') || lower.includes('free') || lower.includes('duty') || lower.includes('iddini') || lower.includes('samaya') || raw.includes('ಲಭ್ಯ') || (lower.includes('electrician') && (lower.includes('10') || lower.includes('am')))) {
             toolName = 'updateWorkerAvailability';
             let date = 'Tomorrow';
             let startTime = '10:00 AM';
             let endTime = '02:00 PM';
             let trade = 'Electrician';
 
-            if (lower.includes('plumb')) trade = 'Plumber';
-            if (lower.includes('carpenter')) trade = 'Carpenter';
-            if (lower.includes('mechanic')) trade = 'Mechanic';
-            if (lower.includes('today') || lower.includes('ivattu') || lower.includes('aaj')) date = 'Today';
+            if (lower.includes('plumb') || raw.includes('ಪ್ಲಂಬರ್')) trade = 'Plumber';
+            if (lower.includes('carpenter') || raw.includes('ಬಡಗಿ')) trade = 'Carpenter';
+            if (lower.includes('mechanic') || raw.includes('ಮೆಕ್ಯಾನಿಕ್')) trade = 'Mechanic';
+            if (lower.includes('today') || lower.includes('ivattu') || lower.includes('aaj') || raw.includes('ಇವತ್ತು')) date = 'Today';
             if (lower.includes('9') && lower.includes('6')) { startTime = '09:00 AM'; endTime = '06:00 PM'; }
 
             toolArgs = {
@@ -308,15 +408,22 @@ class AIAgent {
             };
 
             const result = AI_TOOLS.updateWorkerAvailability(toolArgs);
-            spokenResponse = `Namaskara! I have updated your availability as ${trade} for ${date} from ${startTime} to ${endTime}. Your status is now active in Ramanagara.`;
+            
+            if (isKannadaScript) {
+                spokenResponse = `ನಮಸ್ಕಾರ! ನಿಮ್ಮ ಲಭ್ಯತೆಯನ್ನು (${trade}) ${date} ${startTime} ರಿಂದ ${endTime} ವರೆಗೆ ಅಪ್ಡೇಟ್ ಮಾಡಲಾಗಿದೆ. ನೀವು ರಾಮನಗರದಲ್ಲಿ ಸಕ್ರಿಯರಾಗಿದ್ದೀರಿ.`;
+            } else if (lower.includes('iddini') || lower.includes('samaya')) {
+                spokenResponse = `Namaskara! Nimma availability (${trade}) ${date} ${startTime} to ${endTime} update aagide. Ramanagara customers ge nimma profile visible aagide.`;
+            } else {
+                spokenResponse = `Namaskara! I have updated your availability as ${trade} for ${date} from ${startTime} to ${endTime}. Your status is now active in Ramanagara.`;
+            }
 
             DB.addCallLog({
-                caller_phone: callerPhone,
+                caller_phone: callerPhone || '9845011223',
                 caller_role: 'worker',
                 transcript: userSpeech,
                 intent_detected: 'Update Worker Availability',
                 actions_taken: JSON.stringify({ tool: toolName, args: toolArgs, result }),
-                duration_seconds: 24,
+                duration_seconds: 22,
                 status: 'Completed'
             });
 
@@ -324,67 +431,53 @@ class AIAgent {
                 toolExecuted: toolName,
                 toolArgs,
                 toolResult: result,
+                cardType: 'availabilityUpdated',
+                cardData: result,
                 spokenResponse,
                 callerRole: 'worker'
             };
         }
 
-        // 3. Worker Onboarding Spoken Flow
-        if (lower.includes('join') || lower.includes('register') || (lower.includes('i am') && (lower.includes('plumber') || lower.includes('carpenter') || lower.includes('mechanic')))) {
-            const words = lower.split(' ');
-            const trade = lower.includes('plumber') ? 'Plumber' : lower.includes('carpenter') ? 'Carpenter' : lower.includes('electrician') ? 'Electrician' : 'General Skilled Worker';
-            const res = AI_TOOLS.createWorkerProfile({
-                name: 'Worker ' + (callerPhone ? callerPhone.slice(-4) : '9901'),
-                phone: callerPhone || '9845099887',
-                trade,
-                city: 'Ramanagara',
-                area: 'Town Market',
-                tools: 'Standard tool kit',
-                experienceYears: 4
-            });
-
-            spokenResponse = `Namaskara! Welcome to GigSync. I have registered your worker profile as ${trade} in Ramanagara. You can now tell me whenever you are free to work!`;
-
-            DB.addCallLog({
-                caller_phone: callerPhone,
-                caller_role: 'worker',
-                transcript: userSpeech,
-                intent_detected: 'Worker Onboarding',
-                actions_taken: JSON.stringify({ tool: 'createWorkerProfile', result: res }),
-                duration_seconds: 28,
-                status: 'Completed'
-            });
-
-            return {
-                toolExecuted: 'createWorkerProfile',
-                toolArgs: { trade },
-                toolResult: res,
-                spokenResponse,
-                callerRole: 'worker'
-            };
-        }
-
-        // 4. Job Status Check
-        if (lower.includes('status') || lower.includes('check') || lower.includes('when') || lower.includes('track')) {
+        // 5. JOB STATUS CHECK
+        if (lower.includes('status') || lower.includes('check') || lower.includes('track') || raw.includes('ಸ್ಥಿತಿ') || raw.includes('ಸ್ಟೇಟಸ್')) {
             const statusRes = AI_TOOLS.getJobStatus({ jobIdOrPhone: callerPhone });
             const firstJob = statusRes.jobs[0];
-            spokenResponse = firstJob ? `Your ${firstJob.service} job (${firstJob.id}) is currently ${firstJob.status}. Assigned to ${firstJob.worker || 'nearby workers'} for ${firstJob.time}.` : 'You currently have no active pending jobs.';
+            spokenResponse = firstJob ? `Your ${firstJob.service} job (${firstJob.id}) is currently ${firstJob.status}. Assigned to ${firstJob.worker || 'nearby workers'} for ${firstJob.time}.` : 'You currently have no active pending jobs in Ramanagara.';
 
             return {
                 toolExecuted: 'getJobStatus',
                 toolArgs: { callerPhone },
                 toolResult: statusRes,
+                cardType: 'jobStatus',
+                cardData: { jobs: statusRes.jobs },
                 spokenResponse,
                 callerRole: 'customer'
             };
         }
 
-        // 5. Default General Conversational Fallback
-        spokenResponse = `Namaskara! Welcome to GigSync AI local voice assistance for Ramanagara. You can speak to book a local electrician, plumber, carpenter or mechanic, or update your worker availability. How may I assist you?`;
+        // 6. DEFAULT GENERAL CONVERSATIONAL RESPONSE
+        if (isKannadaScript) {
+            spokenResponse = `ನಮಸ್ಕಾರ! ಗಿಗ್‌ಸಿಂಕ್ ಎಐ ಸಹಾಯವಾಣಿಗೆ ಸ್ವಾಗತ. ನೀವು ರಾಮನಗರದಲ್ಲಿ ಎಲೆಕ್ಟ್ರಿಷಿಯನ್, ಪ್ಲಂಬರ್, ಬಡಗಿ ಅಥವಾ ಮೆಕ್ಯಾನಿಕ್ ಬುಕ್ ಮಾಡಬಹುದು. ನಿಮಗೆ ಏನು ಸಹಾಯ ಬೇಕು?`;
+        } else if (lower.includes('enu') || lower.includes('beku') || lower.includes('namaskara')) {
+            spokenResponse = `Namaskara! GigSync AI assistant ge swagatha. Ramanagara dalli electrician, plumber, carpenter athava mechanic order madalu nimage hege sahayavagali?`;
+        } else {
+            spokenResponse = `Namaskara! Welcome to GigSync AI. You can ask me to find workers, check worker schedules, or book a plumber, electrician, mechanic, carpenter or cleaner in Ramanagara. How can I help you today?`;
+        }
+
         return {
             toolExecuted: 'generalInquiry',
-            toolArgs: {},
-            toolResult: { message: 'General welcome prompt' },
+            toolArgs: { query: userSpeech },
+            toolResult: { message: 'General conversational response' },
+            cardType: 'generalHelp',
+            cardData: {
+                suggestions: [
+                    '“I need a plumber tomorrow morning.”',
+                    '“Nanage electrician beku.”',
+                    '“Show me workers available near me.”',
+                    '“What is Ramesh Kumar\'s schedule?”',
+                    '“Create a job for repairing my washing machine.”'
+                ]
+            },
             spokenResponse,
             callerRole: callerRole || 'customer'
         };

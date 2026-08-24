@@ -339,6 +339,31 @@ const DB = {
         };
     },
 
+    getWorkerSchedule(workerIdOrPhone) {
+        let worker;
+        if (typeof workerIdOrPhone === 'number' || !isNaN(Number(workerIdOrPhone))) {
+            worker = this.getWorkerById(Number(workerIdOrPhone));
+        } else {
+            worker = this.getWorkerByPhone(workerIdOrPhone);
+        }
+        if (!worker) return null;
+
+        const clean = String(worker.phone).replace(/\D/g, '').slice(-10);
+        const availList = db.prepare('SELECT * FROM worker_availability WHERE worker_phone LIKE ? ORDER BY updated_at DESC LIMIT 5').all(`%${clean}%`);
+        
+        return {
+            workerId: worker.id,
+            name: worker.name,
+            trade: worker.trade,
+            isAvailable: Boolean(worker.is_available),
+            hours: '08:30 AM – 06:30 PM (Mon–Sat)',
+            activeSlots: availList.length > 0 ? availList : [
+                { date_str: 'Today', start_time: '08:30 AM', end_time: '06:30 PM', is_available: worker.is_available, notes: 'Regular on-duty hours' },
+                { date_str: 'Tomorrow', start_time: '09:00 AM', end_time: '05:00 PM', is_available: 1, notes: 'Available for nearby booking' }
+            ]
+        };
+    },
+
     // Jobs
     getAllJobs(status = null) {
         if (status) {
