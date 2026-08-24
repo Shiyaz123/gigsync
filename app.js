@@ -1109,9 +1109,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 aiSpeechRecognizer.onerror = (err) => {
                     console.warn('[Speech Recognition Info]:', err.error);
                     if (err.error === 'network') {
-                        // Brave or privacy firewall blocking Google cloud speech - gracefully switch to Direct Audio MediaRecorder mode
+                        // Brave Browser or firewall blocking Google cloud speech endpoint
                         speechRecNetworkBlocked = true;
-                        if (liveText) liveText.textContent = '🎙️ Recording audio directly via microphone...';
+                        if (liveText) liveText.textContent = '⚠️ Voice server unreachable. Type below or click a prompt:';
+                        toast('Tip: If using Brave, Google Speech Services is blocked by default. You can type or click quick prompts.');
                     } else if (err.error === 'not-allowed') {
                         toast('Microphone permission blocked. Please allow mic in browser settings.');
                         stopAiModalListening(false);
@@ -1128,7 +1129,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 aiSpeechRecognizer.start();
             } catch (e) {
-                console.warn('Speech recognizer fallback to direct audio recording.');
+                console.warn('Speech recognizer fallback.');
             }
         }
     }
@@ -1161,13 +1162,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (send) {
             if (captured) {
                 sendAiTurn(captured);
-            } else if (aiAudioChunks.length > 0) {
-                // Direct Audio Capture Succeeded (e.g. on Brave/Firefox)
-                toast('🎙️ Voice audio recorded and submitted!');
-                sendAiTurn("I need an on-duty specialist in Ramanagara");
             } else {
-                toast('No voice detected. Please speak into your mic or type below.');
-                if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = 'No voice detected. Try speaking again or type below:';
+                toast('No voice text transcribed. You can type your request or click a quick prompt below.');
+                if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = 'Type your question or click a prompt below:';
                 document.getElementById('aiModalTextInput')?.focus();
             }
         }
