@@ -1001,21 +1001,66 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('homeTalkAiActionBtn')?.addEventListener('click', openAiVoiceModal);
     document.getElementById('closeAiVoiceModalBtn')?.addEventListener('click', closeAiVoiceModal);
 
-    function startAiModalListening() {
+    let aiAudioStream = null;
+    let aiAudioCtx = null;
+
+    async function startAiModalListening() {
+        accumulatedAiSpeech = '';
+        const livePill = document.getElementById('aiLiveStreamTranscript');
+        const liveText = document.getElementById('aiLiveStreamText');
+
+        // 1. Request Browser Microphone Hardware Access
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            try {
+                aiAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // Web Audio volume visualizer
+                try {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    if (AudioContext) {
+                        aiAudioCtx = new AudioContext();
+                        const source = aiAudioCtx.createMediaStreamSource(aiAudioStream);
+                        const analyser = aiAudioCtx.createAnalyser();
+                        analyser.fftSize = 32;
+                        source.connect(analyser);
+                        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+                        function animateWave() {
+                            if (!state.isAiModalRecording) return;
+                            analyser.getByteFrequencyData(dataArray);
+                            const bars = document.querySelectorAll('#aiModalWaveBars .bar');
+                            bars.forEach((b, i) => {
+                                const level = dataArray[i % dataArray.length] || 0;
+                                const h = Math.max(6, Math.min(28, (level / 255) * 32));
+                                b.style.height = `${h}px`;
+                            });
+                            requestAnimationFrame(animateWave);
+                        }
+                        animateWave();
+                    }
+                } catch(e){}
+            } catch (permErr) {
+                console.warn('Microphone permission status:', permErr);
+                toast('Please allow microphone permissions in your browser URL bar.');
+                if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '⚠️ Mic access required. Click mic or type below.';
+                return;
+            }
+        }
+
         const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRec) {
-            toast('Live speech input is not supported in this browser. Please use Chrome/Edge or click a quick prompt.');
+            toast('Web Speech API is not supported or disabled in this browser. You can type in the box below!');
+            if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = 'Type your requirement in the input box below:';
+            document.getElementById('aiModalTextInput')?.focus();
             return;
         }
 
-        accumulatedAiSpeech = '';
         state.isAiModalRecording = true;
         aiModalBigMicBtn?.classList.add('recording');
         aiModalWaveBars?.classList.remove('hidden');
-        if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🔴 Listening... Click mic again when finished speaking';
+        if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🔴 Listening... Click mic again when done';
 
-        if (aiLiveStreamTranscript) aiLiveStreamTranscript.classList.remove('hidden');
-        if (aiLiveStreamText) aiLiveStreamText.textContent = 'Listening... Speak in Kannada, English, or Hindi';
+        if (livePill) livePill.classList.remove('hidden');
+        if (liveText) liveText.textContent = 'Listening... Speak in Kannada, English, or Hindi';
 
         try {
             if (aiSpeechRecognizer) {
@@ -1026,7 +1071,7 @@ document.addEventListener('DOMContentLoaded', () => {
             aiSpeechRecognizer.continuous = true;
             aiSpeechRecognizer.interimResults = true;
             aiSpeechRecognizer.maxAlternatives = 1;
-            aiSpeechRecognizer.lang = 'kn-IN'; // Accepts Kannada and Indian English accents
+            aiSpeechRecognizer.lang = 'kn-IN'; // Kannada / Indian English
 
             aiSpeechRecognizer.onresult = (event) => {
                 let interim = '';
@@ -1038,24 +1083,26 @@ document.addEventListener('DOMContentLoaded', () => {
                         interim += event.results[i][0].transcript;
                     }
                 }
-                const liveText = (final + interim).trim();
-                accumulatedAiSpeech = liveText;
+                const liveTextCaptured = (final + interim).trim();
+                accumulatedAiSpeech = liveTextCaptured;
 
-                if (aiLiveStreamText && liveText) {
-                    aiLiveStreamText.textContent = `"${liveText}"`;
+                if (liveText && liveTextCaptured) {
+                    liveText.textContent = `"${liveTextCaptured}"`;
                 }
             };
 
             aiSpeechRecognizer.onerror = (err) => {
-                console.warn('[Speech Recognition Event]:', err.error);
-                if (err.error === 'not-allowed') {
-                    toast('Microphone access blocked. Please allow mic permissions in your browser URL bar.');
+                console.warn('[Speech Recognition Warning]:', err.error);
+                if (err.error === 'language-not-supported' && aiSpeechRecognizer.lang !== 'en-IN') {
+                    aiSpeechRecognizer.lang = 'en-IN';
+                    try { aiSpeechRecognizer.start(); } catch(e){}
+                } else if (err.error === 'not-allowed') {
+                    toast('Microphone permission blocked. Please allow mic in browser settings.');
                     stopAiModalListening(false);
                 }
             };
 
             aiSpeechRecognizer.onend = () => {
-                // Keep listening continuously until the user explicitly toggles the mic off
                 if (state.isAiModalRecording) {
                     try {
                         aiSpeechRecognizer.start();
@@ -1066,6 +1113,7 @@ document.addEventListener('DOMContentLoaded', () => {
             aiSpeechRecognizer.start();
         } catch (e) {
             console.error('Error starting speech recognizer:', e);
+            toast('Could not start speech recognition. You can type below!');
             stopAiModalListening(false);
         }
     }
@@ -1076,10 +1124,19 @@ document.addEventListener('DOMContentLoaded', () => {
         aiModalWaveBars?.classList.add('hidden');
         if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = 'Click microphone to start speaking';
 
-        if (aiLiveStreamTranscript) aiLiveStreamTranscript.classList.add('hidden');
+        const livePill = document.getElementById('aiLiveStreamTranscript');
+        if (livePill) livePill.classList.add('hidden');
 
         if (aiSpeechRecognizer) {
             try { aiSpeechRecognizer.stop(); } catch(e){}
+        }
+        if (aiAudioStream) {
+            try { aiAudioStream.getTracks().forEach(t => t.stop()); } catch(e){}
+            aiAudioStream = null;
+        }
+        if (aiAudioCtx) {
+            try { aiAudioCtx.close(); } catch(e){}
+            aiAudioCtx = null;
         }
 
         const captured = accumulatedAiSpeech.trim();
@@ -1093,6 +1150,27 @@ document.addEventListener('DOMContentLoaded', () => {
             stopAiModalListening(true);
         } else {
             startAiModalListening();
+        }
+    });
+
+    // AI Modal Text Input Submit Handler
+    document.getElementById('aiModalSendBtn')?.addEventListener('click', () => {
+        const input = document.getElementById('aiModalTextInput');
+        const text = input?.value.trim();
+        if (text) {
+            input.value = '';
+            sendAiTurn(text);
+        }
+    });
+
+    document.getElementById('aiModalTextInput')?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            const input = document.getElementById('aiModalTextInput');
+            const text = input?.value.trim();
+            if (text) {
+                input.value = '';
+                sendAiTurn(text);
+            }
         }
     });
 
