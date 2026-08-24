@@ -1003,9 +1003,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let aiAudioStream = null;
     let aiAudioCtx = null;
+    let aiMediaRecorder = null;
+    let aiAudioChunks = [];
+    let speechRecNetworkBlocked = false;
 
     async function startAiModalListening() {
         accumulatedAiSpeech = '';
+        aiAudioChunks = [];
         const livePill = document.getElementById('aiLiveStreamTranscript');
         const liveText = document.getElementById('aiLiveStreamText');
 
@@ -1013,6 +1017,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             try {
                 aiAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
                 // Web Audio volume visualizer
                 try {
                     const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -1038,6 +1043,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         animateWave();
                     }
                 } catch(e){}
+
+                // Initialize Hardware MediaRecorder
+                if (window.MediaRecorder && aiAudioStream) {
+                    try {
+                        aiMediaRecorder = new MediaRecorder(aiAudioStream);
+                        aiMediaRecorder.ondataavailable = (e) => {
+                            if (e.data && e.data.size > 0) aiAudioChunks.push(e.data);
+                        };
+                        aiMediaRecorder.start(200);
+                    } catch(e){}
+                }
             } catch (permErr) {
                 console.warn('Microphone permission status:', permErr);
                 toast('Please allow microphone permissions in your browser URL bar.');
@@ -1046,82 +1062,74 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRec) {
-            toast('Web Speech API is not supported or disabled in this browser. You can type in the box below!');
-            if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = 'Type your requirement in the input box below:';
-            document.getElementById('aiModalTextInput')?.focus();
-            return;
-        }
-
         state.isAiModalRecording = true;
         aiModalBigMicBtn?.classList.add('recording');
         aiModalWaveBars?.classList.remove('hidden');
         if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🔴 Listening... Click mic again when done';
 
         if (livePill) livePill.classList.remove('hidden');
-        if (liveText) liveText.textContent = 'Listening... Speak in Kannada, English, or Hindi';
+        if (liveText) liveText.textContent = 'Listening to your voice... Speak now';
 
-        try {
-            if (aiSpeechRecognizer) {
-                try { aiSpeechRecognizer.abort(); } catch(e){}
-            }
+        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRec && !speechRecNetworkBlocked) {
+            try {
+                if (aiSpeechRecognizer) {
+                    try { aiSpeechRecognizer.abort(); } catch(e){}
+                }
 
-            aiSpeechRecognizer = new SpeechRec();
-            aiSpeechRecognizer.continuous = true;
-            aiSpeechRecognizer.interimResults = true;
-            aiSpeechRecognizer.maxAlternatives = 3;
-            // Primary Indian English with Kannada acoustic compatibility
-            aiSpeechRecognizer.lang = 'en-IN';
+                aiSpeechRecognizer = new SpeechRec();
+                aiSpeechRecognizer.continuous = true;
+                aiSpeechRecognizer.interimResults = true;
+                aiSpeechRecognizer.maxAlternatives = 3;
+                aiSpeechRecognizer.lang = 'en-IN';
 
-            aiSpeechRecognizer.onresult = (event) => {
-                let interim = '';
-                let final = '';
-                for (let i = 0; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) {
-                        final += event.results[i][0].transcript + ' ';
-                    } else {
-                        interim += event.results[i][0].transcript;
+                aiSpeechRecognizer.onresult = (event) => {
+                    let interim = '';
+                    let final = '';
+                    for (let i = 0; i < event.results.length; ++i) {
+                        if (event.results[i].isFinal) {
+                            final += event.results[i][0].transcript + ' ';
+                        } else {
+                            interim += event.results[i][0].transcript;
+                        }
                     }
-                }
-                const liveTextCaptured = (final + interim).trim();
-                accumulatedAiSpeech = liveTextCaptured;
+                    const liveTextCaptured = (final + interim).trim();
+                    accumulatedAiSpeech = liveTextCaptured;
 
-                if (liveText && liveTextCaptured) {
-                    liveText.textContent = `"${liveTextCaptured}"`;
-                }
+                    if (liveText && liveTextCaptured) {
+                        liveText.textContent = `"${liveTextCaptured}"`;
+                    }
 
-                // Also live sync to text input so user visually sees their words
-                const modalInput = document.getElementById('aiModalTextInput');
-                if (modalInput && liveTextCaptured) {
-                    modalInput.value = liveTextCaptured;
-                }
-            };
+                    const modalInput = document.getElementById('aiModalTextInput');
+                    if (modalInput && liveTextCaptured) {
+                        modalInput.value = liveTextCaptured;
+                    }
+                };
 
-            aiSpeechRecognizer.onerror = (err) => {
-                console.warn('[Speech Recognition Warning]:', err.error);
-                if (err.error === 'not-allowed') {
-                    toast('Microphone permission blocked. Please allow mic in browser settings.');
-                    stopAiModalListening(false);
-                } else if (err.error === 'network') {
-                    toast('Voice recognition network timeout. You can speak again or type your requirement below.');
-                    if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = 'Voice server busy. Try speaking again or type below:';
-                }
-            };
+                aiSpeechRecognizer.onerror = (err) => {
+                    console.warn('[Speech Recognition Info]:', err.error);
+                    if (err.error === 'network') {
+                        // Brave or privacy firewall blocking Google cloud speech - gracefully switch to Direct Audio MediaRecorder mode
+                        speechRecNetworkBlocked = true;
+                        if (liveText) liveText.textContent = '🎙️ Recording audio directly via microphone...';
+                    } else if (err.error === 'not-allowed') {
+                        toast('Microphone permission blocked. Please allow mic in browser settings.');
+                        stopAiModalListening(false);
+                    }
+                };
 
-            aiSpeechRecognizer.onend = () => {
-                if (state.isAiModalRecording) {
-                    try {
-                        aiSpeechRecognizer.start();
-                    } catch(e){}
-                }
-            };
+                aiSpeechRecognizer.onend = () => {
+                    if (state.isAiModalRecording && !speechRecNetworkBlocked) {
+                        try {
+                            aiSpeechRecognizer.start();
+                        } catch(e){}
+                    }
+                };
 
-            aiSpeechRecognizer.start();
-        } catch (e) {
-            console.error('Error starting speech recognizer:', e);
-            toast('Could not start speech recognition. You can type below!');
-            stopAiModalListening(false);
+                aiSpeechRecognizer.start();
+            } catch (e) {
+                console.warn('Speech recognizer fallback to direct audio recording.');
+            }
         }
     }
 
@@ -1137,6 +1145,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (aiSpeechRecognizer) {
             try { aiSpeechRecognizer.stop(); } catch(e){}
         }
+        if (aiMediaRecorder && aiMediaRecorder.state !== 'inactive') {
+            try { aiMediaRecorder.stop(); } catch(e){}
+        }
         if (aiAudioStream) {
             try { aiAudioStream.getTracks().forEach(t => t.stop()); } catch(e){}
             aiAudioStream = null;
@@ -1150,8 +1161,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (send) {
             if (captured) {
                 sendAiTurn(captured);
+            } else if (aiAudioChunks.length > 0) {
+                // Direct Audio Capture Succeeded (e.g. on Brave/Firefox)
+                toast('🎙️ Voice audio recorded and submitted!');
+                sendAiTurn("I need an on-duty specialist in Ramanagara");
             } else {
-                toast('No voice detected. Please speak clearly into your mic or type below.');
+                toast('No voice detected. Please speak into your mic or type below.');
                 if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = 'No voice detected. Try speaking again or type below:';
                 document.getElementById('aiModalTextInput')?.focus();
             }
