@@ -1070,8 +1070,9 @@ document.addEventListener('DOMContentLoaded', () => {
             aiSpeechRecognizer = new SpeechRec();
             aiSpeechRecognizer.continuous = true;
             aiSpeechRecognizer.interimResults = true;
-            aiSpeechRecognizer.maxAlternatives = 1;
-            aiSpeechRecognizer.lang = 'kn-IN'; // Kannada / Indian English
+            aiSpeechRecognizer.maxAlternatives = 3;
+            // Primary Indian English with Kannada acoustic compatibility
+            aiSpeechRecognizer.lang = 'en-IN';
 
             aiSpeechRecognizer.onresult = (event) => {
                 let interim = '';
@@ -1089,16 +1090,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (liveText && liveTextCaptured) {
                     liveText.textContent = `"${liveTextCaptured}"`;
                 }
+
+                // Also live sync to text input so user visually sees their words
+                const modalInput = document.getElementById('aiModalTextInput');
+                if (modalInput && liveTextCaptured) {
+                    modalInput.value = liveTextCaptured;
+                }
             };
 
             aiSpeechRecognizer.onerror = (err) => {
                 console.warn('[Speech Recognition Warning]:', err.error);
-                if (err.error === 'language-not-supported' && aiSpeechRecognizer.lang !== 'en-IN') {
-                    aiSpeechRecognizer.lang = 'en-IN';
-                    try { aiSpeechRecognizer.start(); } catch(e){}
-                } else if (err.error === 'not-allowed') {
+                if (err.error === 'not-allowed') {
                     toast('Microphone permission blocked. Please allow mic in browser settings.');
                     stopAiModalListening(false);
+                } else if (err.error === 'network') {
+                    toast('Voice recognition network timeout. You can speak again or type your requirement below.');
+                    if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = 'Voice server busy. Try speaking again or type below:';
                 }
             };
 
@@ -1139,9 +1146,15 @@ document.addEventListener('DOMContentLoaded', () => {
             aiAudioCtx = null;
         }
 
-        const captured = accumulatedAiSpeech.trim();
-        if (send && captured) {
-            sendAiTurn(captured);
+        const captured = accumulatedAiSpeech.trim() || document.getElementById('aiModalTextInput')?.value.trim();
+        if (send) {
+            if (captured) {
+                sendAiTurn(captured);
+            } else {
+                toast('No voice detected. Please speak clearly into your mic or type below.');
+                if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = 'No voice detected. Try speaking again or type below:';
+                document.getElementById('aiModalTextInput')?.focus();
+            }
         }
     }
 
