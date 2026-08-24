@@ -150,6 +150,19 @@
                                 </div>
                             </div>
 
+                            <!-- Admin Secret Security Key Field (Shown only when Admin is selected) -->
+                            <div id="gAdminSecretGroup" class="hidden">
+                                <div class="form-group">
+                                    <label class="form-label" style="color:var(--gs-indigo);font-weight:750">
+                                        <i class="fa-solid fa-key"></i> Master Admin Security Key
+                                    </label>
+                                    <input type="password" id="gAdminSecretInput" class="form-control" placeholder="Enter admin master passcode">
+                                    <small style="font-size:11.5px;color:var(--gs-muted);display:block;margin-top:4px">
+                                        🛡️ Admin accounts are restricted to platform operators.
+                                    </small>
+                                </div>
+                            </div>
+
                             <div class="form-group" id="gCityGroup">
                                 <label class="form-label">City / Town</label>
                                 <select id="gCitySelect" class="form-control">

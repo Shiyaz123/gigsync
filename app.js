@@ -1060,6 +1060,16 @@ Date of Verification: ${new Date().toLocaleDateString('en-IN')}
         document.getElementById('gRoleCardAdmin')?.classList.toggle('active', role === 'admin');
 
         document.getElementById('gWorkerExtraFields')?.classList.toggle('hidden', role !== 'worker' || gatewayAuthMode === 'login');
+        document.getElementById('gAdminSecretGroup')?.classList.toggle('hidden', role !== 'admin' || gatewayAuthMode === 'login');
+
+        const formTitle = document.getElementById('gatewayFormTitle');
+        if (role === 'admin') {
+            if (formTitle) formTitle.textContent = gatewayAuthMode === 'register' ? 'Provision Administrator Account' : 'Admin Gateway Authentication';
+        } else if (role === 'worker') {
+            if (formTitle) formTitle.textContent = gatewayAuthMode === 'register' ? 'Create Worker Trade Account' : 'Worker Workspace Sign In';
+        } else {
+            if (formTitle) formTitle.textContent = gatewayAuthMode === 'register' ? 'Create Customer Account' : 'Customer Sign In';
+        }
     }
 
     function setGatewayMode(mode) {
@@ -1070,11 +1080,20 @@ Date of Verification: ${new Date().toLocaleDateString('en-IN')}
         document.getElementById('gTabRegister')?.classList.toggle('active', isReg);
         document.getElementById('gNameGroup')?.classList.toggle('hidden', !isReg);
         document.getElementById('gWorkerExtraFields')?.classList.toggle('hidden', selectedGatewayRole !== 'worker' || !isReg);
+        document.getElementById('gAdminSecretGroup')?.classList.toggle('hidden', selectedGatewayRole !== 'admin' || !isReg);
 
         const formTitle = document.getElementById('gatewayFormTitle');
         const submitBtn = document.getElementById('gAuthSubmitBtn');
 
-        if (formTitle) formTitle.textContent = isReg ? 'Create Your GigSync Account' : 'Sign In to GigSync';
+        if (formTitle) {
+            if (selectedGatewayRole === 'admin') {
+                formTitle.textContent = isReg ? 'Provision Administrator Account' : 'Admin Gateway Authentication';
+            } else if (selectedGatewayRole === 'worker') {
+                formTitle.textContent = isReg ? 'Create Worker Trade Account' : 'Worker Workspace Sign In';
+            } else {
+                formTitle.textContent = isReg ? 'Create Customer Account' : 'Customer Sign In';
+            }
+        }
         if (submitBtn) submitBtn.textContent = isReg ? 'Create Account & Enter' : 'Sign In';
     }
 
@@ -1101,8 +1120,15 @@ Date of Verification: ${new Date().toLocaleDateString('en-IN')}
         const city = document.getElementById('gCitySelect')?.value || state.city;
         const trade = document.getElementById('gWorkerTradeSelect')?.value || 'Master Electrician';
         const tools = document.getElementById('gWorkerTools')?.value || 'Standard tool kit';
+        const adminSecret = document.getElementById('gAdminSecretInput')?.value.trim();
 
         if (gatewayAuthMode === 'register') {
+            if (selectedGatewayRole === 'admin' && !adminSecret) {
+                errEl.textContent = 'A valid Master Admin Security Key is required to create an Administrator account.';
+                errEl.classList.remove('hidden');
+                return;
+            }
+
             const res = await apiFetch('/api/auth/register', {
                 method: 'POST',
                 body: JSON.stringify({
@@ -1112,7 +1138,8 @@ Date of Verification: ${new Date().toLocaleDateString('en-IN')}
                     role: selectedGatewayRole,
                     city,
                     trade,
-                    tools
+                    tools,
+                    adminSecret
                 })
             });
 

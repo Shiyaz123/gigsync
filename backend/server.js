@@ -94,6 +94,18 @@ const server = http.createServer(async (req, res) => {
             return sendJSON(res, { status: 'error', message: 'An account with this phone number already exists. Please log in.' }, 409);
         }
 
+        // Security Check: Restrict Admin Registration
+        if (body.role === 'admin') {
+            const adminSecret = body.adminSecret || body.admin_secret || '';
+            const validSecret = process.env.ADMIN_SECRET_KEY || 'gigsync@admin2026';
+            if (adminSecret !== validSecret) {
+                return sendJSON(res, {
+                    status: 'error',
+                    message: 'Access Denied: A valid Master Admin Security Key is required to create an Administrator account.'
+                }, 403);
+            }
+        }
+
         const user = DB.createUser({
             name: body.name.trim(),
             phone: cleanPhone,
