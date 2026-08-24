@@ -1,69 +1,126 @@
 /* ==========================================================================
-   GigSync — Central SQLite Database Layer
+   GigSync — Central SQLite Database Layer (Real Backend Persistence)
    Zero-external-dependency persistence using native Node.js SQLite
+   No dummy users, no pre-seeded mock records.
    ========================================================================== */
 
 const { DatabaseSync } = require('node:sqlite');
 const path = require('node:path');
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 
 const DB_PATH = path.join(__dirname, '..', 'gigsync.db');
 const db = new DatabaseSync(DB_PATH);
 
-// Initialize Tables
+// Helper for unique Job IDs (e.g. GS-1048)
+function generateJobId() {
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    return `GS-${rand}`;
+}
+
+// Password hashing helper
+function hashPassword(password) {
+    return crypto.scryptSync(password, 'gigsync_salt_tier2', 32).toString('hex');
+}
+
+function verifyPassword(password, hash) {
+    const hashedAttempt = crypto.scryptSync(password, 'gigsync_salt_tier2', 32).toString('hex');
+    return hashedAttempt === hash;
+}
+
+// Initialize Database Tables
 function initDatabase() {
     db.exec(`
         PRAGMA foreign_keys = ON;
 
-        CREATE TABLE IF NOT EXISTS workers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            phone TEXT NOT NULL UNIQUE,
-            trade TEXT NOT NULL,
-            service TEXT NOT NULL,
-            rating REAL DEFAULT 4.8,
-            km REAL DEFAULT 1.5,
-            jobs_completed INTEGER DEFAULT 0,
-            experience_years INTEGER DEFAULT 1,
-            price INTEGER DEFAULT 300,
-            is_available INTEGER DEFAULT 1,
-            is_verified INTEGER DEFAULT 1,
-            tools TEXT NOT NULL,
-            initials TEXT NOT NULL,
-            city TEXT NOT NULL DEFAULT 'Ramanagara',
-            area TEXT NOT NULL DEFAULT 'Vijaya Nagar',
-            about TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS customers (
+        CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             phone TEXT NOT NULL UNIQUE,
             email TEXT,
+            role TEXT NOT NULL CHECK(role IN ('customer', 'worker', 'admin')),
+            password_hash TEXT NOT NULL,
             city TEXT NOT NULL DEFAULT 'Ramanagara',
-            area TEXT NOT NULL DEFAULT 'Vijaya Nagar',
+            area TEXT NOT NULL DEFAULT 'Town',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            phone TEXT NOT NULL,
+            role TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS workers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER UNIQUE,
+            name TEXT NOT NULL,
+            phone TEXT NOT NULL UNIQUE,
+            trade TEXT NOT NULL,
+            service TEXT NOT NULL,
+            skills TEXT DEFAULT '',
+            tools TEXT DEFAULT 'Standard tool kit',
+            rating REAL DEFAULT 5.0,
+            km REAL DEFAULT 1.5,
+            jobs_completed INTEGER DEFAULT 0,
+            experience_years INTEGER DEFAULT 2,
+            price INTEGER DEFAULT 300,
+            is_available INTEGER DEFAULT 1,
+            is_verified INTEGER DEFAULT 1,
+            initials TEXT NOT NULL,
+            city TEXT NOT NULL DEFAULT 'Ramanagara',
+            area TEXT NOT NULL DEFAULT 'Town',
+            service_areas TEXT NOT NULL DEFAULT 'Ramanagara, Nearby Areas',
+            about TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS customers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER UNIQUE,
+            name TEXT NOT NULL,
+            phone TEXT NOT NULL UNIQUE,
+            email TEXT,
+            city TEXT NOT NULL DEFAULT 'Ramanagara',
+            area TEXT NOT NULL DEFAULT 'Town',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
         );
 
         CREATE TABLE IF NOT EXISTS jobs (
             id TEXT PRIMARY KEY,
+            customer_id INTEGER,
             customer_phone TEXT NOT NULL,
             customer_name TEXT NOT NULL,
+            worker_id INTEGER,
+            worker_phone TEXT,
+            worker_name TEXT,
             service TEXT NOT NULL,
             problem_description TEXT NOT NULL,
             location TEXT NOT NULL,
-            requested_time TEXT NOT NULL,
+            city TEXT NOT NULL DEFAULT 'Ramanagara',
+            requested_date TEXT NOT NULL DEFAULT 'Today',
+            requested_time TEXT NOT NULL DEFAULT 'Immediate',
             budget TEXT NOT NULL,
-            worker_id INTEGER,
-            worker_name TEXT,
+            final_price INTEGER,
             status TEXT DEFAULT 'Requested',
+            payment_status TEXT DEFAULT 'Pending',
+            payment_method TEXT DEFAULT 'Cash',
+            rating INTEGER,
+            review TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (worker_id) REFERENCES workers(id)
+            completed_at DATETIME,
+            FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE SET NULL,
+            FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
         );
 
         CREATE TABLE IF NOT EXISTS worker_availability (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            worker_id INTEGER,
             worker_phone TEXT NOT NULL,
             trade TEXT NOT NULL,
             date_str TEXT NOT NULL,
@@ -71,7 +128,8 @@ function initDatabase() {
             end_time TEXT NOT NULL,
             is_available INTEGER DEFAULT 1,
             notes TEXT,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS call_logs (
@@ -86,186 +144,116 @@ function initDatabase() {
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         );
     `);
-
-    // Seed Initial Workers if table is empty
-    const countRow = db.prepare('SELECT COUNT(*) as count FROM workers').get();
-    if (countRow.count === 0) {
-        const seedWorkers = [
-            {
-                name: 'Ramesh Kumar',
-                phone: '9845011223',
-                trade: 'Master Electrician',
-                service: 'electrical',
-                rating: 4.8,
-                km: 1.2,
-                jobs_completed: 126,
-                experience_years: 5,
-                price: 300,
-                is_available: 1,
-                is_verified: 1,
-                tools: 'Digital Multimeter, Impact Drill, Wire Stripper Kit, Safety Gloves',
-                initials: 'RK',
-                city: 'Ramanagara',
-                area: 'Vijaya Nagar',
-                about: 'Ramesh has been serving households and retail shops across Ramanagara and Channapatna for 5 years. Expert in house wiring, inverter battery systems, ceiling fans, and fuse boards.'
-            },
-            {
-                name: 'Suresh Gowda',
-                phone: '9845022334',
-                trade: 'Plumbing & Motor Specialist',
-                service: 'plumbing',
-                rating: 4.7,
-                km: 1.8,
-                jobs_completed: 98,
-                experience_years: 7,
-                price: 280,
-                is_available: 1,
-                is_verified: 1,
-                tools: 'Heavy Pipe Wrench, Thread Sealer, Pipe Cutter, Motor Pressure Tester',
-                initials: 'SG',
-                city: 'Ramanagara',
-                area: 'Town Market Ward',
-                about: 'Specialist in bathroom fixtures, overhead water tank piping, and submersible pump repairs across Ramanagara.'
-            },
-            {
-                name: 'Anil Prasad',
-                phone: '9845033445',
-                trade: 'General Carpenter',
-                service: 'carpentry',
-                rating: 4.6,
-                km: 3.1,
-                jobs_completed: 74,
-                experience_years: 4,
-                price: 350,
-                is_available: 0,
-                is_verified: 1,
-                tools: 'Circular Saw, Wood Chisels, Router, Hand Plane, Drill Kit',
-                initials: 'AP',
-                city: 'Ramanagara',
-                area: 'Channapatna Link',
-                about: 'Custom door fittings, lock replacements, window framing, and modular kitchen repair for homes and village houses.'
-            },
-            {
-                name: 'Manoj N.',
-                phone: '9845044556',
-                trade: 'AC & Refrigerator Tech',
-                service: 'ac',
-                rating: 4.9,
-                km: 2.4,
-                jobs_completed: 151,
-                experience_years: 8,
-                price: 450,
-                is_available: 1,
-                is_verified: 1,
-                tools: 'Gas Pressure Gauge, Vacuum Pump, Flaring Tool, Refrigerant Canister',
-                initials: 'MN',
-                city: 'Ramanagara',
-                area: 'Station Road',
-                about: 'Certified technician for home refrigerators, washing machines, and split/window AC installation and gas charging.'
-            },
-            {
-                name: 'Imran Khan',
-                phone: '9845055667',
-                trade: 'Two-Wheeler & Auto Mechanic',
-                service: 'mechanics',
-                rating: 4.8,
-                km: 1.5,
-                jobs_completed: 112,
-                experience_years: 6,
-                price: 250,
-                is_available: 1,
-                is_verified: 1,
-                tools: 'Spanner Toolkit, Spark Plug Tester, Tyre Lever, Battery Jump Kit',
-                initials: 'IK',
-                city: 'Ramanagara',
-                area: 'MG Road',
-                about: 'On-site motorcycle, scooter, and auto-rickshaw emergency repair. Fast doorstep breakdown assistance.'
-            },
-            {
-                name: 'Manjunath K.',
-                phone: '9845066778',
-                trade: 'Welder & Fabricator',
-                service: 'welding',
-                rating: 4.7,
-                km: 3.8,
-                jobs_completed: 67,
-                experience_years: 9,
-                price: 400,
-                is_available: 1,
-                is_verified: 1,
-                tools: 'Portable Arc Welding Machine, Angle Grinder, Safety Mask, Clamp Set',
-                initials: 'MK',
-                city: 'Ramanagara',
-                area: 'Bidadi Gate',
-                about: 'Expert in MS gate repairs, window safety grills, agricultural equipment welding, and roofing frame fabrication.'
-            },
-            {
-                name: 'Lakshmi R.',
-                phone: '9845077889',
-                trade: 'Master Tailor',
-                service: 'tailoring',
-                rating: 4.9,
-                km: 0.9,
-                jobs_completed: 210,
-                experience_years: 10,
-                price: 150,
-                is_available: 1,
-                is_verified: 1,
-                tools: 'Industrial Sewing Machine, Overlock Machine, Fabric Scissors, Measuring Kit',
-                initials: 'LR',
-                city: 'Ramanagara',
-                area: 'Gandhi Nagar',
-                about: 'Doorstep blouse stitching, dress alterations, curtain hemming, and uniform fittings.'
-            }
-        ];
-
-        const insertWorker = db.prepare(`
-            INSERT INTO workers (name, phone, trade, service, rating, km, jobs_completed, experience_years, price, is_available, is_verified, tools, initials, city, area, about)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-
-        for (const w of seedWorkers) {
-            insertWorker.run(w.name, w.phone, w.trade, w.service, w.rating, w.km, w.jobs_completed, w.experience_years, w.price, w.is_available, w.is_verified, w.tools, w.initials, w.city, w.area, w.about);
-        }
-    }
-
-    // Seed Initial Jobs
-    const jobCount = db.prepare('SELECT COUNT(*) as count FROM jobs').get();
-    if (jobCount.count === 0) {
-        const insertJob = db.prepare(`
-            INSERT INTO jobs (id, customer_phone, customer_name, service, problem_description, location, requested_time, budget, worker_id, worker_name, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        insertJob.run('GS-1082', '9876543210', 'Kavya Rao', 'Electrical Repair', 'Ceiling fan buzzing and not spinning at full speed', 'Vijaya Nagar, Ramanagara', 'Tomorrow 10:00 AM', '₹350–₹500', 1, 'Ramesh Kumar', 'Confirmed');
-        insertJob.run('GS-1083', '9876543211', 'Pradeep Gowda', 'Plumbing Repair', 'Submersible pump valve leak in overhead tank', 'Town Market, Ramanagara', 'Today 4:00 PM', '₹400–₹600', 2, 'Suresh Gowda', 'Requested');
-    }
-
-    // Seed Initial Worker Availability
-    const availCount = db.prepare('SELECT COUNT(*) as count FROM worker_availability').get();
-    if (availCount.count === 0) {
-        const insertAvail = db.prepare(`
-            INSERT INTO worker_availability (worker_phone, trade, date_str, start_time, end_time, is_available, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        `);
-        insertAvail.run('9845011223', 'Electrician', 'Tomorrow', '10:00 AM', '02:00 PM', 1, 'Confirmed by AI Voice Phone Call');
-        insertAvail.run('9845022334', 'Plumber', 'Today', '08:30 AM', '06:30 PM', 1, 'Full day on-duty');
-    }
 }
 
-// Database helper functions
+initDatabase();
+
+/* ==========================================================================
+   DATABASE OPERATIONS & REPOSITORY METHODS
+   ========================================================================== */
+
 const DB = {
-    // Workers
+    // ---------------- AUTH & USER OPERATIONS ----------------
+    createUser({ name, phone, email, role, password, city = 'Ramanagara', area = 'Town' }) {
+        const cleanPhone = phone.replace(/\D/g, '');
+        const pHash = hashPassword(password);
+
+        const stmt = db.prepare(`
+            INSERT INTO users (name, phone, email, role, password_hash, city, area)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        const result = stmt.run(name, cleanPhone, email || null, role, pHash, city, area);
+        const userId = Number(result.lastInsertRowid);
+
+        if (role === 'worker') {
+            const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'WK';
+            const workerStmt = db.prepare(`
+                INSERT INTO workers (user_id, name, phone, trade, service, initials, city, area, service_areas)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            workerStmt.run(userId, name, cleanPhone, 'General Specialist', 'general', initials, city, area, `${city}, Nearby Areas`);
+        } else {
+            const custStmt = db.prepare(`
+                INSERT INTO customers (user_id, name, phone, email, city, area)
+                VALUES (?, ?, ?, ?, ?, ?)
+            `);
+            custStmt.run(userId, name, cleanPhone, email || null, city, area);
+        }
+
+        return this.getUserById(userId);
+    },
+
+    getUserByPhone(phone) {
+        const cleanPhone = phone.replace(/\D/g, '');
+        const user = db.prepare('SELECT * FROM users WHERE phone = ?').get(cleanPhone);
+        return user || null;
+    },
+
+    getUserById(id) {
+        const user = db.prepare('SELECT id, name, phone, email, role, city, area, created_at FROM users WHERE id = ?').get(id);
+        return user || null;
+    },
+
+    authenticateUser(phone, password) {
+        const cleanPhone = phone.replace(/\D/g, '');
+        const user = db.prepare('SELECT * FROM users WHERE phone = ?').get(cleanPhone);
+        if (!user) return null;
+        if (!verifyPassword(password, user.password_hash)) return null;
+
+        // Generate session token
+        const token = crypto.randomBytes(24).toString('hex');
+        db.prepare('INSERT INTO sessions (token, user_id, phone, role) VALUES (?, ?, ?, ?)').run(token, user.id, user.phone, user.role);
+
+        let extraProfile = null;
+        if (user.role === 'worker') {
+            extraProfile = db.prepare('SELECT * FROM workers WHERE user_id = ?').get(user.id);
+        } else {
+            extraProfile = db.prepare('SELECT * FROM customers WHERE user_id = ?').get(user.id);
+        }
+
+        return {
+            token,
+            user: {
+                id: user.id,
+                name: user.name,
+                phone: user.phone,
+                email: user.email,
+                role: user.role,
+                city: user.city,
+                area: user.area,
+                profile: extraProfile
+            }
+        };
+    },
+
+    getSession(token) {
+        if (!token) return null;
+        const session = db.prepare(`
+            SELECT s.token, s.user_id, s.phone, s.role, u.name, u.email, u.city, u.area
+            FROM sessions s
+            JOIN users u ON s.user_id = u.id
+            WHERE s.token = ?
+        `).get(token);
+        return session || null;
+    },
+
+    deleteSession(token) {
+        if (!token) return;
+        db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+    },
+
+    // ---------------- WORKER OPERATIONS ----------------
     getAllWorkers(filters = {}) {
         let query = 'SELECT * FROM workers WHERE 1=1';
         const params = [];
 
         if (filters.service && filters.service !== 'all') {
-            query += ' AND (LOWER(service) LIKE ? OR LOWER(trade) LIKE ?)';
-            params.push(`%${filters.service.toLowerCase()}%`, `%${filters.service.toLowerCase()}%`);
+            query += ' AND (service LIKE ? OR trade LIKE ?)';
+            params.push(`%${filters.service}%`, `%${filters.service}%`);
         }
-        if (filters.maxKm) {
-            query += ' AND km <= ?';
-            params.push(Number(filters.maxKm));
+        if (filters.city && filters.city !== 'all') {
+            query += ' AND city = ?';
+            params.push(filters.city);
         }
         if (filters.isAvailable !== undefined) {
             query += ' AND is_available = ?';
@@ -276,62 +264,111 @@ const DB = {
             params.push(Number(filters.minRating));
         }
 
-        query += ' ORDER BY rating DESC, km ASC';
+        query += ' ORDER BY is_available DESC, rating DESC, jobs_completed DESC';
         return db.prepare(query).all(...params);
     },
 
     getWorkerById(id) {
-        return db.prepare('SELECT * FROM workers WHERE id = ?').get(id);
+        return db.prepare('SELECT * FROM workers WHERE id = ?').get(id) || null;
     },
 
     getWorkerByPhone(phone) {
-        const clean = String(phone).replace(/\D/g, '').slice(-10);
-        return db.prepare('SELECT * FROM workers WHERE phone LIKE ?').get(`%${clean}%`);
+        const clean = phone.replace(/\D/g, '');
+        return db.prepare('SELECT * FROM workers WHERE phone = ?').get(clean) || null;
+    },
+
+    getWorkerByUserId(userId) {
+        return db.prepare('SELECT * FROM workers WHERE user_id = ?').get(userId) || null;
     },
 
     createWorker(data) {
-        const initials = data.name ? data.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'WK';
+        const initials = (data.name || 'WK').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+        const cleanPhone = (data.phone || '').replace(/\D/g, '');
+
         const stmt = db.prepare(`
-            INSERT INTO workers (name, phone, trade, service, rating, km, jobs_completed, experience_years, price, is_available, is_verified, tools, initials, city, area, about)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO workers (user_id, name, phone, trade, service, skills, tools, rating, km, jobs_completed, experience_years, price, is_available, is_verified, initials, city, area, service_areas, about)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
-        const info = stmt.run(
+
+        const res = stmt.run(
+            data.user_id || null,
             data.name,
-            data.phone,
+            cleanPhone,
             data.trade,
             data.service || data.trade.toLowerCase(),
+            data.skills || '',
+            data.tools || 'Standard tool kit',
             data.rating || 5.0,
-            data.km || 1.0,
+            data.km || 1.5,
             data.jobs_completed || 0,
-            data.experience_years || 1,
+            data.experience_years || 2,
             data.price || 300,
             data.is_available !== undefined ? (data.is_available ? 1 : 0) : 1,
             data.is_verified !== undefined ? (data.is_verified ? 1 : 0) : 1,
-            data.tools || 'Standard kit',
             initials,
             data.city || 'Ramanagara',
-            data.area || 'Vijaya Nagar',
-            data.about || `${data.name} is a skilled ${data.trade} in ${data.city || 'Ramanagara'}.`
+            data.area || 'Town',
+            data.service_areas || `${data.city || 'Ramanagara'}, Nearby Areas`,
+            data.about || ''
         );
-        return this.getWorkerById(info.lastInsertRowid);
+
+        return this.getWorkerById(Number(res.lastInsertRowid));
     },
 
-    updateWorkerAvailability(phone, dateStr, startTime, endTime, isAvailable = 1, trade = 'Skilled Worker') {
-        const clean = String(phone).replace(/\D/g, '').slice(-10);
-        // Also update workers table
-        db.prepare('UPDATE workers SET is_available = ? WHERE phone LIKE ?').run(isAvailable ? 1 : 0, `%${clean}%`);
+    updateWorkerProfile(id, updates = {}) {
+        const fields = [];
+        const params = [];
 
-        // Insert log in worker_availability
+        if (updates.trade) { fields.push('trade = ?', 'service = ?'); params.push(updates.trade, updates.trade.toLowerCase()); }
+        if (updates.skills !== undefined) { fields.push('skills = ?'); params.push(updates.skills); }
+        if (updates.tools !== undefined) { fields.push('tools = ?'); params.push(updates.tools); }
+        if (updates.price !== undefined) { fields.push('price = ?'); params.push(Number(updates.price)); }
+        if (updates.city !== undefined) { fields.push('city = ?'); params.push(updates.city); }
+        if (updates.area !== undefined) { fields.push('area = ?'); params.push(updates.area); }
+        if (updates.service_areas !== undefined) { fields.push('service_areas = ?'); params.push(updates.service_areas); }
+        if (updates.about !== undefined) { fields.push('about = ?'); params.push(updates.about); }
+        if (updates.is_available !== undefined) { fields.push('is_available = ?'); params.push(updates.is_available ? 1 : 0); }
+
+        if (fields.length === 0) return this.getWorkerById(id);
+
+        params.push(id);
+        db.prepare(`UPDATE workers SET ${fields.join(', ')} WHERE id = ?`).run(...params);
+        return this.getWorkerById(id);
+    },
+
+    updateWorkerAvailabilityStatus(workerIdOrPhone, isAvailable) {
+        let worker;
+        if (typeof workerIdOrPhone === 'number' || !isNaN(Number(workerIdOrPhone))) {
+            worker = this.getWorkerById(Number(workerIdOrPhone));
+        } else {
+            worker = this.getWorkerByPhone(workerIdOrPhone);
+        }
+
+        if (!worker) return null;
+        db.prepare('UPDATE workers SET is_available = ? WHERE id = ?').run(isAvailable ? 1 : 0, worker.id);
+        return this.getWorkerById(worker.id);
+    },
+
+    // ---------------- SCHEDULE & CONFLICT CHECK ----------------
+    setWorkerAvailabilitySlot({ workerId, workerPhone, trade, dateStr, startTime, endTime, isAvailable = true, notes = '' }) {
+        let worker = null;
+        if (workerId) worker = this.getWorkerById(workerId);
+        else if (workerPhone) worker = this.getWorkerByPhone(workerPhone);
+
+        const phone = worker ? worker.phone : workerPhone;
+        const wTrade = worker ? worker.trade : trade || 'Skilled Specialist';
+        const wId = worker ? worker.id : null;
+
         const stmt = db.prepare(`
-            INSERT INTO worker_availability (worker_phone, trade, date_str, start_time, end_time, is_available, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO worker_availability (worker_id, worker_phone, trade, date_str, start_time, end_time, is_available, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
-        stmt.run(clean, trade, dateStr, startTime, endTime, isAvailable ? 1 : 0, 'Updated via GigSync AI Voice Engine');
+        stmt.run(wId, phone, wTrade, dateStr, startTime, endTime, isAvailable ? 1 : 0, notes);
 
         return {
-            success: true,
-            phone: clean,
-            trade,
+            workerId: wId,
+            workerPhone: phone,
+            trade: wTrade,
             date: dateStr,
             startTime,
             endTime,
@@ -346,95 +383,229 @@ const DB = {
         } else {
             worker = this.getWorkerByPhone(workerIdOrPhone);
         }
+
         if (!worker) return null;
 
-        const clean = String(worker.phone).replace(/\D/g, '').slice(-10);
-        const availList = db.prepare('SELECT * FROM worker_availability WHERE worker_phone LIKE ? ORDER BY updated_at DESC LIMIT 5').all(`%${clean}%`);
-        
+        const availabilitySlots = db.prepare(`
+            SELECT * FROM worker_availability
+            WHERE worker_phone = ? OR worker_id = ?
+            ORDER BY updated_at DESC LIMIT 10
+        `).all(worker.phone, worker.id);
+
+        const activeBookings = db.prepare(`
+            SELECT id, service, problem_description, location, requested_date, requested_time, status, customer_name, budget
+            FROM jobs
+            WHERE worker_id = ? AND status IN ('Accepted', 'On the Way', 'In Progress', 'Requested')
+            ORDER BY created_at ASC
+        `).all(worker.id);
+
         return {
-            workerId: worker.id,
-            name: worker.name,
-            trade: worker.trade,
-            isAvailable: Boolean(worker.is_available),
-            hours: '08:30 AM – 06:30 PM (Mon–Sat)',
-            activeSlots: availList.length > 0 ? availList : [
-                { date_str: 'Today', start_time: '08:30 AM', end_time: '06:30 PM', is_available: worker.is_available, notes: 'Regular on-duty hours' },
-                { date_str: 'Tomorrow', start_time: '09:00 AM', end_time: '05:00 PM', is_available: 1, notes: 'Available for nearby booking' }
-            ]
+            worker,
+            isAvailableNow: Boolean(worker.is_available),
+            availabilitySlots,
+            activeBookings
         };
     },
 
-    // Jobs
-    getAllJobs(status = null) {
-        if (status) {
-            return db.prepare('SELECT * FROM jobs WHERE status = ? ORDER BY created_at DESC').all(status);
-        }
-        return db.prepare('SELECT * FROM jobs ORDER BY created_at DESC').all();
+    checkScheduleConflict(workerId, requestedDate, requestedTime) {
+        // Check if worker already has an active booking for this date & time
+        const conflict = db.prepare(`
+            SELECT * FROM jobs
+            WHERE worker_id = ?
+              AND requested_date = ?
+              AND requested_time = ?
+              AND status IN ('Accepted', 'On the Way', 'In Progress')
+        `).get(workerId, requestedDate, requestedTime);
+
+        return Boolean(conflict);
+    },
+
+    // ---------------- JOB & BOOKING OPERATIONS ----------------
+    createJob(jobData) {
+        const jobId = jobData.id || generateJobId();
+        const priceNum = parseInt(String(jobData.budget || '350').replace(/\D/g, ''), 10) || 350;
+
+        const stmt = db.prepare(`
+            INSERT INTO jobs (
+                id, customer_id, customer_phone, customer_name,
+                worker_id, worker_phone, worker_name,
+                service, problem_description, location, city,
+                requested_date, requested_time, budget, final_price,
+                status, payment_status, payment_method
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        stmt.run(
+            jobId,
+            jobData.customer_id || null,
+            jobData.customer_phone,
+            jobData.customer_name || 'Customer',
+            jobData.worker_id || null,
+            jobData.worker_phone || null,
+            jobData.worker_name || 'Finding nearby specialists...',
+            jobData.service,
+            jobData.problem_description,
+            jobData.location || 'Town Area',
+            jobData.city || 'Ramanagara',
+            jobData.requested_date || 'Today',
+            jobData.requested_time || 'Immediate',
+            jobData.budget || `₹${priceNum}`,
+            priceNum,
+            jobData.status || 'Requested',
+            'Pending',
+            jobData.payment_method || 'Cash'
+        );
+
+        return this.getJobById(jobId);
     },
 
     getJobById(id) {
-        return db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
+        return db.prepare('SELECT * FROM jobs WHERE id = ?').get(id) || null;
     },
 
-    getJobsByPhone(phone) {
-        const clean = String(phone).replace(/\D/g, '').slice(-10);
-        return db.prepare('SELECT * FROM jobs WHERE customer_phone LIKE ? OR worker_id IN (SELECT id FROM workers WHERE phone LIKE ?) ORDER BY created_at DESC').all(`%${clean}%`, `%${clean}%`);
-    },
+    getAllJobs(filters = {}) {
+        let query = 'SELECT * FROM jobs WHERE 1=1';
+        const params = [];
 
-    createJob(data) {
-        const jobId = 'GS-' + Math.floor(1000 + Math.random() * 9000);
-        const stmt = db.prepare(`
-            INSERT INTO jobs (id, customer_phone, customer_name, service, problem_description, location, requested_time, budget, worker_id, worker_name, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        stmt.run(
-            jobId,
-            data.customer_phone || '9876543210',
-            data.customer_name || 'Customer',
-            data.service,
-            data.problem_description || 'General Service Required',
-            data.location || 'Ramanagara',
-            data.requested_time || 'Tomorrow Morning',
-            data.budget || '₹300–₹500',
-            data.worker_id || null,
-            data.worker_name || 'Nearby Available Workers Broadcast',
-            data.status || 'Requested'
-        );
-        return this.getJobById(jobId);
-    },
-
-    updateJobStatus(jobId, status, workerId = null, workerName = null) {
-        if (workerId && workerName) {
-            db.prepare('UPDATE jobs SET status = ?, worker_id = ?, worker_name = ? WHERE id = ?').run(status, workerId, workerName, jobId);
-        } else {
-            db.prepare('UPDATE jobs SET status = ? WHERE id = ?').run(status, jobId);
+        if (filters.status) {
+            query += ' AND status = ?';
+            params.push(filters.status);
         }
+        if (filters.city) {
+            query += ' AND city = ?';
+            params.push(filters.city);
+        }
+
+        query += ' ORDER BY created_at DESC';
+        return db.prepare(query).all(...params);
+    },
+
+    getJobsByCustomer(customerPhoneOrId) {
+        if (typeof customerPhoneOrId === 'number') {
+            return db.prepare('SELECT * FROM jobs WHERE customer_id = ? ORDER BY created_at DESC').all(customerPhoneOrId);
+        }
+        const clean = customerPhoneOrId.replace(/\D/g, '');
+        return db.prepare('SELECT * FROM jobs WHERE customer_phone = ? ORDER BY created_at DESC').all(clean);
+    },
+
+    getJobsByWorker(workerIdOrPhone) {
+        if (typeof workerIdOrPhone === 'number' || !isNaN(Number(workerIdOrPhone))) {
+            return db.prepare('SELECT * FROM jobs WHERE worker_id = ? ORDER BY created_at DESC').all(Number(workerIdOrPhone));
+        }
+        const clean = workerIdOrPhone.replace(/\D/g, '');
+        return db.prepare('SELECT * FROM jobs WHERE worker_phone = ? ORDER BY created_at DESC').all(clean);
+    },
+
+    getAvailableJobsForWorker(trade, city = 'Ramanagara') {
+        return db.prepare(`
+            SELECT * FROM jobs
+            WHERE status = 'Requested'
+              AND (service LIKE ? OR ? LIKE '%' || service || '%')
+              AND city = ?
+            ORDER BY created_at DESC
+        `).all(`%${trade}%`, trade, city);
+    },
+
+    updateJobStatus(jobId, status, workerId = null, workerName = null, workerPhone = null) {
+        const job = this.getJobById(jobId);
+        if (!job) return null;
+
+        const fields = ['status = ?'];
+        const params = [status];
+
+        if (workerId) {
+            fields.push('worker_id = ?', 'worker_name = ?', 'worker_phone = ?');
+            params.push(workerId, workerName || 'Worker', workerPhone || '');
+        }
+
+        if (status === 'Completed') {
+            fields.push("completed_at = CURRENT_TIMESTAMP", "payment_status = 'Paid'");
+            // Increment completed jobs on worker
+            if (job.worker_id) {
+                db.prepare('UPDATE workers SET jobs_completed = jobs_completed + 1 WHERE id = ?').run(job.worker_id);
+            }
+        }
+
+        params.push(jobId);
+        db.prepare(`UPDATE jobs SET ${fields.join(', ')} WHERE id = ?`).run(...params);
         return this.getJobById(jobId);
     },
 
-    // Call Logs
-    addCallLog(data) {
-        const stmt = db.prepare(`
-            INSERT INTO call_logs (caller_phone, caller_role, transcript, intent_detected, actions_taken, duration_seconds, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        `);
-        const info = stmt.run(
-            data.caller_phone || 'Anonymous',
-            data.caller_role || 'unknown',
-            data.transcript || '',
-            data.intent_detected || 'General Inquiry',
-            data.actions_taken || 'None',
-            data.duration_seconds || 0,
-            data.status || 'Completed'
-        );
-        return db.prepare('SELECT * FROM call_logs WHERE id = ?').get(info.lastInsertRowid);
+    submitJobReview(jobId, rating, review) {
+        const job = this.getJobById(jobId);
+        if (!job) return null;
+
+        db.prepare('UPDATE jobs SET rating = ?, review = ? WHERE id = ?').run(rating, review, jobId);
+
+        // Update worker average rating if worker was assigned
+        if (job.worker_id) {
+            const avgRow = db.prepare('SELECT AVG(rating) as avg_rating FROM jobs WHERE worker_id = ? AND rating IS NOT NULL').get(job.worker_id);
+            if (avgRow && avgRow.avg_rating) {
+                const rounded = Math.round(avgRow.avg_rating * 10) / 10;
+                db.prepare('UPDATE workers SET rating = ? WHERE id = ?').run(rounded, job.worker_id);
+            }
+        }
+
+        return this.getJobById(jobId);
     },
 
-    getRecentCallLogs(limit = 20) {
-        return db.prepare('SELECT * FROM call_logs ORDER BY timestamp DESC LIMIT ?').all(limit);
+    // ---------------- EARNINGS & DIGITAL WORK RECORD ----------------
+    getWorkerEarnings(workerId) {
+        const totalRow = db.prepare(`
+            SELECT COALESCE(SUM(final_price), 0) as total, COUNT(*) as count
+            FROM jobs
+            WHERE worker_id = ? AND status = 'Completed'
+        `).get(workerId);
+
+        const todayRow = db.prepare(`
+            SELECT COALESCE(SUM(final_price), 0) as today
+            FROM jobs
+            WHERE worker_id = ? AND status = 'Completed' AND date(completed_at) = date('now')
+        `).get(workerId);
+
+        const monthRow = db.prepare(`
+            SELECT COALESCE(SUM(final_price), 0) as month
+            FROM jobs
+            WHERE worker_id = ? AND status = 'Completed' AND strftime('%Y-%m', completed_at) = strftime('%Y-%m', 'now')
+        `).get(workerId);
+
+        const pendingRow = db.prepare(`
+            SELECT COALESCE(SUM(final_price), 0) as pending
+            FROM jobs
+            WHERE worker_id = ? AND status IN ('Accepted', 'On the Way', 'In Progress')
+        `).get(workerId);
+
+        const completedJobs = db.prepare(`
+            SELECT id, service, customer_name, location, requested_date, final_price, completed_at, payment_status, payment_method, rating
+            FROM jobs
+            WHERE worker_id = ? AND status = 'Completed'
+            ORDER BY completed_at DESC
+        `).all(workerId);
+
+        return {
+            today: todayRow?.today || 0,
+            thisMonth: monthRow?.month || 0,
+            totalEarnings: totalRow?.total || 0,
+            totalCompletedJobs: totalRow?.count || 0,
+            pendingEarnings: pendingRow?.pending || 0,
+            completedJobs
+        };
+    },
+
+    // ---------------- CALL LOGS (TELEPHONY / VOICE) ----------------
+    logCall({ callerPhone, callerRole = 'customer', transcript, intentDetected, actionsTaken, durationSeconds = 15 }) {
+        const clean = callerPhone.replace(/\D/g, '');
+        const stmt = db.prepare(`
+            INSERT INTO call_logs (caller_phone, caller_role, transcript, intent_detected, actions_taken, duration_seconds)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        const res = stmt.run(clean, callerRole, transcript, intentDetected || 'general_query', actionsTaken || 'none', durationSeconds);
+        return db.prepare('SELECT * FROM call_logs WHERE id = ?').get(Number(res.lastInsertRowid));
+    },
+
+    getAllCallLogs() {
+        return db.prepare('SELECT * FROM call_logs ORDER BY timestamp DESC LIMIT 50').all();
     }
 };
-
-initDatabase();
 
 module.exports = DB;

@@ -3,621 +3,1101 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GigSync | AI On-Demand Local Worker Booking</title>
-    <meta name="description" content="GigSync is an AI-powered hyperlocal on-demand service app for Tier-2 and Tier-3 cities in India. Book trusted local electricians, plumbers, mechanics, and carpenters instantly with voice or tap.">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GigSync | Hyperlocal AI Gig Marketplace for India's Tier-2 & Tier-3 Cities</title>
+    <meta name="description" content="GigSync is an AI-powered hyperlocal work marketplace connecting local customers with skilled electricians, plumbers, carpenters, mechanics, and technicians in Ramanagara, Chitradurga, Mandya, Hassan, Tumakuru, Shivamogga, and more.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="styles.css">
-    <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#4F46E5">
 </head>
 
-<body class="auth-locked">
-    <script>
-        try { if (localStorage.getItem('gigsync_session')) document.body.classList.remove('auth-locked'); } catch (e) { }
-    </script>
+<body>
 
-    <!-- AUTH SCREEN (CUSTOMER, WORKER, ADMIN SELECTION) -->
-    <div id="loginScreen" class="login-screen-v2">
-        <div class="auth-card-container">
-            <div class="auth-brand-center">
-                <div class="brand-mark-lg">G</div>
-                <div class="brand-name-lg">Gig<span>Sync</span></div>
-            </div>
-            <div class="auth-heading-block">
-                <h1 class="auth-main-title">Welcome to GigSync</h1>
-                <p class="auth-main-sub">AI Hyperlocal Worker Booking &amp; On-Demand Services</p>
-            </div>
+    <!-- ======================================================================
+         1. DESKTOP-FIRST APPLICATION SHELL
+         ====================================================================== -->
+    <div id="appContainer" class="desktop-app-layout">
 
-            <!-- Role Selector Section (3 Cards) -->
-            <div class="role-selector-section">
-                <div class="role-question-head">
-                    <span class="role-question-badge">Select Mode</span>
-                    <h2 class="role-question-title">How will you use GigSync?</h2>
-                </div>
+        <!-- ==================================================================
+             A. CUSTOMER INTERFACE PORTAL
+             ================================================================== -->
+        <div id="customerPortal" class="portal-container active">
 
-                <div class="role-cards-grid">
-                    <!-- Customer Card -->
-                    <div class="role-card active" id="roleCardCustomer" role="button" tabindex="0">
-                        <span class="role-check-indicator"><i class="fa-solid fa-circle-check"></i></span>
-                        <div class="role-icon-box customer-icon"><i class="fa-solid fa-user"></i></div>
-                        <h3 class="role-title">Customer</h3>
-                        <p class="role-desc">Find &amp; book trusted local workers near you.</p>
-                        <span class="role-action-link">Book workers <i class="fa-solid fa-arrow-right"></i></span>
-                    </div>
-
-                    <!-- Worker Card -->
-                    <div class="role-card" id="roleCardWorker" role="button" tabindex="0">
-                        <span class="role-check-indicator"><i class="fa-regular fa-circle"></i></span>
-                        <div class="role-icon-box worker-icon"><i class="fa-solid fa-toolbox"></i></div>
-                        <h3 class="role-title">Worker</h3>
-                        <p class="role-desc">Accept jobs &amp; manage voice availability.</p>
-                        <span class="role-action-link">Find work <i class="fa-solid fa-arrow-right"></i></span>
-                    </div>
-
-                    <!-- Admin Card -->
-                    <div class="role-card" id="roleCardAdmin" role="button" tabindex="0">
-                        <span class="role-check-indicator"><i class="fa-regular fa-circle"></i></span>
-                        <div class="role-icon-box admin-icon"><i class="fa-solid fa-shield-halved"></i></div>
-                        <h3 class="role-title">Admin &amp; 3.5mm</h3>
-                        <p class="role-desc">Cluster control &amp; 3.5mm hardware bridge.</p>
-                        <span class="role-action-link">Open console <i class="fa-solid fa-arrow-right"></i></span>
-                    </div>
-                </div>
-
-                <div class="role-selected-chip" id="roleSelectedStatus">
-                    <i class="fa-solid fa-circle-check" style="color:var(--gs-indigo)"></i>
-                    <span id="roleSelectedLabel">Customer Mode Selected</span>
-                </div>
-            </div>
-
-            <!-- Dynamic Form Section -->
-            <div class="auth-form-section">
-                <div class="auth-tabs-row">
-                    <div class="login-tabs">
-                        <button type="button" class="login-tab active" id="loginTabBtn"><i class="fa-solid fa-arrow-right-to-bracket"></i> Sign In</button>
-                        <button type="button" class="login-tab" id="signupTabBtn"><i class="fa-solid fa-user-plus"></i> Register</button>
-                    </div>
-                </div>
-
-                <div class="dynamic-auth-header">
-                    <h3 class="dynamic-auth-title" id="dynamicAuthTitle">Sign in as Customer</h3>
-                    <p class="dynamic-auth-sub" id="dynamicAuthSub">Quickly order local verified specialists.</p>
-                </div>
-
-                <form id="authForm">
-                    <div class="field-label">Mobile Number or Email</div>
-                    <div class="phone-field">
-                        <div class="cc"><span>🇮🇳</span> +91</div>
-                        <input id="authIdentifier" type="text" placeholder="e.g. 98765 43210 or name@domain.com" autocomplete="username" required>
-                    </div>
-
-                    <div class="field-label" style="margin-top:14px">Password / PIN</div>
-                    <div class="login-field">
-                        <i class="fa-solid fa-lock"></i>
-                        <input id="authPassword" type="password" placeholder="Enter password (min 6 chars)" autocomplete="current-password" minlength="6" required>
-                        <button type="button" id="togglePasswordBtn" class="icon-btn-inline" title="Toggle password visibility"><i class="fa-solid fa-eye"></i></button>
-                    </div>
-
-                    <p id="authError" class="login-error hidden"></p>
-
-                    <div class="login-actions">
-                        <button type="submit" id="authSubmitBtn" class="btn btn-primary btn-lg btn-block"><i class="fa-solid fa-right-to-bracket"></i> Continue to App</button>
-                        
-                        <div class="divider"><span>OR 1-TAP DEMO ACCESS</span></div>
-                        <div class="guest-actions-row">
-                            <button type="button" id="guestBtn" class="btn btn-ghost btn-sm"><i class="fa-solid fa-user"></i> Guest Customer</button>
-                            <button type="button" id="guestWorkerBtn" class="btn btn-ghost btn-sm"><i class="fa-solid fa-toolbox"></i> Guest Worker</button>
-                            <button type="button" id="guestAdminBtn" class="btn btn-ghost btn-sm admin-btn-highlight"><i class="fa-solid fa-shield-halved"></i> 3.5mm Admin</button>
+            <!-- DESKTOP TOP NAVIGATION BAR -->
+            <header class="desktop-topbar">
+                <div class="topbar-inner">
+                    <!-- Brand Logo -->
+                    <div class="topbar-brand" id="brandLogoBtn">
+                        <div class="brand-badge-lg">G</div>
+                        <div class="brand-text-col">
+                            <span class="brand-name">Gig<span>Sync</span></span>
+                            <span class="brand-tagline">Local skills. Local jobs. Powered by AI.</span>
                         </div>
                     </div>
-                </form>
 
-                <div class="auth-footer-note">
-                    <div class="demo-credentials">
-                        <i class="fa-solid fa-circle-info"></i> Demo: <b>9876543210</b> / <b>gigsync123</b>
+                    <!-- Main Navigation Links -->
+                    <nav class="desktop-nav-links">
+                        <button type="button" class="desktop-nav-item active" data-customer-view="home" id="navHome">
+                            <i class="fa-solid fa-house"></i> Home
+                        </button>
+                        <button type="button" class="desktop-nav-item" data-customer-view="find-workers" id="navFindWorkers">
+                            <i class="fa-solid fa-magnifying-glass"></i> Find Workers
+                        </button>
+                        <button type="button" class="desktop-nav-item" data-customer-view="services" id="navServices">
+                            <i class="fa-solid fa-toolbox"></i> Services
+                        </button>
+                        <button type="button" class="desktop-nav-item" data-customer-view="post-job" id="navPostJob">
+                            <i class="fa-solid fa-file-pen"></i> Post a Job
+                        </button>
+                        <button type="button" class="desktop-nav-item" data-customer-view="my-jobs" id="navMyJobs">
+                            <i class="fa-solid fa-clipboard-list"></i> My Jobs
+                            <span class="badge-dot-nav hidden" id="custJobsDot"></span>
+                        </button>
+                    </nav>
+
+                    <!-- Right Utility Actions -->
+                    <div class="topbar-right-tools">
+                        <!-- Location Selector Button -->
+                        <button type="button" class="topbar-tool-btn location-chip-btn" id="openLocationModalBtn" title="Change Location">
+                            <i class="fa-solid fa-location-dot" style="color:var(--gs-indigo)"></i>
+                            <span id="activeCityLabel">Ramanagara</span>
+                            <i class="fa-solid fa-chevron-down arrow-down-mini"></i>
+                        </button>
+
+                        <!-- Talk to GigSync AI Voice Trigger -->
+                        <button type="button" class="topbar-tool-btn ai-voice-trigger-btn" id="openAiVoiceModalBtn" title="Talk to GigSync AI Voice Assistant">
+                            <i class="fa-solid fa-microphone"></i>
+                            <span>Talk to GigSync</span>
+                        </button>
+
+                        <!-- Role / Worker Switcher -->
+                        <button type="button" class="topbar-tool-btn worker-mode-btn" id="switchPortalBtn" title="Switch to Worker Workspace">
+                            <i class="fa-solid fa-hammer"></i>
+                            <span>Worker Portal</span>
+                        </button>
+
+                        <!-- User Account Button -->
+                        <div class="user-account-menu-wrap">
+                            <button type="button" class="user-account-btn" id="userMenuBtn">
+                                <div class="avatar-circle-sm" id="userInitials">KR</div>
+                                <span class="user-display-name" id="userDisplayName">Kavya Rao</span>
+                                <i class="fa-solid fa-chevron-down arrow-down-mini"></i>
+                            </button>
+                            <div class="user-dropdown-menu hidden" id="userDropdownMenu">
+                                <div class="dropdown-header">
+                                    <strong id="dropdownUserName">Kavya Rao</strong>
+                                    <span id="dropdownUserRole">Customer</span>
+                                </div>
+                                <hr class="dropdown-divider">
+                                <button type="button" class="dropdown-item" id="dropdownProfileBtn"><i class="fa-solid fa-user"></i> My Profile</button>
+                                <button type="button" class="dropdown-item" id="dropdownWorkerPortalBtn"><i class="fa-solid fa-toolbox"></i> Switch to Worker Workspace</button>
+                                <button type="button" class="dropdown-item" id="dropdownDownloadRecordBtn"><i class="fa-solid fa-file-invoice"></i> Download Work Statement</button>
+                                <hr class="dropdown-divider">
+                                <button type="button" class="dropdown-item logout-item" id="dropdownLogoutBtn"><i class="fa-solid fa-right-from-bracket"></i> Log Out</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
+            </header>
+
+            <!-- CUSTOMER MAIN CONTENT AREA -->
+            <main class="customer-main-content">
+
+                <!-- ==============================================================
+                     1. CUSTOMER VIEW: HOME
+                     ============================================================== -->
+                <section class="customer-view active" id="custView-home">
+                    <!-- Desktop Hero Banner -->
+                    <div class="desktop-hero-section">
+                        <div class="hero-left-content">
+                            <div class="hero-location-badge">
+                                <i class="fa-solid fa-map-pin"></i> Hyperlocal Work Marketplace · <b id="heroCityName">Ramanagara</b>
+                            </div>
+                            <h1 class="hero-headline">Local skills. Local jobs. <span class="highlight-text">Powered by AI.</span></h1>
+                            <p class="hero-subheadline">Find trusted local electricians, plumbers, carpenters, and mechanics nearby — or simply talk to GigSync in English or Kannada.</p>
+
+                            <!-- Dual Search & Voice Action Bar -->
+                            <div class="hero-search-container">
+                                <div class="hero-search-input-wrap">
+                                    <i class="fa-solid fa-magnifying-glass search-leading-icon"></i>
+                                    <input type="text" id="homeSearchQuery" placeholder="What do you need help with? (e.g. Electrician, pipe leak, fan repair...)" autocomplete="off">
+                                </div>
+                                <div class="hero-search-actions">
+                                    <button type="button" class="btn btn-primary btn-md" id="homeFindWorkersActionBtn">
+                                        <i class="fa-solid fa-magnifying-glass"></i> Find a Worker
+                                    </button>
+                                    <button type="button" class="btn btn-dark btn-md" id="homeTalkAiActionBtn">
+                                        <i class="fa-solid fa-microphone"></i> Talk to GigSync
+                                    </button>
+                                    <button type="button" class="btn btn-ghost btn-md" id="homePostJobActionBtn">
+                                        <i class="fa-solid fa-file-pen"></i> Post a Job
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Worker Recruitment Callout Banner -->
+                        <div class="hero-worker-callout-card">
+                            <div class="worker-badge-pill">Are you a skilled worker?</div>
+                            <h3>Get more jobs in your neighborhood.</h3>
+                            <p>Register for free, set your daily availability by voice or tap, and receive direct customer requests.</p>
+                            <button type="button" class="btn btn-outline-white btn-sm" id="heroWorkerRegisterBtn">
+                                <i class="fa-solid fa-toolbox"></i> Find Work Near You
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 12 Hyperlocal Service Categories -->
+                    <div class="section-container">
+                        <div class="section-header-desktop">
+                            <div>
+                                <h2 class="section-title-desktop">Hyperlocal Service Categories</h2>
+                                <p class="section-subtitle-desktop">Select a trade to discover verified professionals available in <span class="text-city-dynamic">Ramanagara</span></p>
+                            </div>
+                            <button type="button" class="btn-link" id="viewAllServicesLink">View All Services <i class="fa-solid fa-arrow-right"></i></button>
+                        </div>
+
+                        <div class="services-desktop-grid" id="homeServicesGrid">
+                            <div class="service-desktop-card" data-service="Electrical">
+                                <div class="service-icon-box cat-electric"><i class="fa-solid fa-bolt"></i></div>
+                                <h4>Electrical</h4>
+                                <p>Fan repair, wiring, switchboards, inverters</p>
+                                <span class="service-rate-tag">From ₹300</span>
+                            </div>
+                            <div class="service-desktop-card" data-service="Plumbing">
+                                <div class="service-icon-box cat-plumbing"><i class="fa-solid fa-wrench"></i></div>
+                                <h4>Plumbing</h4>
+                                <p>Pipe leaks, tap fixing, motor repair, drainage</p>
+                                <span class="service-rate-tag">From ₹280</span>
+                            </div>
+                            <div class="service-desktop-card" data-service="Carpentry">
+                                <div class="service-icon-box cat-carpentry"><i class="fa-solid fa-hammer"></i></div>
+                                <h4>Carpentry</h4>
+                                <p>Doors, windows, furniture assembly, locks</p>
+                                <span class="service-rate-tag">From ₹350</span>
+                            </div>
+                            <div class="service-desktop-card" data-service="Mechanics">
+                                <div class="service-icon-box cat-mechanic"><i class="fa-solid fa-motorcycle"></i></div>
+                                <h4>Two-Wheeler & Auto</h4>
+                                <p>Bike servicing, puncture, carburetor, breakdown</p>
+                                <span class="service-rate-tag">From ₹250</span>
+                            </div>
+                            <div class="service-desktop-card" data-service="AC & Appliances">
+                                <div class="service-icon-box cat-ac"><i class="fa-solid fa-snowflake"></i></div>
+                                <h4>AC & Fridge</h4>
+                                <p>Cooling issues, gas refill, compressor, servicing</p>
+                                <span class="service-rate-tag">From ₹450</span>
+                            </div>
+                            <div class="service-desktop-card" data-service="Appliance Repair">
+                                <div class="service-icon-box cat-appliance"><i class="fa-solid fa-plug"></i></div>
+                                <h4>Washing Machine & TV</h4>
+                                <p>PCB repair, drum issues, display, mixer grinder</p>
+                                <span class="service-rate-tag">From ₹350</span>
+                            </div>
+                            <div class="service-desktop-card" data-service="Painting">
+                                <div class="service-icon-box cat-painting"><i class="fa-solid fa-paint-roller"></i></div>
+                                <h4>Painting</h4>
+                                <p>Interior touch-up, wall painting, waterproofing</p>
+                                <span class="service-rate-tag">From ₹500</span>
+                            </div>
+                            <div class="service-desktop-card" data-service="Masonry">
+                                <div class="service-icon-box cat-mason"><i class="fa-solid fa-trowel-bricks"></i></div>
+                                <h4>Masonry & Tiles</h4>
+                                <p>Tile fixing, plastering, bathroom renovation</p>
+                                <span class="service-rate-tag">From ₹600</span>
+                            </div>
+                            <div class="service-desktop-card" data-service="Tailoring">
+                                <div class="service-icon-box cat-tailor"><i class="fa-solid fa-scissors"></i></div>
+                                <h4>Tailoring</h4>
+                                <p>Alterations, blouse stitching, custom fitting</p>
+                                <span class="service-rate-tag">From ₹150</span>
+                            </div>
+                            <div class="service-desktop-card" data-service="Home Cleaning">
+                                <div class="service-icon-box cat-cleaning"><i class="fa-solid fa-broom"></i></div>
+                                <h4>Cleaning</h4>
+                                <p>Deep home cleaning, water tank, kitchen sanitizing</p>
+                                <span class="service-rate-tag">From ₹400</span>
+                            </div>
+                            <div class="service-desktop-card" data-service="Welding">
+                                <div class="service-icon-box cat-welding"><i class="fa-solid fa-fire-burner"></i></div>
+                                <h4>Welding & Fabrication</h4>
+                                <p>Gates, grill repair, metal sheds, hinges</p>
+                                <span class="service-rate-tag">From ₹400</span>
+                            </div>
+                            <div class="service-desktop-card" data-service="Drivers">
+                                <div class="service-icon-box cat-driver"><i class="fa-solid fa-car"></i></div>
+                                <h4>Drivers</h4>
+                                <p>Daily city driver, outstation, commercial vehicles</p>
+                                <span class="service-rate-tag">From ₹500</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Available Nearby Workers List from SQLite -->
+                    <div class="section-container">
+                        <div class="section-header-desktop">
+                            <div>
+                                <h2 class="section-title-desktop">Available Specialists Near You</h2>
+                                <p class="section-subtitle-desktop">Verified local professionals currently on-duty in <span class="text-city-dynamic">Ramanagara</span></p>
+                            </div>
+                            <button type="button" class="btn btn-ghost btn-sm" id="refreshHomeWorkersBtn"><i class="fa-solid fa-rotate"></i> Refresh Feed</button>
+                        </div>
+
+                        <div class="workers-desktop-grid" id="homeWorkersContainer">
+                            <!-- Populated dynamically from SQLite DB -->
+                            <div class="empty-state-card">
+                                <i class="fa-solid fa-circle-notch fa-spin"></i>
+                                <h3>Checking database...</h3>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ==============================================================
+                     2. CUSTOMER VIEW: FIND WORKERS
+                     ============================================================== -->
+                <section class="customer-view" id="custView-find-workers">
+                    <div class="view-title-header">
+                        <div>
+                            <h1>Find Local Workers</h1>
+                            <p>Filter registered trade professionals by trade, distance, rating, and availability in <span class="text-city-dynamic">Ramanagara</span>.</p>
+                        </div>
+                    </div>
+
+                    <div class="find-workers-layout">
+                        <!-- Left Filter Sidebar -->
+                        <aside class="filters-sidebar-card">
+                            <h3><i class="fa-solid fa-sliders"></i> Filter Specialists</h3>
+
+                            <div class="filter-group">
+                                <label>Service Trade</label>
+                                <select id="filterTradeSelect" class="form-control">
+                                    <option value="all">All Services</option>
+                                    <option value="Electrical">Electrical</option>
+                                    <option value="Plumbing">Plumbing</option>
+                                    <option value="Carpentry">Carpentry</option>
+                                    <option value="Mechanics">Two-Wheeler & Auto</option>
+                                    <option value="AC & Appliances">AC & Fridge</option>
+                                    <option value="Painting">Painting</option>
+                                    <option value="Tailoring">Tailoring</option>
+                                    <option value="Home Cleaning">Cleaning</option>
+                                    <option value="Welding">Welding</option>
+                                </select>
+                            </div>
+
+                            <div class="filter-group">
+                                <label>Availability</label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="filterAvailableOnly" checked>
+                                    <span>Available Today (On-Duty)</span>
+                                </label>
+                            </div>
+
+                            <div class="filter-group">
+                                <label>Minimum Rating</label>
+                                <select id="filterRatingSelect" class="form-control">
+                                    <option value="0">Any Rating</option>
+                                    <option value="4.0">⭐ 4.0 & above</option>
+                                    <option value="4.5">⭐ 4.5 & above</option>
+                                    <option value="4.8">⭐ 4.8 & above</option>
+                                </select>
+                            </div>
+
+                            <button type="button" class="btn btn-primary btn-block" id="applyFiltersBtn">Apply Filters</button>
+                        </aside>
+
+                        <!-- Right Workers Grid -->
+                        <div class="workers-results-area">
+                            <div class="results-meta-bar">
+                                <span id="workerResultsCount">0 workers found</span>
+                                <span class="city-indicator-pill"><i class="fa-solid fa-location-dot"></i> <span class="text-city-dynamic">Ramanagara</span></span>
+                            </div>
+                            <div class="workers-desktop-grid" id="findWorkersGrid">
+                                <!-- Populated dynamically from SQLite DB -->
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ==============================================================
+                     3. CUSTOMER VIEW: SERVICES DIRECTORY
+                     ============================================================== -->
+                <section class="customer-view" id="custView-services">
+                    <div class="view-title-header">
+                        <h1>Hyperlocal Service Rates &amp; Details</h1>
+                        <p>Standard local visit charges and typical labor rates in Tier-2/Tier-3 city clusters.</p>
+                    </div>
+
+                    <div class="services-detail-table-card">
+                        <table class="standard-desktop-table">
+                            <thead>
+                                <tr>
+                                    <th>Service Category</th>
+                                    <th>Common Jobs Handled</th>
+                                    <th>Standard Visit Fee</th>
+                                    <th>Typical Repair Range</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><strong>⚡ Electrical</strong></td>
+                                    <td>Ceiling fan, switchboard, fuse replacement, inverter connection</td>
+                                    <td>₹250</td>
+                                    <td>₹300 – ₹600</td>
+                                    <td><button type="button" class="btn btn-primary btn-sm" onclick="window._gigsyncPostJobFor('Electrical')">Book Electrician</button></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>🔧 Plumbing</strong></td>
+                                    <td>Pipe leakage, tap replacement, bathroom fittings, motor installation</td>
+                                    <td>₹250</td>
+                                    <td>₹280 – ₹550</td>
+                                    <td><button type="button" class="btn btn-primary btn-sm" onclick="window._gigsyncPostJobFor('Plumbing')">Book Plumber</button></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>🔨 Carpentry</strong></td>
+                                    <td>Door repairs, lock installation, wooden cupboards, table assembly</td>
+                                    <td>₹300</td>
+                                    <td>₹350 – ₹800</td>
+                                    <td><button type="button" class="btn btn-primary btn-sm" onclick="window._gigsyncPostJobFor('Carpentry')">Book Carpenter</button></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>❄️ AC &amp; Fridge</strong></td>
+                                    <td>Cooling issues, gas refill, compressor checking, routine maintenance</td>
+                                    <td>₹350</td>
+                                    <td>₹450 – ₹1,200</td>
+                                    <td><button type="button" class="btn btn-primary btn-sm" onclick="window._gigsyncPostJobFor('AC & Appliances')">Book AC Tech</button></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>🏍️ Two-Wheeler Mechanic</strong></td>
+                                    <td>Doorstep oil change, brake fixing, puncture, battery checking</td>
+                                    <td>₹200</td>
+                                    <td>₹250 – ₹500</td>
+                                    <td><button type="button" class="btn btn-primary btn-sm" onclick="window._gigsyncPostJobFor('Mechanics')">Book Mechanic</button></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- ==============================================================
+                     4. CUSTOMER VIEW: POST A JOB
+                     ============================================================== -->
+                <section class="customer-view" id="custView-post-job">
+                    <div class="view-title-header">
+                        <h1>Post a Job Request</h1>
+                        <p>Create a service request via voice in English/Kannada or fill the manual form. Nearby available specialists will be notified immediately.</p>
+                    </div>
+
+                    <div class="post-job-desktop-layout">
+                        <!-- Form Left Column -->
+                        <div class="post-job-card">
+                            <div class="post-mode-tabs">
+                                <button type="button" class="post-tab-btn active" id="tabPostManual"><i class="fa-solid fa-pen-to-square"></i> Manual Form</button>
+                                <button type="button" class="post-tab-btn" id="tabPostVoice"><i class="fa-solid fa-microphone"></i> Voice Description (Kannada/English)</button>
+                            </div>
+
+                            <!-- Voice Assistant Box (inside post job) -->
+                            <div class="voice-post-box hidden" id="voicePostBox">
+                                <div class="voice-mic-circle" id="voicePostMicBtn">
+                                    <i class="fa-solid fa-microphone"></i>
+                                </div>
+                                <h4>Click to speak your requirement</h4>
+                                <p>e.g. <i>"I need a plumber tomorrow at 10 AM for kitchen tap leakage in Vijaya Nagar."</i> or <i>"Nanage electrician beku naale."</i></p>
+                                <div class="voice-transcript-output" id="voicePostTranscript">Listening will appear here...</div>
+                            </div>
+
+                            <form id="desktopPostJobForm">
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label class="form-label">Service Category</label>
+                                        <select id="postJobServiceSelect" class="form-control" required>
+                                            <option value="Electrical">⚡ Electrical</option>
+                                            <option value="Plumbing">🔧 Plumbing</option>
+                                            <option value="Carpentry">🔨 Carpentry</option>
+                                            <option value="AC & Appliances">❄️ AC & Fridge</option>
+                                            <option value="Mechanics">🏍️ Two-Wheeler Mechanic</option>
+                                            <option value="Painting">🎨 Painting</option>
+                                            <option value="Home Cleaning">🧹 Cleaning</option>
+                                            <option value="Welding">👨‍🏭 Welding</option>
+                                            <option value="Tailoring">🧵 Tailoring</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Required Timing</label>
+                                        <select id="postJobTimingSelect" class="form-control" required>
+                                            <option value="Immediate (Today)">⚡ Today (Immediate)</option>
+                                            <option value="Tomorrow Morning (10:00 AM)">🌅 Tomorrow Morning (10:00 AM)</option>
+                                            <option value="Tomorrow Afternoon (02:00 PM)">☀️ Tomorrow Afternoon (02:00 PM)</option>
+                                            <option value="Flexible (Within 2 Days)">🕒 Flexible (Within 2 Days)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label">Problem Description</label>
+                                    <textarea id="postJobProblemDesc" class="form-control" rows="4" placeholder="Describe what is broken, leaking, or needs installation..." required></textarea>
+                                </div>
+
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label class="form-label">Service Location / Area</label>
+                                        <input type="text" id="postJobLocationInput" class="form-control" value="Town Area, Ramanagara" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Estimated Budget / Visit Fee</label>
+                                        <input type="text" id="postJobBudgetInput" class="form-control" value="₹300 – ₹450" required>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label">Worker Assignment Mode</label>
+                                    <div class="match-mode-row">
+                                        <label class="radio-card active" id="radioAutoMatchCard">
+                                            <input type="radio" name="jobAssignMode" value="auto" checked>
+                                            <div>
+                                                <strong>✨ Smart AI Auto-Match</strong>
+                                                <small>Dispatches request to highest-rated available specialist in your area.</small>
+                                            </div>
+                                        </label>
+                                        <label class="radio-card" id="radioManualMatchCard">
+                                            <input type="radio" name="jobAssignMode" value="manual">
+                                            <div>
+                                                <strong>Specific Worker</strong>
+                                                <small>Select from list of registered professionals.</small>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="form-group hidden" id="manualWorkerSelectWrap">
+                                    <label class="form-label">Select Registered Worker</label>
+                                    <select id="postJobManualWorkerSelect" class="form-control">
+                                        <!-- Populated from SQLite DB -->
+                                    </select>
+                                </div>
+
+                                <button type="submit" class="btn btn-primary btn-lg btn-block" id="submitPostJobBtn">
+                                    <i class="fa-solid fa-paper-plane"></i> Confirm &amp; Dispatch Job Request
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Right Summary & Safety Column -->
+                        <div class="post-job-summary-col">
+                            <div class="summary-info-card">
+                                <h3><i class="fa-solid fa-shield-halved" style="color:var(--gs-indigo)"></i> The GigSync Guarantee</h3>
+                                <ul class="guarantee-list">
+                                    <li><i class="fa-solid fa-check"></i> <b>Direct Local Connect:</b> Pay directly to the worker via Cash or UPI after service.</li>
+                                    <li><i class="fa-solid fa-check"></i> <b>Verified Specialists:</b> Real local workers verified in their trades.</li>
+                                    <li><i class="fa-solid fa-check"></i> <b>Zero Intermediary Cut:</b> Fair pricing that benefits both customers and workers.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ==============================================================
+                     5. CUSTOMER VIEW: MY JOBS
+                     ============================================================== -->
+                <section class="customer-view" id="custView-my-jobs">
+                    <div class="view-title-header">
+                        <div>
+                            <h1>My Bookings &amp; Job Orders</h1>
+                            <p>Track live service requests, worker status, and service history.</p>
+                        </div>
+                    </div>
+
+                    <!-- Filter Tabs -->
+                    <div class="desktop-filter-tabs" id="customerJobsFilterTabs">
+                        <button type="button" class="d-tab active" data-filter="all">All Bookings</button>
+                        <button type="button" class="d-tab" data-filter="active">Active &amp; In-Progress</button>
+                        <button type="button" class="d-tab" data-filter="completed">Completed</button>
+                    </div>
+
+                    <!-- Bookings List -->
+                    <div class="bookings-desktop-list" id="customerBookingsList">
+                        <!-- Populated dynamically from SQLite DB -->
+                    </div>
+                </section>
+
+            </main>
+        </div>
+
+        <!-- ==================================================================
+             B. WORKER INTERFACE PORTAL (DEDICATED DESKTOP WORKSPACE)
+             ================================================================== -->
+        <div id="workerPortal" class="portal-container">
+            <div class="worker-workspace-layout">
+
+                <!-- WORKER DESKTOP SIDEBAR -->
+                <aside class="worker-desktop-sidebar">
+                    <div class="sidebar-brand">
+                        <div class="brand-badge-lg">G</div>
+                        <div class="brand-text-col">
+                            <span class="brand-name">Gig<span>Sync</span></span>
+                            <span class="worker-portal-badge">Worker Workspace</span>
+                        </div>
+                    </div>
+
+                    <div class="worker-user-card-mini">
+                        <div class="worker-avatar-md" id="sidebarWorkerInitials">RK</div>
+                        <div>
+                            <strong id="sidebarWorkerName">Ramesh Kumar</strong>
+                            <span class="worker-trade-label" id="sidebarWorkerTrade">Master Electrician</span>
+                        </div>
+                    </div>
+
+                    <nav class="worker-sidebar-nav">
+                        <button type="button" class="worker-nav-item active" data-worker-view="dashboard" id="wNavDashboard">
+                            <i class="fa-solid fa-chart-line"></i> Dashboard
+                        </button>
+                        <button type="button" class="worker-nav-item" data-worker-view="my-jobs" id="wNavJobs">
+                            <i class="fa-solid fa-briefcase"></i> My Jobs
+                        </button>
+                        <button type="button" class="worker-nav-item" data-worker-view="bookings" id="wNavBookings">
+                            <i class="fa-solid fa-calendar-check"></i> Bookings &amp; Schedule
+                        </button>
+                        <button type="button" class="worker-nav-item" data-worker-view="availability" id="wNavAvailability">
+                            <i class="fa-solid fa-toggle-on"></i> Availability
+                        </button>
+                        <button type="button" class="worker-nav-item" data-worker-view="earnings" id="wNavEarnings">
+                            <i class="fa-solid fa-indian-rupee-sign"></i> Earnings
+                        </button>
+                        <button type="button" class="worker-nav-item" data-worker-view="history" id="wNavHistory">
+                            <i class="fa-solid fa-clock-rotate-left"></i> Job History
+                        </button>
+                        <button type="button" class="worker-nav-item" data-worker-view="profile" id="wNavProfile">
+                            <i class="fa-solid fa-user-gear"></i> Profile &amp; Skills
+                        </button>
+                        <button type="button" class="worker-nav-item" data-worker-view="ai-assistant" id="wNavAI">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> AI Assistant
+                        </button>
+                    </nav>
+
+                    <div class="sidebar-bottom-actions">
+                        <button type="button" class="btn btn-ghost btn-block btn-sm" id="workerSwitchToCustBtn">
+                            <i class="fa-solid fa-arrow-right-arrow-left"></i> Switch to Customer Mode
+                        </button>
+                        <button type="button" class="btn btn-danger-ghost btn-block btn-sm" id="workerLogoutBtn">
+                            <i class="fa-solid fa-right-from-bracket"></i> Log Out
+                        </button>
+                    </div>
+                </aside>
+
+                <!-- WORKER MAIN VIEWPORT -->
+                <main class="worker-main-viewport">
+
+                    <!-- ==========================================================
+                         1. WORKER VIEW: DASHBOARD
+                         ========================================================== -->
+                    <section class="worker-view active" id="workerView-dashboard">
+                        <!-- Top Header with Availability Toggle -->
+                        <div class="worker-topbar-desktop">
+                            <div>
+                                <h1 class="worker-greeting-title" id="workerGreeting">Good afternoon, Ramesh</h1>
+                                <p class="worker-greeting-sub">Ramanagara Regional Cluster · Connected to live database</p>
+                            </div>
+
+                            <!-- Big Availability Switcher -->
+                            <div class="worker-duty-toggle-wrap">
+                                <span class="duty-status-text" id="dutyStatusText">🟢 AVAILABLE FOR WORK</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="workerDutyToggle" checked>
+                                    <span class="slider round"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- 4 Summary Metric Cards -->
+                        <div class="worker-kpi-grid">
+                            <div class="kpi-card">
+                                <div class="kpi-icon-box" style="background:#EEF2FF;color:var(--gs-indigo)"><i class="fa-solid fa-calendar-day"></i></div>
+                                <div class="kpi-data">
+                                    <span class="kpi-label">Today's Jobs</span>
+                                    <strong class="kpi-value" id="kpiTodayJobs">0</strong>
+                                </div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-icon-box" style="background:#E0F2FE;color:var(--gs-blue)"><i class="fa-solid fa-bolt"></i></div>
+                                <div class="kpi-data">
+                                    <span class="kpi-label">Active Jobs</span>
+                                    <strong class="kpi-value" id="kpiActiveJobs">0</strong>
+                                </div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-icon-box" style="background:#ECFDF5;color:var(--gs-green-dark)"><i class="fa-solid fa-indian-rupee-sign"></i></div>
+                                <div class="kpi-data">
+                                    <span class="kpi-label">Today's Earnings</span>
+                                    <strong class="kpi-value" id="kpiTodayEarnings">₹0</strong>
+                                </div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-icon-box" style="background:#FFFBEB;color:var(--gs-amber-dark)"><i class="fa-solid fa-wallet"></i></div>
+                                <div class="kpi-data">
+                                    <span class="kpi-label">This Month's Earnings</span>
+                                    <strong class="kpi-value" id="kpiMonthEarnings">₹0</strong>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- NEW JOBS NEAR YOU (OPPORTUNITY FEED) -->
+                        <div class="section-container" style="margin-top:28px">
+                            <div class="section-header-desktop">
+                                <div>
+                                    <h2 class="section-title-desktop">New Jobs Near You</h2>
+                                    <p class="section-subtitle-desktop">Incoming customer requests matching your trade in <span class="text-city-dynamic">Ramanagara</span></p>
+                                </div>
+                                <button type="button" class="btn btn-ghost btn-sm" id="refreshOpportunitiesBtn"><i class="fa-solid fa-rotate"></i> Refresh Feed</button>
+                            </div>
+
+                            <div class="opportunities-feed-list" id="workerOpportunitiesList">
+                                <!-- Populated dynamically from SQLite DB -->
+                            </div>
+                        </div>
+
+                        <!-- ACTIVE WORKER JOBS -->
+                        <div class="section-container" style="margin-top:28px">
+                            <div class="section-header-desktop">
+                                <h2 class="section-title-desktop">My Active Gigs</h2>
+                            </div>
+                            <div class="active-jobs-list" id="workerActiveJobsList">
+                                <!-- Populated dynamically from SQLite DB -->
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- ==========================================================
+                         2. WORKER VIEW: BOOKINGS & SCHEDULE
+                         ========================================================== -->
+                    <section class="worker-view" id="workerView-bookings">
+                        <div class="view-title-header">
+                            <h1>Daily Schedule &amp; Bookings</h1>
+                            <p>Visual timeline of your confirmed service appointments to prevent double-booking.</p>
+                        </div>
+
+                        <div class="schedule-timeline-card">
+                            <div class="schedule-date-header">
+                                <h3>Today's Time Slots</h3>
+                            </div>
+                            <div class="schedule-slots-grid" id="workerScheduleTimeline">
+                                <!-- Populated dynamically from SQLite DB -->
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- ==========================================================
+                         3. WORKER VIEW: AVAILABILITY
+                         ========================================================== -->
+                    <section class="worker-view" id="workerView-availability">
+                        <div class="view-title-header">
+                            <h1>Manage Work Availability</h1>
+                            <p>Set specific working hours for today, tomorrow, or weekly recurring slots using the manual form or Voice AI.</p>
+                        </div>
+
+                        <div class="availability-management-layout">
+                            <!-- Manual Availability Form -->
+                            <div class="availability-card">
+                                <h3><i class="fa-solid fa-clock"></i> Set Working Hours</h3>
+                                <form id="workerSetAvailabilityForm">
+                                    <div class="form-group">
+                                        <label class="form-label">Select Day</label>
+                                        <select id="availDaySelect" class="form-control">
+                                            <option value="Today">Today</option>
+                                            <option value="Tomorrow">Tomorrow</option>
+                                            <option value="Monday">Monday</option>
+                                            <option value="Tuesday">Tuesday</option>
+                                            <option value="Wednesday">Wednesday</option>
+                                            <option value="Thursday">Thursday</option>
+                                            <option value="Friday">Friday</option>
+                                            <option value="Saturday">Saturday</option>
+                                            <option value="Sunday">Sunday</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="form-row-2">
+                                        <div class="form-group">
+                                            <label class="form-label">Start Time</label>
+                                            <input type="text" id="availStartTime" class="form-control" value="09:00 AM">
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">End Time</label>
+                                            <input type="text" id="availEndTime" class="form-control" value="06:00 PM">
+                                        </div>
+                                    </div>
+
+                                    <button type="submit" class="btn btn-primary btn-block"><i class="fa-solid fa-save"></i> Save Availability</button>
+                                </form>
+                            </div>
+
+                            <!-- Voice AI Availability Box -->
+                            <div class="availability-card voice-ai-card">
+                                <h3><i class="fa-solid fa-wand-magic-sparkles"></i> 🎙️ Tell GigSync by Voice</h3>
+                                <p>Speak your availability in English or Kannada (e.g. <i>"I am available tomorrow from 10 AM to 2 PM"</i> or <i>"Naale 10 inda 2 varege free iddini"</i>).</p>
+                                <button type="button" class="btn btn-dark btn-block" id="workerVoiceAvailBtn">
+                                    <i class="fa-solid fa-microphone"></i> Speak Availability
+                                </button>
+                                <div class="voice-status-pill hidden" id="workerVoiceAvailStatus">Listening...</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- ==========================================================
+                         4. WORKER VIEW: EARNINGS
+                         ========================================================== -->
+                    <section class="worker-view" id="workerView-earnings">
+                        <div class="view-title-header">
+                            <h1>Earnings &amp; Income Dashboard</h1>
+                            <p>Real earnings computed from completed jobs in the SQLite database.</p>
+                        </div>
+
+                        <div class="worker-kpi-grid">
+                            <div class="kpi-card">
+                                <span class="kpi-label">Total Earnings</span>
+                                <strong class="kpi-value" id="earnTotalVal">₹0</strong>
+                            </div>
+                            <div class="kpi-card">
+                                <span class="kpi-label">This Month</span>
+                                <strong class="kpi-value" id="earnMonthVal">₹0</strong>
+                            </div>
+                            <div class="kpi-card">
+                                <span class="kpi-label">Completed Gigs</span>
+                                <strong class="kpi-value" id="earnCompletedCount">0</strong>
+                            </div>
+                            <div class="kpi-card">
+                                <span class="kpi-label">Pending / In-Progress</span>
+                                <strong class="kpi-value" id="earnPendingVal">₹0</strong>
+                            </div>
+                        </div>
+
+                        <div class="section-container" style="margin-top:24px">
+                            <h3>Completed Gigs Payment Record</h3>
+                            <div class="earnings-table-card">
+                                <table class="standard-desktop-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Job ID</th>
+                                            <th>Service</th>
+                                            <th>Customer</th>
+                                            <th>Date Completed</th>
+                                            <th>Amount</th>
+                                            <th>Payment Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="workerEarningsTableBody">
+                                        <!-- Populated from SQLite DB -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- ==========================================================
+                         5. WORKER VIEW: JOB HISTORY & WORK STATEMENT
+                         ========================================================== -->
+                    <section class="worker-view" id="workerView-history">
+                        <div class="view-title-header">
+                            <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+                                <div>
+                                    <h1>Digital Work Record &amp; History</h1>
+                                    <p>Your GigSync activity creates a verifiable digital record of your completed work and customer ratings.</p>
+                                </div>
+                                <button type="button" class="btn btn-primary" id="downloadWorkStatementBtn">
+                                    <i class="fa-solid fa-download"></i> Download Work Statement
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="work-history-list" id="workerHistoryList">
+                            <!-- Populated from SQLite DB -->
+                        </div>
+                    </section>
+
+                    <!-- ==========================================================
+                         6. WORKER VIEW: PROFILE & SKILLS
+                         ========================================================== -->
+                    <section class="worker-view" id="workerView-profile">
+                        <div class="view-title-header">
+                            <h1>Worker Profile &amp; Trade Settings</h1>
+                            <p>Manage your profession, equipped tools, service rate, and service areas.</p>
+                        </div>
+
+                        <div class="profile-edit-card">
+                            <form id="workerProfileForm">
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label class="form-label">Full Name</label>
+                                        <input type="text" id="wProfName" class="form-control" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Mobile Number</label>
+                                        <input type="text" id="wProfPhone" class="form-control" disabled>
+                                    </div>
+                                </div>
+
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label class="form-label">Profession / Trade</label>
+                                        <input type="text" id="wProfTrade" class="form-control" placeholder="e.g. Master Electrician" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Standard Visiting Fee (₹)</label>
+                                        <input type="number" id="wProfPrice" class="form-control" value="300" required>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label">Equipped Tools</label>
+                                    <input type="text" id="wProfTools" class="form-control" placeholder="e.g. Multimeter, Drill machine, Pipe wrench, Safety kit">
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label">Skills &amp; Specializations</label>
+                                    <input type="text" id="wProfSkills" class="form-control" placeholder="e.g. Inverter wiring, 3-phase connection, Motor rewinding">
+                                </div>
+
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label class="form-label">Home City</label>
+                                        <input type="text" id="wProfCity" class="form-control" value="Ramanagara" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Service Areas</label>
+                                        <input type="text" id="wProfAreas" class="form-control" value="Vijaya Nagar, Ijoor, Town Area">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label">About / Experience Bio</label>
+                                    <textarea id="wProfAbout" class="form-control" rows="3" placeholder="Tell customers about your experience and quality of work..."></textarea>
+                                </div>
+
+                                <button type="submit" class="btn btn-primary btn-md"><i class="fa-solid fa-floppy-disk"></i> Save Profile Changes</button>
+                            </form>
+                        </div>
+                    </section>
+
+                    <!-- ==========================================================
+                         7. WORKER VIEW: AI ASSISTANT WORKBENCH
+                         ========================================================== -->
+                    <section class="worker-view" id="workerView-ai-assistant">
+                        <div class="view-title-header">
+                            <h1>GigSync Worker AI Assistant</h1>
+                            <p>Speak in Kannada or English to update your schedule, check assigned bookings, or answer questions.</p>
+                        </div>
+
+                        <div class="worker-ai-chat-box">
+                            <div class="chat-feed-area" id="workerAiChatFeed">
+                                <div class="chat-msg bot">
+                                    <div class="msg-avatar"><i class="fa-solid fa-robot"></i></div>
+                                    <div class="msg-body">
+                                        <p>Namaskara! I am your GigSync AI assistant. You can tell me your availability (e.g. <i>"I am available tomorrow from 10 to 2"</i> / <i>"Naale 10 inda 2 varege free iddini"</i>) or ask for today's jobs.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="chat-input-bar">
+                                <button type="button" class="btn-mic-round" id="workerAiMicBtn" title="Speak"><i class="fa-solid fa-microphone"></i></button>
+                                <input type="text" id="workerAiTextInput" placeholder="Type or speak (e.g. Naale availability set madi)...">
+                                <button type="button" class="btn btn-primary" id="workerAiSendBtn"><i class="fa-solid fa-paper-plane"></i> Send</button>
+                            </div>
+                        </div>
+                    </section>
+
+                </main>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ======================================================================
+         MODALS & OVERLAYS
+         ====================================================================== -->
+
+    <!-- 1. AUTHENTICATION MODAL (REAL BACKEND REGISTRATION & LOGIN) -->
+    <div id="authModal" class="modal-overlay hidden">
+        <div class="auth-modal-card">
+            <div class="auth-modal-header">
+                <div class="brand-badge-lg">G</div>
+                <h2>Welcome to GigSync</h2>
+                <p>Hyperlocal Work Marketplace for India's Tier-2 &amp; Tier-3 Cities</p>
+                <button type="button" class="modal-close-x" id="closeAuthModalBtn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div class="auth-tab-switcher">
+                <button type="button" class="auth-tab-btn active" id="authTabLogin">Sign In</button>
+                <button type="button" class="auth-tab-btn" id="authTabRegister">Create Account</button>
+            </div>
+
+            <!-- Role Selector for Registration -->
+            <div class="auth-role-picker" id="authRolePickerWrap">
+                <label class="auth-role-card active" id="roleCardCustomer">
+                    <input type="radio" name="authRole" value="customer" checked>
+                    <div>
+                        <i class="fa-solid fa-user"></i>
+                        <strong>Customer</strong>
+                        <small>I need to hire workers</small>
+                    </div>
+                </label>
+                <label class="auth-role-card" id="roleCardWorker">
+                    <input type="radio" name="authRole" value="worker">
+                    <div>
+                        <i class="fa-solid fa-toolbox"></i>
+                        <strong>Worker</strong>
+                        <small>I want to find &amp; accept jobs</small>
+                    </div>
+                </label>
+            </div>
+
+            <!-- Form -->
+            <form id="realAuthForm">
+                <!-- Name field (shown for register only) -->
+                <div class="form-group hidden" id="authNameGroup">
+                    <label class="form-label">Full Name</label>
+                    <input type="text" id="authNameInput" class="form-control" placeholder="e.g. Ramesh Kumar / Kavya Rao">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Mobile Number</label>
+                    <div class="phone-input-row">
+                        <span class="phone-prefix">🇮🇳 +91</span>
+                        <input type="tel" id="authPhoneInput" class="form-control" placeholder="e.g. 9876543210" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" id="authPasswordInput" class="form-control" placeholder="Enter password (min 6 characters)" required>
+                </div>
+
+                <!-- Worker specific fields (shown for worker registration) -->
+                <div id="workerExtraFields" class="hidden">
+                    <div class="form-group">
+                        <label class="form-label">Profession / Trade</label>
+                        <select id="authWorkerTradeSelect" class="form-control">
+                            <option value="Master Electrician">⚡ Master Electrician</option>
+                            <option value="Plumbing Specialist">🔧 Plumbing Specialist</option>
+                            <option value="General Carpenter">🔨 General Carpenter</option>
+                            <option value="Two-Wheeler Mechanic">🏍️ Two-Wheeler Mechanic</option>
+                            <option value="AC & Fridge Tech">❄️ AC & Fridge Tech</option>
+                            <option value="Appliance Repair Tech">🔌 Appliance Repair Tech</option>
+                            <option value="Painter">🎨 Painter</option>
+                            <option value="Tailor">🧵 Tailor</option>
+                            <option value="Home Cleaner">🧹 Cleaner</option>
+                            <option value="Welder">👨‍🏭 Welder</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Equipped Tools</label>
+                        <input type="text" id="authWorkerTools" class="form-control" placeholder="e.g. Standard tool kit, Multimeter, Drill">
+                    </div>
+                </div>
+
+                <div class="form-group" id="authCityGroup">
+                    <label class="form-label">City / Town</label>
+                    <select id="authCitySelect" class="form-control">
+                        <option value="Ramanagara">Ramanagara (Karnataka)</option>
+                        <option value="Chitradurga">Chitradurga (Karnataka)</option>
+                        <option value="Mandya">Mandya (Karnataka)</option>
+                        <option value="Hassan">Hassan (Karnataka)</option>
+                        <option value="Tumakuru">Tumakuru (Karnataka)</option>
+                        <option value="Shivamogga">Shivamogga (Karnataka)</option>
+                        <option value="Davangere">Davangere (Karnataka)</option>
+                        <option value="Belagavi">Belagavi (Karnataka)</option>
+                        <option value="Hubballi">Hubballi (Karnataka)</option>
+                        <option value="Kannur">Kannur (Kerala)</option>
+                        <option value="Kasaragod">Kasaragod (Kerala)</option>
+                    </select>
+                </div>
+
+                <p id="authErrorMsg" class="auth-error-text hidden"></p>
+
+                <button type="submit" class="btn btn-primary btn-lg btn-block" id="authSubmitBtn">
+                    Sign In
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 2. CITY / LOCATION SELECTOR MODAL -->
+    <div id="locationModal" class="modal-overlay hidden">
+        <div class="location-modal-card">
+            <div class="modal-head">
+                <h3><i class="fa-solid fa-location-dot" style="color:var(--gs-indigo)"></i> Select Your City / Cluster</h3>
+                <button type="button" class="modal-close-x" id="closeLocationModalBtn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <p class="modal-sub">GigSync is tailored for India's Tier-2 &amp; Tier-3 hubs. Select your service cluster:</p>
+
+            <button type="button" class="btn btn-outline btn-block btn-detect-gps" id="detectGpsLocationBtn">
+                <i class="fa-solid fa-crosshairs"></i> Detect My Current Location (GPS)
+            </button>
+
+            <div class="cities-grid-desktop" id="citiesListGrid">
+                <div class="city-tile active" data-city="Ramanagara"><strong>Ramanagara</strong><span>Karnataka</span></div>
+                <div class="city-tile" data-city="Chitradurga"><strong>Chitradurga</strong><span>Karnataka</span></div>
+                <div class="city-tile" data-city="Mandya"><strong>Mandya</strong><span>Karnataka</span></div>
+                <div class="city-tile" data-city="Hassan"><strong>Hassan</strong><span>Karnataka</span></div>
+                <div class="city-tile" data-city="Tumakuru"><strong>Tumakuru</strong><span>Karnataka</span></div>
+                <div class="city-tile" data-city="Shivamogga"><strong>Shivamogga</strong><span>Karnataka</span></div>
+                <div class="city-tile" data-city="Davangere"><strong>Davangere</strong><span>Karnataka</span></div>
+                <div class="city-tile" data-city="Belagavi"><strong>Belagavi</strong><span>Karnataka</span></div>
+                <div class="city-tile" data-city="Hubballi"><strong>Hubballi</strong><span>Karnataka</span></div>
+                <div class="city-tile" data-city="Kannur"><strong>Kannur</strong><span>Kerala</span></div>
+                <div class="city-tile" data-city="Kasaragod"><strong>Kasaragod</strong><span>Kerala</span></div>
             </div>
         </div>
     </div>
 
-    <!-- MAIN APP SHELL (MOBILE-FIRST RESPONSIVE CONTAINER) -->
-    <div class="mobile-app-shell">
-        <!-- TOP APP BAR -->
-        <header class="app-topbar">
-            <div class="topbar-brand" id="topbarBrandBtn">
-                <div class="brand-badge-circle">G</div>
-                <div class="brand-text-block">
-                    <div class="brand-name-text">Gig<span>Sync</span></div>
-                    <div class="brand-location-chip" id="locationPickerBtn">
-                        <i class="fa-solid fa-location-dot"></i> <span id="currentCityLabel">Ramanagara</span> <i class="fa-solid fa-chevron-down arrow-mini"></i>
+    <!-- 3. AI VOICE ASSISTANT MODAL (REAL AUDIO & TRILINGUAL DIALOG) -->
+    <div id="aiVoiceModal" class="modal-overlay hidden">
+        <div class="ai-modal-card">
+            <div class="modal-head">
+                <div style="display:flex;align-items:center;gap:10px">
+                    <div class="brand-badge-sm">G</div>
+                    <div>
+                        <h3 style="margin:0">GigSync AI Voice Assistant</h3>
+                        <small style="color:var(--gs-muted)">Speak in English, ಕನ್ನಡ (Kannada), or Hindi</small>
                     </div>
+                </div>
+                <button type="button" class="modal-close-x" id="closeAiVoiceModalBtn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div class="voice-center-visual">
+                <div class="big-mic-button" id="aiModalBigMicBtn">
+                    <i class="fa-solid fa-microphone"></i>
+                </div>
+                <div class="voice-live-state" id="aiVoiceStateLabel">Click microphone to speak</div>
+                <div class="voice-wave-bars hidden" id="aiModalWaveBars">
+                    <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                    <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                    <div class="bar"></div><div class="bar"></div>
                 </div>
             </div>
 
-            <div class="topbar-actions">
-                <!-- Dialect selector -->
-                <button type="button" class="icon-chip-btn" id="langSwitchBtn" title="Change Language">
-                    <i class="fa-solid fa-language"></i> <span id="currentLangLabel">Eng</span>
-                </button>
-                <!-- Quick AI Phone Handset Trigger -->
-                <button type="button" class="icon-chip-btn phone-highlight-chip" id="topPhoneCallBtn" title="Make AI Phone Call">
-                    <i class="fa-solid fa-phone"></i>
-                </button>
-                <!-- User Profile / Mode Avatar -->
-                <button type="button" class="user-avatar-btn" id="topbarAvatarBtn" title="Account">
-                    <span>KR</span>
-                </button>
-            </div>
-        </header>
-
-        <!-- VIEW CONTAINER -->
-        <main class="app-main-viewport">
-            
-            <!-- ================================================================
-                 1. TAB 1: HOME VIEW
-                 ================================================================ -->
-            <section class="app-view active" id="view-home">
-                <!-- Top Greeting & Search Need -->
-                <div class="home-hero-card">
-                    <div class="hero-user-greeting">
-                        <div>
-                            <span class="greeting-subtitle">Instant Local Services</span>
-                            <h1 class="greeting-title">What help do you need?</h1>
-                        </div>
-                    </div>
-
-                    <!-- Search / Speak Bar -->
-                    <div class="search-bar-wrap" id="homeSearchBar">
-                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                        <input type="text" id="homeSearchInput" placeholder="Search plumber, fan repair, mechanic..." autocomplete="off">
-                        <button type="button" class="mic-trigger-btn" id="homeMicBtn" title="Speak in English/Kannada">
-                            <i class="fa-solid fa-microphone"></i>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Active Job Banner (Shown if there is an ongoing booking) -->
-                <div class="active-job-card-banner hidden" id="homeActiveJobBanner">
-                    <div class="banner-icon"><i class="fa-solid fa-bolt"></i></div>
-                    <div class="banner-info">
-                        <strong id="homeBannerService">Electrical Fan Repair</strong>
-                        <p id="homeBannerStatus">Worker Ramesh Kumar assigned · Arriving tomorrow</p>
-                    </div>
-                    <button type="button" class="btn btn-sm btn-white" id="homeBannerViewBtn">Track</button>
-                </div>
-
-                <!-- Fast Category Grid -->
-                <div class="section-block">
-                    <div class="section-header-row">
-                        <h2 class="section-title">Popular Services</h2>
-                        <span class="section-badge">Verified</span>
-                    </div>
-
-                    <div class="category-icon-grid" id="categoryGrid">
-                        <div class="category-tile" data-service="Electrical">
-                            <div class="tile-icon-circle cat-electric"><i class="fa-solid fa-bolt"></i></div>
-                            <span class="tile-label">Electrician</span>
-                        </div>
-                        <div class="category-tile" data-service="Plumbing">
-                            <div class="tile-icon-circle cat-plumbing"><i class="fa-solid fa-wrench"></i></div>
-                            <span class="tile-label">Plumber</span>
-                        </div>
-                        <div class="category-tile" data-service="Carpentry">
-                            <div class="tile-icon-circle cat-carpentry"><i class="fa-solid fa-hammer"></i></div>
-                            <span class="tile-label">Carpenter</span>
-                        </div>
-                        <div class="category-tile" data-service="AC & Appliances">
-                            <div class="tile-icon-circle cat-ac"><i class="fa-solid fa-snowflake"></i></div>
-                            <span class="tile-label">AC / Fridge</span>
-                        </div>
-                        <div class="category-tile" data-service="Mechanics">
-                            <div class="tile-icon-circle cat-mechanic"><i class="fa-solid fa-motorcycle"></i></div>
-                            <span class="tile-label">Mechanic</span>
-                        </div>
-                        <div class="category-tile" data-service="Home Cleaning">
-                            <div class="tile-icon-circle cat-cleaning"><i class="fa-solid fa-broom"></i></div>
-                            <span class="tile-label">Cleaning</span>
-                        </div>
-                        <div class="category-tile" data-service="Tailoring">
-                            <div class="tile-icon-circle cat-tailor"><i class="fa-solid fa-scissors"></i></div>
-                            <span class="tile-label">Tailor</span>
-                        </div>
-                        <div class="category-tile" data-service="Welding">
-                            <div class="tile-icon-circle cat-welding"><i class="fa-solid fa-fire-burner"></i></div>
-                            <span class="tile-label">Welder</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Quick Order Banner -->
-                <div class="quick-order-callout-card" id="quickOrderCallout">
-                    <div class="callout-text">
-                        <h3>Need help right now?</h3>
-                        <p>Book a local specialist in 30 seconds with instant AI dispatch.</p>
-                    </div>
-                    <button type="button" class="btn btn-primary btn-sm" id="homeOrderWorkerBtn">
-                        <i class="fa-solid fa-bolt"></i> Order Worker
-                    </button>
-                </div>
-
-                <!-- Live Nearby Available Workers List -->
-                <div class="section-block" style="margin-bottom:80px">
-                    <div class="section-header-row">
-                        <div>
-                            <h2 class="section-title">Nearby Available Workers</h2>
-                            <p class="section-sub">Live skilled specialists in Ramanagara</p>
-                        </div>
-                        <button type="button" class="link-btn-text" id="refreshWorkersBtn"><i class="fa-solid fa-rotate"></i> Refresh</button>
-                    </div>
-
-                    <div class="worker-card-list" id="homeWorkerList">
-                        <!-- Populated dynamically from SQLite DB -->
-                        <div class="loading-state-card">
-                            <i class="fa-solid fa-circle-notch fa-spin"></i> Loading nearby specialists from database...
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- ================================================================
-                 2. TAB 2: ORDER WORKER VIEW (PROMINENT BOOKING FLOW)
-                 ================================================================ -->
-            <section class="app-view" id="view-order">
-                <div class="view-header-block">
-                    <span class="view-pill-badge"><i class="fa-solid fa-bolt"></i> Fast On-Demand Booking</span>
-                    <h1 class="view-main-title">Order a Worker</h1>
-                    <p class="view-main-sub">Tell us what you need, and we'll connect you with the best available local professional.</p>
-                </div>
-
-                <form id="orderWorkerForm" class="order-form-container">
-                    <!-- Step 1: Select Trade -->
-                    <div class="form-step-group">
-                        <label class="form-step-label"><span class="step-num">1</span> What service do you need?</label>
-                        <div class="service-chip-picker" id="orderServicePicker">
-                            <button type="button" class="service-chip active" data-service="Electrical"><i class="fa-solid fa-bolt"></i> Electrician</button>
-                            <button type="button" class="service-chip" data-service="Plumbing"><i class="fa-solid fa-wrench"></i> Plumber</button>
-                            <button type="button" class="service-chip" data-service="Carpentry"><i class="fa-solid fa-hammer"></i> Carpenter</button>
-                            <button type="button" class="service-chip" data-service="AC & Appliances"><i class="fa-solid fa-snowflake"></i> AC / Fridge</button>
-                            <button type="button" class="service-chip" data-service="Mechanics"><i class="fa-solid fa-motorcycle"></i> Mechanic</button>
-                            <button type="button" class="service-chip" data-service="Home Cleaning"><i class="fa-solid fa-broom"></i> Cleaning</button>
-                            <button type="button" class="service-chip" data-service="Tailoring"><i class="fa-solid fa-scissors"></i> Tailor</button>
-                            <button type="button" class="service-chip" data-service="Welding"><i class="fa-solid fa-fire-burner"></i> Welder</button>
-                        </div>
-                        <input type="hidden" id="orderSelectedService" value="Electrical">
-                    </div>
-
-                    <!-- Step 2: Problem Description -->
-                    <div class="form-step-group">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                            <label class="form-step-label" style="margin:0"><span class="step-num">2</span> Describe the problem</label>
-                            <button type="button" class="voice-fill-link" id="orderVoiceFillBtn"><i class="fa-solid fa-microphone"></i> Speak to fill</button>
-                        </div>
-                        <textarea id="orderProblemDesc" class="form-textarea" rows="3" placeholder="e.g. Ceiling fan not working, pipe leakage under sink, switchboard repair..." required></textarea>
-                    </div>
-
-                    <!-- Step 3: When do you need the service? -->
-                    <div class="form-step-group">
-                        <label class="form-step-label"><span class="step-num">3</span> When do you need help?</label>
-                        <div class="time-chip-picker" id="orderTimePicker">
-                            <button type="button" class="time-chip active" data-time="Today (Immediate)"><i class="fa-solid fa-bolt"></i> Today (Immediate)</button>
-                            <button type="button" class="time-chip" data-time="Tomorrow Morning (10:00 AM)"><i class="fa-solid fa-sun"></i> Tomorrow 10 AM</button>
-                            <button type="button" class="time-chip" data-time="Flexible (Within 2 days)"><i class="fa-solid fa-calendar"></i> Flexible</button>
-                        </div>
-                        <input type="hidden" id="orderSelectedTime" value="Today (Immediate)">
-                    </div>
-
-                    <!-- Step 4: Location -->
-                    <div class="form-step-group">
-                        <label class="form-step-label"><span class="step-num">4</span> Service Location</label>
-                        <div class="location-input-field">
-                            <i class="fa-solid fa-location-dot"></i>
-                            <input type="text" id="orderLocationInput" value="Vijaya Nagar, Ramanagara" required>
-                        </div>
-                    </div>
-
-                    <!-- Step 5: Worker Selection Mode -->
-                    <div class="form-step-group">
-                        <label class="form-step-label"><span class="step-num">5</span> Worker Match</label>
-                        <div class="match-mode-selector">
-                            <label class="match-card active" id="matchAutoCard">
-                                <input type="radio" name="matchMode" value="auto" checked>
-                                <div>
-                                    <strong>✨ AI Smart Auto-Match (Recommended)</strong>
-                                    <small>Instantly assigns the highest-rated available specialist near your area.</small>
-                                </div>
-                            </label>
-                            <label class="match-card" id="matchManualCard">
-                                <input type="radio" name="matchMode" value="manual">
-                                <div>
-                                    <strong>Choose Specific Worker</strong>
-                                    <small>Select manually from the list of verified professionals.</small>
-                                </div>
-                            </label>
-                        </div>
-
-                        <!-- Manual worker dropdown (hidden by default) -->
-                        <div id="orderManualWorkerWrap" class="manual-worker-select hidden" style="margin-top:10px">
-                            <select id="orderManualWorkerSelect" class="form-select">
-                                <option value="1">Ramesh Kumar (Master Electrician · ⭐ 4.8 · ₹300)</option>
-                                <option value="2">Suresh Gowda (Plumbing Specialist · ⭐ 4.7 · ₹280)</option>
-                                <option value="3">Anil Prasad (General Carpenter · ⭐ 4.6 · ₹350)</option>
-                                <option value="4">Manoj N. (AC & Fridge Tech · ⭐ 4.9 · ₹450)</option>
-                                <option value="5">Imran Khan (Mechanic · ⭐ 4.8 · ₹250)</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <!-- Estimated Price & Submit -->
-                    <div class="order-price-summary-card">
-                        <div class="price-row">
-                            <span>Estimated Visit &amp; Labor Charge</span>
-                            <strong class="price-value" id="orderEstimatedPrice">₹300 – ₹450</strong>
-                        </div>
-                        <small class="price-note"><i class="fa-solid fa-shield-check"></i> Standard local rate · Pay directly to worker via Cash or UPI after service completion.</small>
-                    </div>
-
-                    <button type="submit" id="orderSubmitBtn" class="btn btn-primary btn-lg btn-block order-action-glow">
-                        <i class="fa-solid fa-paper-plane"></i> Confirm &amp; Dispatch Worker
-                    </button>
-                </form>
-            </section>
-
-            <!-- ================================================================
-                 3. TAB 3: JOBS VIEW (LIVE TRACKING & STATUS)
-                 ================================================================ -->
-            <section class="app-view" id="view-jobs">
-                <div class="view-header-block">
-                    <span class="view-pill-badge"><i class="fa-solid fa-clipboard-list"></i> Real-Time Orders</span>
-                    <h1 class="view-main-title">My Bookings</h1>
-                    <p class="view-main-sub">Track active requests, assigned workers, and job history.</p>
-                </div>
-
-                <!-- Segmented Tabs -->
-                <div class="jobs-segmented-bar" id="jobsFilterBar">
-                    <button type="button" class="job-seg-btn active" data-filter="all">All Gigs</button>
-                    <button type="button" class="job-seg-btn" data-filter="active">Active</button>
-                    <button type="button" class="job-seg-btn" data-filter="completed">Completed</button>
-                </div>
-
-                <!-- Jobs List -->
-                <div class="jobs-feed-list" id="jobsFeedList">
-                    <!-- Populated from SQLite DB -->
-                    <div class="loading-state-card">
-                        <i class="fa-solid fa-circle-notch fa-spin"></i> Fetching bookings from database...
-                    </div>
-                </div>
-            </section>
-
-            <!-- ================================================================
-                 4. TAB 4: AI ASSISTANT VIEW (TRILINGUAL VOICE & CHAT)
-                 ================================================================ -->
-            <section class="app-view" id="view-ai">
-                <div class="ai-view-top-card">
-                    <div class="ai-bot-avatar">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i>
-                    </div>
-                    <div class="ai-bot-title-wrap">
-                        <h2>GigSync AI Assistant</h2>
-                        <p>Speak or type in <b>English, ಕನ್ನಡ (Kannada), or Kanglish</b></p>
-                    </div>
-                    <button type="button" class="icon-btn-inline" id="clearAiChatBtn" title="Clear Chat">
-                        <i class="fa-solid fa-trash-can"></i>
-                    </button>
-                </div>
-
-                <!-- Suggested Trilingual Prompt Chips -->
-                <div class="ai-prompt-scroll-container">
-                    <button type="button" class="ai-chip-prompt" data-prompt="I need a plumber tomorrow morning.">
-                        🔧 "I need a plumber tomorrow morning."
-                    </button>
-                    <button type="button" class="ai-chip-prompt" data-prompt="Nanage electrician beku.">
-                        ⚡ "Nanage electrician beku."
-                    </button>
-                    <button type="button" class="ai-chip-prompt" data-prompt="ನನಗೆ ನಾಳೆ ಬೆಳಿಗ್ಗೆ plumber ಬೇಕು.">
-                        🇮🇳 "ನನಗೆ ನಾಳೆ ಬೆಳಿಗ್ಗೆ plumber ಬೇಕು."
-                    </button>
-                    <button type="button" class="ai-chip-prompt" data-prompt="Show me workers available near me.">
-                        📍 "Show me workers available near me."
-                    </button>
-                    <button type="button" class="ai-chip-prompt" data-prompt="What is Ramesh Kumar's schedule?">
-                        🕒 "What is Ramesh Kumar's schedule?"
-                    </button>
-                    <button type="button" class="ai-chip-prompt" data-prompt="Create a job for repairing my washing machine.">
-                        ❄️ "Create a job for repairing my washing machine."
-                    </button>
-                </div>
-
-                <!-- Chat History Messages Container -->
-                <div class="ai-chat-messages-wrap" id="aiChatFeed">
-                    <!-- Initial Welcome Message -->
-                    <div class="chat-bubble-row bot">
-                        <div class="bubble-avatar-mini"><i class="fa-solid fa-robot"></i></div>
-                        <div class="chat-bubble-card">
-                            <p>Namaskara! I am your GigSync AI assistant for Ramanagara. You can tell me what repair or service you need in <b>English or Kannada</b>, check worker schedules, or ask for available workers nearby.</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Chat Input Fixed Bottom Bar -->
-                <div class="ai-chat-input-bar">
-                    <button type="button" class="ai-mic-record-btn" id="aiAssistantMicBtn" title="Speak message">
-                        <i class="fa-solid fa-microphone"></i>
-                    </button>
-                    <input type="text" id="aiAssistantTextInput" placeholder="Type or speak (e.g. Nanage plumber beku)..." autocomplete="off">
-                    <button type="button" class="ai-send-btn" id="aiAssistantSendBtn" title="Send">
-                        <i class="fa-solid fa-arrow-up"></i>
-                    </button>
-                </div>
-            </section>
-
-            <!-- ================================================================
-                 5. TAB 5: PROFILE & SETTINGS VIEW
-                 ================================================================ -->
-            <section class="app-view" id="view-profile">
-                <div class="profile-header-card">
-                    <div class="profile-avatar-lg" id="profileInitials">KR</div>
-                    <div class="profile-user-info">
-                        <h2 id="profileUserName">Kavya Rao</h2>
-                        <p id="profileUserPhone">+91 98765 43210</p>
-                        <span class="role-badge-pill" id="profileActiveRole">Customer Mode</span>
-                    </div>
-                </div>
-
-                <!-- Platform Mode Switcher -->
-                <div class="section-block">
-                    <h3 class="section-title-sm">Switch Platform View</h3>
-                    <div class="profile-menu-list">
-                        <div class="profile-menu-item" id="switchCustModeBtn">
-                            <div class="item-icon-box" style="background:#EEF2FF;color:var(--gs-indigo)"><i class="fa-solid fa-user"></i></div>
-                            <div class="item-text">
-                                <strong>Customer Mode</strong>
-                                <small>Book and manage local service jobs</small>
-                            </div>
-                            <i class="fa-solid fa-chevron-right item-arrow"></i>
-                        </div>
-                        <div class="profile-menu-item" id="switchWorkerModeBtn">
-                            <div class="item-icon-box" style="background:#ECFDF5;color:var(--gs-green-dark)"><i class="fa-solid fa-toolbox"></i></div>
-                            <div class="item-text">
-                                <strong>Worker Workspace</strong>
-                                <small>Find jobs, accept gigs &amp; set voice availability</small>
-                            </div>
-                            <i class="fa-solid fa-chevron-right item-arrow"></i>
-                        </div>
-                        <div class="profile-menu-item" id="switchAdminModeBtn">
-                            <div class="item-icon-box" style="background:#FFFBEB;color:#D97706"><i class="fa-solid fa-shield-halved"></i></div>
-                            <div class="item-text">
-                                <strong>Cluster Admin &amp; 3.5mm Console</strong>
-                                <small>Monitor cellular bridge line &amp; system telemetry</small>
-                            </div>
-                            <i class="fa-solid fa-chevron-right item-arrow"></i>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Preferences & Actions -->
-                <div class="section-block" style="margin-bottom:80px">
-                    <h3 class="section-title-sm">Settings</h3>
-                    <div class="profile-menu-list">
-                        <div class="profile-menu-item" id="profileDownloadRecordBtn">
-                            <div class="item-icon-box" style="background:#F1F5F9;color:var(--gs-ink)"><i class="fa-solid fa-file-invoice"></i></div>
-                            <div class="item-text">
-                                <strong>Digital Work &amp; Earning Statement</strong>
-                                <small>Download verified UIDAI/GigSync record</small>
-                            </div>
-                            <i class="fa-solid fa-download item-arrow"></i>
-                        </div>
-                        <div class="profile-menu-item" id="profileLogoutBtn" style="color:#DC2626">
-                            <div class="item-icon-box" style="background:#FEF2F2;color:#DC2626"><i class="fa-solid fa-arrow-right-from-bracket"></i></div>
-                            <div class="item-text">
-                                <strong style="color:#DC2626">Log Out</strong>
-                                <small>Sign out of this session</small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-        </main>
-
-        <!-- ====================================================================
-             BOTTOM NAVIGATION BAR (PRIMARY 5-TAB NAVIGATION)
-             ==================================================================== -->
-        <nav class="bottom-nav">
-            <!-- 1. Home -->
-            <button type="button" class="nav-tab-btn active" id="tabBtnHome" data-tab="home">
-                <i class="fa-solid fa-house"></i>
-                <span>Home</span>
-            </button>
-
-            <!-- 2. Order Worker (Prominent Center Pill) -->
-            <button type="button" class="nav-tab-btn nav-order-pill" id="tabBtnOrder" data-tab="order">
-                <div class="order-fab-circle">
-                    <i class="fa-solid fa-bolt-lightning"></i>
-                </div>
-                <span>Order Worker</span>
-            </button>
-
-            <!-- 3. Jobs -->
-            <button type="button" class="nav-tab-btn" id="tabBtnJobs" data-tab="jobs">
-                <i class="fa-solid fa-clipboard-check"></i>
-                <span>Jobs</span>
-                <span class="nav-dot-badge" id="jobsNavDot"></span>
-            </button>
-
-            <!-- 4. AI Assistant -->
-            <button type="button" class="nav-tab-btn" id="tabBtnAI" data-tab="ai">
-                <i class="fa-solid fa-wand-magic-sparkles"></i>
-                <span>AI</span>
-            </button>
-
-            <!-- 5. Profile -->
-            <button type="button" class="nav-tab-btn" id="tabBtnProfile" data-tab="profile">
-                <i class="fa-solid fa-circle-user"></i>
-                <span>Profile</span>
-            </button>
-        </nav>
-    </div>
-
-    <!-- ======================================================================
-         REAL-TIME AI VOICE PHONE HANDSET MODAL
-         ====================================================================== -->
-    <div id="phoneCallModal" class="modal-overlay hidden">
-        <div class="phone-modal-card">
-            <div class="phone-modal-header">
-                <div class="phone-brand-title">
-                    <span class="pulse-phone-dot"></span>
-                    <strong>GigSync Cellular Audio Gateway</strong>
-                </div>
-                <button type="button" class="modal-close-btn" id="closePhoneModalBtn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+            <!-- Suggested Voice Prompts -->
+            <div class="voice-prompt-chips-wrap">
+                <button type="button" class="v-chip" data-vprompt="I need a plumber tomorrow morning.">🔧 "I need a plumber tomorrow morning."</button>
+                <button type="button" class="v-chip" data-vprompt="Nanage electrician beku.">⚡ "Nanage electrician beku."</button>
+                <button type="button" class="v-chip" data-vprompt="ನನಗೆ ನಾಳೆ ಬೆಳಿಗ್ಗೆ plumber ಬೇಕು.">🇮🇳 "ನನಗೆ ನಾಳೆ ಬೆಳಿಗ್ಗೆ plumber ಬೇಕು."</button>
+                <button type="button" class="v-chip" data-vprompt="Show me workers available near me.">📍 "Show me workers available near me."</button>
+                <button type="button" class="v-chip" data-vprompt="What is Ramesh Kumar's schedule?">🕒 "What is Ramesh Kumar's schedule?"</button>
             </div>
 
-            <div class="phone-screen-card">
-                <div class="phone-screen-top">
-                    <span>HOTLINE: +91 98450 00123</span>
-                    <span class="call-timer" id="phoneTimer">00:14</span>
-                </div>
-
-                <div class="phone-caller-box">
-                    <div class="phone-avatar-ring"><i class="fa-solid fa-headset"></i></div>
-                    <h3 style="margin:8px 0 2px;font-size:18px">GigSync Voice AI</h3>
-                    <p style="font-size:12px;opacity:.7;margin:0">Ramanagara Regional Dispatch</p>
-                    <div class="call-badge-status"><span class="pulse-dot"></span> <span id="phoneCallStatus">Call Connected · Active</span></div>
-                </div>
-
-                <div class="voice-wave-container" id="phoneAudioWave">
-                    <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
-                    <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
-                    <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
-                </div>
-
-                <div class="phone-live-transcript-box" id="phoneTranscriptBox">
-                    <div class="transcript-line ai">
-                        <span class="t-label">GIGSYNC AI:</span>
-                        <span class="t-text" id="aiSpeechText">"Namaskara! Welcome to GigSync. Speak your requirement in English or Kannada."</span>
-                    </div>
-                    <div class="transcript-line caller">
-                        <span class="t-label">CALLER:</span>
-                        <span class="t-text" id="callerSpeechText">"..."</span>
-                    </div>
-                </div>
-
-                <div class="phone-keypad-actions">
-                    <button type="button" class="phone-action-btn mic-btn" id="phoneMicBtn"><i class="fa-solid fa-microphone"></i> <span>Speak</span></button>
-                    <button type="button" class="phone-action-btn mute-btn" id="phoneMuteBtn"><i class="fa-solid fa-volume-high"></i> <span>Mute</span></button>
-                    <button type="button" class="phone-action-btn hangup-btn" id="phoneEndCallBtn"><i class="fa-solid fa-phone-slash"></i> <span>End Call</span></button>
+            <!-- Dialogue transcript output -->
+            <div class="ai-dialogue-transcript" id="aiModalTranscriptBox">
+                <div class="dialogue-line bot">
+                    <strong>GIGSYNC AI:</strong>
+                    <span>Namaskara! How can I help you in <span class="text-city-dynamic">Ramanagara</span> today?</span>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Toast Notification -->
-    <div id="toast" class="toast hidden">
-        <i class="fa-solid fa-circle-check"></i> <span>Notification</span>
+    <div id="toast" class="toast-desktop hidden">
+        <i class="fa-solid fa-circle-check"></i> <span id="toastMsg">Notification</span>
     </div>
 
     <script src="app.js"></script>

@@ -1,6 +1,6 @@
 /* ==========================================================================
-   GigSync — Full-Stack Server & Telephony Gateway
-   Port 8089: Static SPA + REST APIs + SQLite DB + AI Voice Engine
+   GigSync — Full-Stack Server & REST API Gateway (Desktop-First)
+   Port 8089: Authentication, SQLite Persistence, AI Voice Engine
    ========================================================================== */
 
 const http = require('node:http');
@@ -23,7 +23,8 @@ const MIME_TYPES = {
     '.jpg': 'image/jpeg',
     '.jpeg': 'image/jpeg',
     '.svg': 'image/svg+xml',
-    '.ico': 'image/x-icon'
+    '.ico': 'image/x-icon',
+    '.txt': 'text/plain; charset=utf-8'
 };
 
 function parseBody(req) {
@@ -51,6 +52,15 @@ function sendJSON(res, data, statusCode = 200) {
     res.end(JSON.stringify(data));
 }
 
+function getAuthSession(req) {
+    const authHeader = req.headers['authorization'] || '';
+    if (authHeader.startsWith('Bearer ')) {
+        const token = authHeader.slice(7).trim();
+        return DB.getSession(token);
+    }
+    return null;
+}
+
 const server = http.createServer(async (req, res) => {
     // CORS Preflight
     if (req.method === 'OPTIONS') {
@@ -67,14 +77,113 @@ const server = http.createServer(async (req, res) => {
     const pathname = parsedUrl.pathname;
 
     /* ----------------------------------------------------------------------
-       1. REST API ENDPOINTS
+       1. AUTHENTICATION REST API
+       ---------------------------------------------------------------------- */
+
+    // POST /api/auth/register
+    if (pathname === '/api/auth/register' && req.method === 'POST') {
+        const body = await parseBody(req);
+        if (!body.name || !body.phone || !body.password || !body.role) {
+            return sendJSON(res, { status: 'error', message: 'Name, mobile number, password, and role are required.' }, 400);
+        }
+
+        const cleanPhone = body.phone.replace(/\D/g, '');
+        const existing = DB.getUserByPhone(cleanPhone);
+        if (existing) {
+            return sendJSON(res, { status: 'error', message: 'An account with this phone number already exists. Please log in.' }, 409);
+        }
+
+        const user = DB.createUser({
+            name: body.name.trim(),
+            phone: cleanPhone,
+            email: body.email ? body.email.trim() : null,
+            role: body.role,
+            password: body.password,
+            city: body.city || 'Ramanagara',
+            area: body.area || 'Town'
+        });
+
+        // If registering as a worker, update skills/tools/trade if provided
+        if (body.role === 'worker') {
+            const worker = DB.getWorkerByUserId(user.id);
+            if (worker && (body.trade || body.skills || body.tools || body.price)) {
+                DB.updateWorkerProfile(worker.id, {
+                    trade: body.trade || 'General Specialist',
+                    skills: body.skills || '',
+                    tools: body.tools || 'Standard tool kit',
+                    price: body.price || 300,
+                    about: body.about || ''
+                });
+            }
+        }
+
+        const session = DB.authenticateUser(cleanPhone, body.password);
+        return sendJSON(res, { status: 'success', message: 'Account registered successfully.', ...session }, 201);
+    }
+
+    // POST /api/auth/login
+    if (pathname === '/api/auth/login' && req.method === 'POST') {
+        const body = await parseBody(req);
+        if (!body.phone || !body.password) {
+            return sendJSON(res, { status: 'error', message: 'Mobile number and password are required.' }, 400);
+        }
+
+        const cleanPhone = body.phone.replace(/\D/g, '');
+        const session = DB.authenticateUser(cleanPhone, body.password);
+        if (!session) {
+            return sendJSON(res, { status: 'error', message: 'Invalid mobile number or password.' }, 401);
+        }
+
+        return sendJSON(res, { status: 'success', message: 'Login successful.', ...session });
+    }
+
+    // GET /api/auth/me
+    if (pathname === '/api/auth/me' && req.method === 'GET') {
+        const session = getAuthSession(req);
+        if (!session) {
+            return sendJSON(res, { status: 'error', message: 'Unauthorized or session expired.' }, 401);
+        }
+
+        let profile = null;
+        if (session.role === 'worker') {
+            profile = DB.getWorkerByUserId(session.user_id);
+        } else {
+            profile = DB.getUserById(session.user_id);
+        }
+
+        return sendJSON(res, {
+            status: 'success',
+            user: {
+                id: session.user_id,
+                name: session.name,
+                phone: session.phone,
+                email: session.email,
+                role: session.role,
+                city: session.city,
+                area: session.area,
+                profile
+            }
+        });
+    }
+
+    // POST /api/auth/logout
+    if (pathname === '/api/auth/logout' && req.method === 'POST') {
+        const authHeader = req.headers['authorization'] || '';
+        if (authHeader.startsWith('Bearer ')) {
+            DB.deleteSession(authHeader.slice(7).trim());
+        }
+        return sendJSON(res, { status: 'success', message: 'Logged out successfully.' });
+    }
+
+    /* ----------------------------------------------------------------------
+       2. WORKERS REST API
        ---------------------------------------------------------------------- */
 
     // GET /api/workers
     if (pathname === '/api/workers' && req.method === 'GET') {
         const filters = {
             service: parsedUrl.query.service || null,
-            maxKm: parsedUrl.query.maxKm || null,
+            city: parsedUrl.query.city || null,
             minRating: parsedUrl.query.minRating || null,
             isAvailable: parsedUrl.query.available !== undefined ? parsedUrl.query.available === 'true' : undefined
         };
@@ -82,114 +191,270 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, { status: 'success', count: workers.length, workers });
     }
 
-    // POST /api/workers
-    if (pathname === '/api/workers' && req.method === 'POST') {
-        const body = await parseBody(req);
-        if (!body.name || !body.phone || !body.trade) {
-            return sendJSON(res, { status: 'error', message: 'Name, phone, and trade are required.' }, 400);
-        }
-        const created = DB.createWorker(body);
-        return sendJSON(res, { status: 'success', worker: created }, 201);
+    // GET /api/workers/:id
+    const workerMatch = pathname.match(/^\/api\/workers\/(\d+)$/);
+    if (workerMatch && req.method === 'GET') {
+        const workerId = Number(workerMatch[1]);
+        const worker = DB.getWorkerById(workerId);
+        if (!worker) return sendJSON(res, { status: 'error', message: 'Worker not found.' }, 404);
+        return sendJSON(res, { status: 'success', worker });
     }
+
+    // GET /api/workers/:id/schedule
+    const schedMatch = pathname.match(/^\/api\/workers\/(\d+)\/schedule$/);
+    if (schedMatch && req.method === 'GET') {
+        const workerId = Number(schedMatch[1]);
+        const schedule = DB.getWorkerSchedule(workerId);
+        if (!schedule) return sendJSON(res, { status: 'error', message: 'Worker schedule not found.' }, 404);
+        return sendJSON(res, { status: 'success', ...schedule });
+    }
+
+    // GET /api/workers/:id/earnings
+    const earnMatch = pathname.match(/^\/api\/workers\/(\d+)\/earnings$/);
+    if (earnMatch && req.method === 'GET') {
+        const workerId = Number(earnMatch[1]);
+        const earnings = DB.getWorkerEarnings(workerId);
+        return sendJSON(res, { status: 'success', workerId, earnings });
+    }
+
+    // PATCH /api/workers/me/availability
+    if (pathname === '/api/workers/me/availability' && req.method === 'PATCH') {
+        const session = getAuthSession(req);
+        if (!session || session.role !== 'worker') {
+            return sendJSON(res, { status: 'error', message: 'Worker authorization required.' }, 403);
+        }
+
+        const body = await parseBody(req);
+        const worker = DB.getWorkerByUserId(session.user_id);
+        if (!worker) return sendJSON(res, { status: 'error', message: 'Worker profile not found.' }, 404);
+
+        if (body.is_available !== undefined) {
+            DB.updateWorkerAvailabilityStatus(worker.id, body.is_available);
+        }
+
+        if (body.date_str && body.start_time && body.end_time) {
+            DB.setWorkerAvailabilitySlot({
+                workerId: worker.id,
+                workerPhone: worker.phone,
+                trade: worker.trade,
+                dateStr: body.date_str,
+                startTime: body.start_time,
+                endTime: body.end_time,
+                isAvailable: body.is_available !== undefined ? body.is_available : true,
+                notes: body.notes || ''
+            });
+        }
+
+        const updated = DB.getWorkerSchedule(worker.id);
+        return sendJSON(res, { status: 'success', message: 'Availability updated.', ...updated });
+    }
+
+    // PATCH /api/workers/me/profile
+    if (pathname === '/api/workers/me/profile' && req.method === 'PATCH') {
+        const session = getAuthSession(req);
+        if (!session || session.role !== 'worker') {
+            return sendJSON(res, { status: 'error', message: 'Worker authorization required.' }, 403);
+        }
+
+        const body = await parseBody(req);
+        const worker = DB.getWorkerByUserId(session.user_id);
+        if (!worker) return sendJSON(res, { status: 'error', message: 'Worker profile not found.' }, 404);
+
+        const updated = DB.updateWorkerProfile(worker.id, body);
+        return sendJSON(res, { status: 'success', message: 'Profile updated successfully.', worker: updated });
+    }
+
+    /* ----------------------------------------------------------------------
+       3. JOBS & BOOKINGS REST API
+       ---------------------------------------------------------------------- */
 
     // GET /api/jobs
     if (pathname === '/api/jobs' && req.method === 'GET') {
+        const session = getAuthSession(req);
         const status = parsedUrl.query.status || null;
+        const city = parsedUrl.query.city || null;
         const phone = parsedUrl.query.phone || null;
-        let jobs;
-        if (phone) {
-            jobs = DB.getJobsByPhone(phone);
+
+        let jobs = [];
+        let availableOpportunities = [];
+
+        if (session && session.role === 'worker') {
+            const worker = DB.getWorkerByUserId(session.user_id);
+            if (worker) {
+                jobs = DB.getJobsByWorker(worker.id);
+                availableOpportunities = DB.getAvailableJobsForWorker(worker.trade, worker.city);
+            }
+        } else if (session && session.role === 'customer') {
+            jobs = DB.getJobsByCustomer(session.phone);
+        } else if (phone) {
+            jobs = DB.getJobsByCustomer(phone);
         } else {
-            jobs = DB.getAllJobs(status);
+            jobs = DB.getAllJobs({ status, city });
         }
-        return sendJSON(res, { status: 'success', count: jobs.length, jobs });
+
+        return sendJSON(res, {
+            status: 'success',
+            count: jobs.length,
+            jobs,
+            opportunities: availableOpportunities
+        });
     }
 
     // POST /api/jobs
     if (pathname === '/api/jobs' && req.method === 'POST') {
         const body = await parseBody(req);
-        if (!body.service || !body.problem_description) {
-            return sendJSON(res, { status: 'error', message: 'Service and problem description are required.' }, 400);
+        if (!body.service || !body.problem_description || !body.customer_phone) {
+            return sendJSON(res, { status: 'error', message: 'Service, problem description, and customer phone are required.' }, 400);
         }
-        const created = DB.createJob(body);
-        return sendJSON(res, { status: 'success', job: created }, 201);
+
+        // Schedule Conflict Prevention Check
+        if (body.worker_id && body.requested_date && body.requested_time) {
+            const hasConflict = DB.checkScheduleConflict(body.worker_id, body.requested_date, body.requested_time);
+            if (hasConflict) {
+                return sendJSON(res, {
+                    status: 'error',
+                    message: 'This worker already has an accepted booking during this time slot. Please choose another time or worker.'
+                }, 409);
+            }
+        }
+
+        const session = getAuthSession(req);
+        const newJob = DB.createJob({
+            customer_id: session ? session.user_id : null,
+            customer_phone: body.customer_phone,
+            customer_name: body.customer_name || (session ? session.name : 'Customer'),
+            worker_id: body.worker_id || null,
+            worker_phone: body.worker_phone || null,
+            worker_name: body.worker_name || 'Broadcasting to nearby verified specialists...',
+            service: body.service,
+            problem_description: body.problem_description,
+            location: body.location || 'Town Area',
+            city: body.city || (session ? session.city : 'Ramanagara'),
+            requested_date: body.requested_date || 'Today',
+            requested_time: body.requested_time || 'Immediate',
+            budget: body.budget || '₹350',
+            status: body.worker_id ? 'Confirmed' : 'Requested',
+            payment_method: body.payment_method || 'Cash'
+        });
+
+        return sendJSON(res, { status: 'success', message: 'Job created and dispatched.', job: newJob }, 201);
     }
 
     // PATCH /api/jobs/:id
-    if (pathname.startsWith('/api/jobs/') && req.method === 'PATCH') {
-        const id = pathname.replace('/api/jobs/', '');
+    const jobUpdateMatch = pathname.match(/^\/api\/jobs\/([A-Za-z0-9-]+)$/);
+    if (jobUpdateMatch && req.method === 'PATCH') {
+        const jobId = jobUpdateMatch[1];
         const body = await parseBody(req);
-        const updated = DB.updateJobStatus(id, body.status || 'Accepted', body.worker_id, body.worker_name);
-        return sendJSON(res, { status: 'success', job: updated });
+
+        if (!body.status) {
+            return sendJSON(res, { status: 'error', message: 'New status is required.' }, 400);
+        }
+
+        const session = getAuthSession(req);
+        let workerId = body.worker_id || null;
+        let workerName = body.worker_name || null;
+        let workerPhone = body.worker_phone || null;
+
+        if (session && session.role === 'worker' && !workerId) {
+            const worker = DB.getWorkerByUserId(session.user_id);
+            if (worker) {
+                workerId = worker.id;
+                workerName = worker.name;
+                workerPhone = worker.phone;
+            }
+        }
+
+        const updated = DB.updateJobStatus(jobId, body.status, workerId, workerName, workerPhone);
+        if (!updated) return sendJSON(res, { status: 'error', message: 'Job not found.' }, 404);
+
+        return sendJSON(res, { status: 'success', message: `Job #${jobId} status updated to ${body.status}.`, job: updated });
+    }
+
+    // POST /api/jobs/:id/review
+    const jobReviewMatch = pathname.match(/^\/api\/jobs\/([A-Za-z0-9-]+)\/review$/);
+    if (jobReviewMatch && req.method === 'POST') {
+        const jobId = jobReviewMatch[1];
+        const body = await parseBody(req);
+        if (!body.rating) {
+            return sendJSON(res, { status: 'error', message: 'Rating (1 to 5) is required.' }, 400);
+        }
+
+        const updated = DB.submitJobReview(jobId, Number(body.rating), body.review || '');
+        if (!updated) return sendJSON(res, { status: 'error', message: 'Job not found.' }, 404);
+
+        return sendJSON(res, { status: 'success', message: 'Review submitted.', job: updated });
+    }
+
+    /* ----------------------------------------------------------------------
+       4. AI VOICE & CONVERSATIONAL GATEWAY
+       ---------------------------------------------------------------------- */
+
+    // POST /api/ai/voice-call & POST /api/ai/chat
+    if ((pathname === '/api/ai/voice-call' || pathname === '/api/ai/chat') && req.method === 'POST') {
+        const body = await parseBody(req);
+        const session = getAuthSession(req);
+
+        const callerPhone = body.callerPhone || (session ? session.phone : '9876543210');
+        const callerRole = body.callerRole || (session ? session.role : 'customer');
+        const callerName = body.callerName || (session ? session.name : 'User');
+        const callerCity = body.city || (session ? session.city : 'Ramanagara');
+        const speechText = body.speechText || body.message || '';
+
+        if (!speechText) {
+            return sendJSON(res, { status: 'error', message: 'speechText or message is required.' }, 400);
+        }
+
+        try {
+            const aiTurn = await aiAgent.processCallTurn({
+                callerPhone,
+                callerRole,
+                callerName,
+                city: callerCity,
+                speechText
+            });
+
+            return sendJSON(res, {
+                status: 'success',
+                ...aiTurn
+            });
+        } catch (err) {
+            console.error('AI Processing Error:', err);
+            return sendJSON(res, {
+                status: 'error',
+                message: 'AI voice agent processing failed.',
+                error: err.message
+            }, 500);
+        }
     }
 
     // GET /api/call-logs
     if (pathname === '/api/call-logs' && req.method === 'GET') {
-        const logs = DB.getRecentCallLogs(30);
-        return sendJSON(res, { status: 'success', count: logs.length, logs });
-    }
-
-    // GET /api/workers/:id/schedule
-    if (pathname.startsWith('/api/workers/') && pathname.endsWith('/schedule') && req.method === 'GET') {
-        const id = pathname.replace('/api/workers/', '').replace('/schedule', '');
-        const sched = DB.getWorkerSchedule(id);
-        if (!sched) return sendJSON(res, { status: 'error', message: 'Worker not found' }, 404);
-        return sendJSON(res, { status: 'success', schedule: sched });
-    }
-
-    // POST /api/ai/voice-call and /api/ai/chat (Main AI Telephony & Chat Processing Engine)
-    if ((pathname === '/api/ai/voice-call' || pathname === '/api/ai/chat') && req.method === 'POST') {
-        const body = await parseBody(req);
-        const callerPhone = body.callerPhone || '9876543210';
-        const callerRole = body.callerRole || 'customer';
-        const speechText = body.speechText || body.message || 'I need an electrician tomorrow morning.';
-
-        try {
-            const callResult = await aiAgent.processCallTurn(callerPhone, callerRole, speechText);
-            return sendJSON(res, {
-                status: 'success',
-                callerPhone,
-                speechReceived: speechText,
-                spokenResponse: callResult.spokenResponse,
-                toolExecuted: callResult.toolExecuted,
-                toolArgs: callResult.toolArgs,
-                toolResult: callResult.toolResult,
-                cardType: callResult.cardType,
-                cardData: callResult.cardData,
-                callerRole: callResult.callerRole
-            });
-        } catch (err) {
-            console.error('Voice Call Processing Error:', err);
-            return sendJSON(res, { status: 'error', message: 'Internal AI voice processing error.' }, 500);
-        }
-    }
-
-    // POST /api/telephony/twilio/voice (Twilio / Telecom Cloud Webhook)
-    if (pathname === '/api/telephony/twilio/voice' && (req.method === 'POST' || req.method === 'GET')) {
-        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="Polly.Aditi" language="en-IN">Namaskara! Welcome to GigSync AI local voice assistance for Ramanagara. Please state your requirement after the beep.</Say>
-    <Record timeout="10" action="/api/telephony/twilio/recording" />
-</Response>`;
-        res.writeHead(200, { 'Content-Type': 'text/xml' });
-        res.end(twiml);
-        return;
+        const logs = DB.getAllCallLogs();
+        return sendJSON(res, { status: 'success', count: logs.length, callLogs: logs });
     }
 
     /* ----------------------------------------------------------------------
-       2. STATIC FILE SERVER (SPA Web Application)
+       5. STATIC WEB APPLICATION SERVING
        ---------------------------------------------------------------------- */
-    let filePath = path.join(PUBLIC_DIR, pathname === '/' ? 'index.html' : pathname.replace('/', ''));
-    // Security check: ensure path is inside PUBLIC_DIR
-    if (!filePath.startsWith(PUBLIC_DIR)) {
-        res.writeHead(403);
-        return res.end('Forbidden');
-    }
+
+    let reqPath = pathname === '/' ? '/index.html' : pathname;
+    const safePath = path.normalize(reqPath).replace(/^(\.\.[\/\\])+/, '');
+    const filePath = path.join(PUBLIC_DIR, safePath);
 
     fs.stat(filePath, (err, stats) => {
         if (err || !stats.isFile()) {
-            // SPA Fallback: serve index.html
-            filePath = path.join(PUBLIC_DIR, 'index.html');
+            // SPA Fallback for routes
+            const fallbackPath = path.join(PUBLIC_DIR, 'index.html');
+            fs.readFile(fallbackPath, (fallbackErr, content) => {
+                if (fallbackErr) {
+                    res.writeHead(404, { 'Content-Type': 'text/plain' });
+                    res.end('404 Not Found');
+                    return;
+                }
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+                res.end(content);
+            });
+            return;
         }
 
         const ext = path.extname(filePath).toLowerCase();
@@ -197,8 +462,8 @@ const server = http.createServer(async (req, res) => {
 
         fs.readFile(filePath, (readErr, content) => {
             if (readErr) {
-                res.writeHead(500);
-                res.end('Server Read Error');
+                res.writeHead(500, { 'Content-Type': 'text/plain' });
+                res.end('500 Server Error');
                 return;
             }
             res.writeHead(200, { 'Content-Type': contentType });
@@ -208,11 +473,13 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-    console.log(`=======================================================`);
-    console.log(` GigSync Full-Stack Server & AI Voice Gateway`);
+    console.log('=======================================================');
+    console.log(` GigSync Full-Stack Desktop Server & AI Voice Gateway`);
     console.log(` Running at: http://localhost:${PORT}/`);
     console.log(` SQLite Database: Connected (gigsync.db)`);
-    console.log(` AI Tools Loaded: 11 Live Functions`);
-    console.log(` AI Telephony Endpoint: POST http://localhost:${PORT}/api/ai/voice-call`);
-    console.log(`=======================================================`);
+    console.log(` Real Authentication: Enabled (/api/auth/*)`);
+    console.log(` Desktop Customer & Worker REST Endpoints: Live`);
+    console.log('=======================================================');
 });
+
+module.exports = server;
