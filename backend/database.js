@@ -145,6 +145,18 @@ function initDatabase() {
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         );
     `);
+
+    // Ensure Master Admin account exists
+    const adminPhone = '9999999999';
+    const adminUser = db.prepare('SELECT * FROM users WHERE phone = ?').get(adminPhone);
+    if (!adminUser) {
+        const pHash = hashPassword('admin@gigsync2026');
+        db.prepare(`
+            INSERT INTO users (name, phone, email, role, password_hash, city, area)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run('Master Platform Administrator', adminPhone, 'shiyazabdulazeez@gmail.com', 'admin', pHash, 'Ramanagara', 'Headquarters');
+        console.log('✅ [Database] Default Master Admin provisioned: 9999999999 / admin@gigsync2026');
+    }
 }
 
 initDatabase();

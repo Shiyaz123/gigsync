@@ -199,16 +199,35 @@ async function runDiagnostic() {
         const res = await fetch('http://localhost:8089/api/firebase/sync', { method: 'POST' });
         const data = await res.json();
         const pass = data.status === 'success' && data.workersSynced >= 1 && data.jobsSynced >= 1;
-        console.log('[TEST 9/9] Firebase Cloud Firestore Sync:        ', pass ? `✅ PASS (Synced ${data.workersSynced} workers & ${data.jobsSynced} jobs to Firestore)` : '❌ FAIL');
+        console.log('[TEST 9/10] Firebase Cloud Firestore Sync:       ', pass ? `✅ PASS (Synced ${data.workersSynced} workers & ${data.jobsSynced} jobs to Firestore)` : '❌ FAIL');
         if (!pass) allPassed = false;
     } catch (e) {
-        console.log('[TEST 9/9] Firebase Cloud Firestore Sync:         ❌ FAIL -', e.message);
+        console.log('[TEST 9/10] Firebase Cloud Firestore Sync:        ❌ FAIL -', e.message);
+        allPassed = false;
+    }
+
+    // 10. Master Admin Account Authentication
+    try {
+        const res = await fetch('http://localhost:8089/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                phone: '9999999999',
+                password: 'admin@gigsync2026'
+            })
+        });
+        const data = await res.json();
+        const pass = res.status === 200 && data.status === 'success' && data.user?.role === 'admin';
+        console.log('[TEST 10/10] Master Admin Authentication:       ', pass ? '✅ PASS (Logged in as Master Platform Administrator)' : '❌ FAIL');
+        if (!pass) allPassed = false;
+    } catch (e) {
+        console.log('[TEST 10/10] Master Admin Authentication:        ❌ FAIL -', e.message);
         allPassed = false;
     }
 
     console.log('\n================================================================');
     if (allPassed) {
-        console.log(' 🚀 SYSTEM HEALTH: 100% OPERATIONAL & VERIFIED (DESKTOP + FIREBASE)');
+        console.log(' 🚀 SYSTEM HEALTH: 100% OPERATIONAL & VERIFIED (DESKTOP + FIREBASE + ADMIN)');
     } else {
         console.log(' ⚠️ WARNING: SOME TESTS FAILED. PLEASE REVIEW SERVER LOGS.');
     }
