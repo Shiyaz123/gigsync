@@ -234,26 +234,77 @@ module.exports = async (req, res) => {
     // 8. POST /api/ai/voice-call
     if (pathname.endsWith('/ai/voice-call') && req.method === 'POST') {
         const body = await parseBody(req);
-        const speech = body.speechText || '';
-        let response = "Namaskara! I am your GigSync Assistant. How can I help you today?";
-        if (speech.toLowerCase().includes('plumber') || speech.includes('ಪ್ಲಂಬರ್')) {
-            response = "I found 2 verified plumbers available in your area. Standard visit charge is ₹280.";
-        } else if (speech.toLowerCase().includes('electrician') || speech.includes('ಎಲೆಕ್ಟ್ರಿಷಿಯನ್')) {
-            response = "Electrician request received for Ramanagara. Dispatching to nearest on-duty technician.";
+        const speech = (body.speechText || '').trim();
+        const city = body.city || 'Ramanagara';
+        const role = body.callerRole || 'customer';
+        
+        let response = `Namaskara! I am your GigSync Assistant for ${city}. How can I assist you with local trades and skilled specialists today?`;
+        let toolExecuted = null;
+        let jobCreated = null;
+
+        const lower = speech.toLowerCase();
+        if (lower.includes('plumber') || speech.includes('ಪ್ಲಂಬರ್') || lower.includes('leak') || lower.includes('pipe') || lower.includes('water')) {
+            response = `ನಮಸ್ಕಾರ! I have located 2 verified plumbers on-duty in ${city}. Standard diagnostic visit charge is ₹280. Dispatching request to nearby specialist now.`;
+            toolExecuted = 'createJob';
+            jobCreated = {
+                id: `GS-${Math.floor(1000 + Math.random() * 9000)}`,
+                service: 'Plumbing',
+                problem_description: speech,
+                city,
+                status: 'Requested',
+                budget: '₹280'
+            };
+            runtimeState.jobs.unshift(jobCreated);
+        } else if (lower.includes('electrician') || speech.includes('ಎಲೆಕ್ಟ್ರಿಷಿಯನ್') || lower.includes('current') || lower.includes('wire') || lower.includes('light') || lower.includes('power')) {
+            response = `Electrician request received for ${city}. Ramesh Kumar (Master Electrician, ⭐ 4.9) has been notified. Estimated arrival in 25 minutes.`;
+            toolExecuted = 'createJob';
+            jobCreated = {
+                id: `GS-${Math.floor(1000 + Math.random() * 9000)}`,
+                service: 'Electrical',
+                problem_description: speech,
+                city,
+                status: 'Requested',
+                budget: '₹350'
+            };
+            runtimeState.jobs.unshift(jobCreated);
+        } else if (lower.includes('carpenter') || speech.includes('ಬಡಗಿ') || lower.includes('wood') || lower.includes('door') || lower.includes('furniture')) {
+            response = `Carpenter specialist found in ${city}. Standard visit fee is ₹300. Booking confirmed.`;
+            toolExecuted = 'createJob';
+        } else if (lower.includes('mechanic') || lower.includes('bike') || lower.includes('scooter') || lower.includes('puncture')) {
+            response = `Two-wheeler mechanic dispatch initiated in ${city}. Technician will contact you on your registered phone.`;
+            toolExecuted = 'createJob';
+        } else if (lower.includes('cleaner') || lower.includes('cleaning') || lower.includes('maid')) {
+            response = `Home cleaning service slot registered for ${city}. Standard hourly rate is ₹250.`;
+            toolExecuted = 'createJob';
+        } else if (lower.includes('schedule') || lower.includes('free') || lower.includes('availability') || lower.includes('naale') || lower.includes('available')) {
+            if (role === 'worker') {
+                response = `Dhanyavada! Your working schedule for tomorrow has been updated in the ${city} registry. You are marked ON-DUTY.`;
+                toolExecuted = 'updateWorkerAvailability';
+            } else {
+                response = `Available verified specialists in ${city}: Ramesh Kumar (Electrician · 9:00 AM - 6:00 PM), Suresh Gowda (Plumber · 10:00 AM - 5:00 PM).`;
+            }
+        } else if (speech) {
+            response = `Namaskara! I received your requirement: "${speech}". Connecting you with top-rated verified specialists in ${city}.`;
         }
 
         const logEntry = {
             id: runtimeState.callLogs.length + 1,
             caller_phone: body.callerPhone || '9876543210',
-            caller_role: body.callerRole || 'customer',
+            caller_role: role,
             transcript: speech,
-            intent_detected: 'voice_dispatch',
-            duration_seconds: 12,
+            intent_detected: toolExecuted || 'voice_inquiry',
+            duration_seconds: 14,
             timestamp: new Date().toISOString()
         };
         runtimeState.callLogs.unshift(logEntry);
 
-        return sendJSON(res, { status: 'success', spokenResponse: response, log: logEntry });
+        return sendJSON(res, {
+            status: 'success',
+            spokenResponse: response,
+            toolExecuted,
+            job: jobCreated,
+            log: logEntry
+        });
     }
 
     // Default Fallback
