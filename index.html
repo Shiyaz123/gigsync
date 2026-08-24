@@ -66,12 +66,6 @@
                             <i class="fa-solid fa-chevron-down arrow-down-mini"></i>
                         </button>
 
-                        <!-- Firebase Cloud Sync Status -->
-                        <button type="button" class="topbar-tool-btn firebase-status-chip" id="openFirebaseModalBtn" title="Firebase Cloud Sync Settings">
-                            <i class="fa-solid fa-cloud" style="color:#F59E0B"></i>
-                            <span id="topFirebaseLabel">Firebase Sync</span>
-                        </button>
-
                         <!-- Talk to GigSync AI Voice Trigger -->
                         <button type="button" class="topbar-tool-btn ai-voice-trigger-btn" id="openAiVoiceModalBtn" title="Talk to GigSync AI Voice Assistant">
                             <i class="fa-solid fa-microphone"></i>
@@ -1056,46 +1050,7 @@
         </div>
     </div>
 
-    <!-- 3. FIREBASE CLOUD FIRESTORE MODAL -->
-    <div id="firebaseModal" class="modal-overlay hidden">
-        <div class="modal-card" style="max-width:520px;background:#fff;border-radius:20px;padding:28px;box-shadow:var(--shadow-modal);position:relative">
-            <div class="modal-head">
-                <div style="display:flex;align-items:center;gap:10px">
-                    <i class="fa-solid fa-cloud" style="font-size:24px;color:#F59E0B"></i>
-                    <div>
-                        <h3 style="margin:0">Firebase Cloud Firestore Sync</h3>
-                        <small style="color:var(--gs-muted)">Live Workers, Customers &amp; Jobs Collections</small>
-                    </div>
-                </div>
-                <button type="button" class="modal-close-x" id="closeFirebaseModalBtn"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-
-            <p style="font-size:13px;color:var(--gs-ink-2);margin:14px 0 16px">
-                GigSync automatically synchronizes all registered workers, customers, and bookings between SQLite and Google Cloud Firestore.
-            </p>
-
-            <form id="firebaseConfigForm">
-                <div class="form-group">
-                    <label class="form-label">Firebase Project ID</label>
-                    <input type="text" id="fbProjectIdInput" class="form-control" value="gigsync-tier2-app" placeholder="e.g. gigsync-prod-app">
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Firebase API Key (Optional)</label>
-                    <input type="text" id="fbApiKeyInput" class="form-control" placeholder="AIzaSy...">
-                </div>
-
-                <div style="display:flex;gap:10px;margin-top:20px">
-                    <button type="submit" class="btn btn-primary" style="flex:1"><i class="fa-solid fa-floppy-disk"></i> Save Config</button>
-                    <button type="button" class="btn btn-ghost" id="triggerFbSyncBtn" style="flex:1"><i class="fa-solid fa-cloud-arrow-up"></i> Sync All to Firestore</button>
-                </div>
-            </form>
-
-            <div id="firebaseSyncStatusLog" style="margin-top:14px;font-size:12px;color:var(--gs-muted)"></div>
-        </div>
-    </div>
-
-    <!-- 4. AI VOICE ASSISTANT MODAL (REAL AUDIO & TRILINGUAL DIALOG) -->
+    <!-- 3. AI VOICE ASSISTANT MODAL (REAL AUDIO & TRILINGUAL DIALOG) -->
     <div id="aiVoiceModal" class="modal-overlay hidden">
         <div class="ai-modal-card">
             <div class="modal-head">

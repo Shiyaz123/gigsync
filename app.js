@@ -1153,57 +1153,6 @@ Date of Verification: ${new Date().toLocaleDateString('en-IN')}
     document.getElementById('refreshHomeWorkersBtn')?.addEventListener('click', loadCustomerHomeData);
     document.getElementById('refreshOpportunitiesBtn')?.addEventListener('click', loadWorkerDashboardData);
 
-    /* ---------- Firebase Cloud Firestore Modal Controller ---------- */
-    const firebaseModal = document.getElementById('firebaseModal');
-    const fbProjectIdInput = document.getElementById('fbProjectIdInput');
-    const fbApiKeyInput = document.getElementById('fbApiKeyInput');
-    const firebaseSyncStatusLog = document.getElementById('firebaseSyncStatusLog');
-    const topFirebaseLabel = document.getElementById('topFirebaseLabel');
-
-    document.getElementById('openFirebaseModalBtn')?.addEventListener('click', async () => {
-        firebaseModal?.classList.remove('hidden');
-        const res = await apiFetch('/api/firebase/config');
-        if (res.ok && res.data.config) {
-            if (fbProjectIdInput) fbProjectIdInput.value = res.data.config.projectId || 'gigsync-tier2-app';
-            if (fbApiKeyInput) fbApiKeyInput.value = res.data.config.apiKey || '';
-        }
-    });
-
-    document.getElementById('closeFirebaseModalBtn')?.addEventListener('click', () => {
-        firebaseModal?.classList.add('hidden');
-    });
-
-    document.getElementById('firebaseConfigForm')?.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const projectId = fbProjectIdInput?.value.trim();
-        const apiKey = fbApiKeyInput?.value.trim();
-
-        const res = await apiFetch('/api/firebase/config', {
-            method: 'POST',
-            body: JSON.stringify({ projectId, apiKey })
-        });
-
-        if (res.ok) {
-            toast(`Firebase Cloud Config saved for project "${projectId}"!`);
-            if (topFirebaseLabel) topFirebaseLabel.textContent = `Firebase (${projectId})`;
-        }
-    });
-
-    document.getElementById('triggerFbSyncBtn')?.addEventListener('click', async () => {
-        if (firebaseSyncStatusLog) firebaseSyncStatusLog.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Syncing all SQLite workers and jobs to Cloud Firestore...`;
-        const res = await apiFetch('/api/firebase/sync', { method: 'POST' });
-        if (res.ok) {
-            toast('🎉 Full sync to Cloud Firestore completed!');
-            if (firebaseSyncStatusLog) {
-                firebaseSyncStatusLog.innerHTML = `<span style="color:var(--gs-green-dark);font-weight:750">✅ Successfully synced ${res.data.workersSynced} workers and ${res.data.jobsSynced} jobs to Firestore.</span>`;
-            }
-        } else {
-            if (firebaseSyncStatusLog) {
-                firebaseSyncStatusLog.innerHTML = `<span style="color:#DC2626">Sync note: ${res.data.message || 'Could not sync'}</span>`;
-            }
-        }
-    });
-
     // Initial Startup
     updateActiveCity(state.city);
     checkExistingAuth();
