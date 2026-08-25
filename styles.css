@@ -1243,6 +1243,43 @@ button {
     color: var(--gs-text-secondary);
 }
 
+.va-state-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: var(--gs-radius-full);
+    font-size: 11.5px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    border: 1px solid var(--gs-border);
+    transition: all 0.2s ease;
+}
+
+.state-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.va-state-pill.idle { background: #F1F5F9; color: #64748B; }
+.va-state-pill.idle .state-dot { background: #94A3B8; }
+
+.va-state-pill.listening { background: #ECFDF5; color: #047857; border-color: #A7F3D0; }
+.va-state-pill.listening .state-dot { background: #10B981; box-shadow: 0 0 6px #10B981; }
+
+.va-state-pill.processing { background: #FFFBEB; color: #B45309; border-color: #FDE68A; }
+.va-state-pill.processing .state-dot { background: #F59E0B; box-shadow: 0 0 6px #F59E0B; }
+
+.va-state-pill.speaking { background: #EFF6FF; color: #1D4ED8; border-color: #BFDBFE; }
+.va-state-pill.speaking .state-dot { background: #3B82F6; box-shadow: 0 0 6px #3B82F6; }
+
+.va-state-pill.waiting { background: #F8FAFC; color: #475569; border-color: #E2E8F0; }
+.va-state-pill.waiting .state-dot { background: #94A3B8; }
+
+.va-state-pill.ending { background: #FEF2F2; color: #B91C1C; border-color: #FECACA; }
+.va-state-pill.ending .state-dot { background: #EF4444; }
+
 .terminal-vu-container {
     max-width: 420px;
     margin: 0 auto;

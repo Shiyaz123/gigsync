@@ -574,7 +574,13 @@
 
                 <!-- Central Big Voice Agent Switch -->
                 <div class="voice-agent-master-switch-card">
-                    <span class="switch-title">VOICE AGENT MASTER CONTROL</span>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <span class="switch-title" style="margin:0;">VOICE AGENT MASTER CONTROL</span>
+                        <div class="va-state-pill idle" id="vaLiveStateBadge">
+                            <span class="state-dot"></span>
+                            <span id="vaLiveStateText">⚪ IDLE</span>
+                        </div>
+                    </div>
                     <button type="button" class="agent-power-btn off" id="voiceAgentPowerBtn">
                         <i class="fa-solid fa-power-off"></i>
                         <span id="voiceAgentPowerLabel">🔴 OFF</span>

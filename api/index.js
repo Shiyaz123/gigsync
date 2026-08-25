@@ -284,8 +284,44 @@ module.exports = async (req, res) => {
             return null;
         }
 
-        // 1. Pending Confirmations
-        if (session.pendingIntent === 'CONFIRM_POST_JOB' && session.pendingJobData && (isAffirmative || isNegative)) {
+        function cleanUtterance(str) {
+            if (!str) return '';
+            return str
+                .replace(/\b(\w+(?:\s+\w+){1,4})\s+\1\b/gi, '$1')
+                .replace(/\b(\w+)\s+\1\b/gi, '$1')
+                .trim();
+        }
+
+        const cleanedInput = cleanUtterance(speech);
+        const lowerCleaned = cleanedInput.toLowerCase();
+
+        const isAffirmative = /\b(yes|yeah|yep|sure|ok|okay|confirm|post it|please post|post|go ahead|book him|book it|book|ha|haan|houdu|ಹೌದು|sari|ಸರಿ)\b/i.test(lowerCleaned);
+        const isNegative = /\b(no|nope|cancel|cancel it|don't|beda|ಬೇಡ|nahi)\b/i.test(lowerCleaned);
+
+        let shouldEndCall = false;
+
+        // 1. Closings & Gratitude FIRST
+        const isGratitude = /\b(thank you|thanks|thanks a lot|thank you so much|thank you for your help|dhanyavada|dhanyavadagalu|dhanyavadam|shukriya|bahut shukriya)\b/i.test(lowerCleaned);
+        const isGoodbye = /\b(bye|goodbye|okay bye|ok bye|tata|see you|good night|that's all|thats all|that's it|thats it|nothing else|no nothing|nothing more|no that's all|no thats all|no thanks|no thank you)\b/i.test(lowerCleaned);
+
+        if (isGratitude && isGoodbye) {
+            spokenResponse = `You're welcome! I'm glad I could help. Have a great day!`;
+            actionsPerformed.push(`Completed conversation with closing goodbye`);
+            session.pendingIntent = null;
+            shouldEndCall = true;
+        } else if (isGoodbye) {
+            spokenResponse = `Goodbye! Thank you for calling GigSync. Have a wonderful day!`;
+            actionsPerformed.push(`Caller ended conversation`);
+            session.pendingIntent = null;
+            shouldEndCall = true;
+        } else if (isGratitude) {
+            spokenResponse = `You're welcome! I'm glad I could help. You can end the call whenever you're ready, or let me know if you need anything else.`;
+            actionsPerformed.push(`Acknowledged gratitude`);
+            session.pendingIntent = null;
+        }
+
+        // 2. Pending Confirmations
+        else if (session.pendingIntent === 'CONFIRM_POST_JOB' && session.pendingJobData && (isAffirmative || isNegative)) {
             if (isAffirmative) {
                 jobCreated = {
                     id: `GS-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -304,9 +340,10 @@ module.exports = async (req, res) => {
                 runtimeState.jobs.unshift(jobCreated);
                 toolExecuted = 'createJob';
                 actionsPerformed.push(`Created Job #${jobCreated.id} for ${jobCreated.service} in database`);
-                spokenResponse = `Done! Your job request for ${jobCreated.service} in ${city} has been posted. We are notifying nearby registered specialists.`;
+                spokenResponse = `Done! Your job request for ${jobCreated.service} in ${city} has been posted. We are notifying nearby registered specialists. Is there anything else I can help you with?`;
                 session.pendingIntent = null;
                 session.pendingJobData = null;
+                session.lastActionCompleted = 'JOB_POSTED';
             } else if (isNegative) {
                 spokenResponse = `No problem, I've cancelled the job request. Let me know if you need help with anything else.`;
                 session.pendingIntent = null;
@@ -337,22 +374,31 @@ module.exports = async (req, res) => {
                 runtimeState.jobs.unshift(jobCreated);
                 toolExecuted = 'createJob';
                 actionsPerformed.push(`Dispatched direct booking #${jobCreated.id} to ${w.name}`);
-                spokenResponse = `Booking confirmed! I have assigned ${w.name} (${w.trade}) for your request. They have been notified.`;
+                spokenResponse = `Booking confirmed! I have assigned ${w.name} (${w.trade}) for your request. They have been notified. Is there anything else you need?`;
                 session.pendingIntent = null;
+                session.lastActionCompleted = 'BOOKING_CONFIRMED';
             } else if (isNegative) {
                 spokenResponse = `Understood. Would you like me to search for another specialist or post an open job?`;
                 session.pendingIntent = null;
             }
         }
 
-        // 2. Greeting
-        else if (/^(hello|hi|hey|namaskara|namaste|good morning|good afternoon|good evening|ನಮಸ್ಕಾರ)\b/i.test(lower) && lower.split(/\s+/).length <= 4) {
+        // 3. Action follow-up negation
+        else if (session.lastActionCompleted && isNegative) {
+            spokenResponse = `You're welcome! Have a great day.`;
+            actionsPerformed.push(`Completed conversation`);
+            session.lastActionCompleted = null;
+            shouldEndCall = true;
+        }
+
+        // 4. Greeting
+        else if (/^(hello|hi|hey|namaskara|namaste|good morning|good afternoon|good evening|ನಮಸ್ಕಾರ)\b/i.test(lowerCleaned) && lowerCleaned.split(/\s+/).length <= 4) {
             spokenResponse = `Hello! Welcome to GigSync. How can I help you with local trade specialists or bookings in ${city} today?`;
             actionsPerformed.push(`Greeting acknowledged`);
         }
 
-        // 3. Service Catalog
-        else if (lower.includes('what services') || lower.includes('which services') || lower.includes('services you provide') || lower.includes('what do you do')) {
+        // 5. Service Catalog
+        else if (lowerCleaned.includes('what services') || lowerCleaned.includes('which services') || lowerCleaned.includes('services you provide') || lowerCleaned.includes('what do you do')) {
             spokenResponse = `GigSync currently connects verified local specialists for: Electrical, Plumbing, Carpentry, Two-Wheeler Mechanics, AC & Appliance Repair, Painting, and Home Cleaning in ${city}.`;
             actionsPerformed.push(`Provided service catalog`);
         }
@@ -482,6 +528,7 @@ module.exports = async (req, res) => {
             toolExecuted,
             job: jobCreated,
             actionsPerformed,
+            shouldEndCall,
             log: logEntry
         });
     }

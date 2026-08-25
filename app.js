@@ -101,15 +101,19 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch(e){}
     }
 
-    async function playTtsAudio(text) {
+    async function playTtsAudio(text, shouldEndCall = false) {
         if (!text) return;
         unlockAudioAutoplay();
         showDiagError(null);
         updateDiagnostic('diagTts', '🟡 Generating...', 'working');
         updateDiagnostic('diagAudioPlayback', '🟡 Preparing...', 'working');
 
+        // ECHO SUPPRESSION: Set flag immediately so no microphone audio enters STT
+        isAiSpeaking = true;
+        setVoiceAgentState('speaking', '🔵 GIGSYNC AI SPEAKING');
+
         const liveStatus = document.getElementById('terminalLiveAudioStatus');
-        if (liveStatus && state.voiceAgentActive) liveStatus.textContent = '🔊 Generating AI Voice...';
+        if (liveStatus && state.voiceAgentActive) liveStatus.textContent = '🔊 AI Speaking (Output Active)';
 
         const isKannada = /[\u0C80-\u0CFF]/.test(text);
         const lang = isKannada ? 'kn' : 'en-IN';
@@ -118,6 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             gigsyncTtsAudio.pause();
             gigsyncTtsAudio.src = ttsUrl;
+            gigsyncTtsAudio.volume = 1.0;
             gigsyncTtsAudio.load();
 
             // Explicit Audio Output Routing (setSinkId)
@@ -134,6 +139,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             gigsyncTtsAudio.onplay = () => {
+                isAiSpeaking = true;
+                setVoiceAgentState('speaking', '🔵 GIGSYNC AI SPEAKING');
                 updateDiagnostic('diagTts', '🟢 Generated (MP3)', 'ok');
                 updateDiagnostic('diagAudioPlayback', '🟢 Playing (MP3 Stream)', 'ok');
                 if (liveStatus && state.voiceAgentActive) liveStatus.textContent = '🔊 AI Speaking (Output Active)';
@@ -141,12 +148,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
             gigsyncTtsAudio.onended = () => {
                 updateDiagnostic('diagAudioPlayback', '✓ Finished', 'ok');
-                if (liveStatus && state.voiceAgentActive) liveStatus.textContent = 'Listening (Audio Live)';
+                
+                if (shouldEndCall) {
+                    // Call Ending / Goodbye flow
+                    setVoiceAgentState('ending', '🔴 CALL ENDED');
+                    if (liveStatus) liveStatus.textContent = 'Call Ended';
+                    stopTerminalAudioPipeline();
+                    state.voiceAgentActive = false;
+                    if (voiceAgentPowerBtn) {
+                        voiceAgentPowerBtn.classList.remove('on');
+                        voiceAgentPowerBtn.classList.add('off');
+                    }
+                    if (voiceAgentPowerLabel) voiceAgentPowerLabel.textContent = '🔴 OFF';
+                    if (voiceAgentPowerDesc) voiceAgentPowerDesc.textContent = 'Call ended naturally. Click to start a new voice session.';
+                    state.sessionId = null;
+                    toast('🔴 Conversation Ended Naturally');
+                    appendTerminalActivity('Call completed & voice session ended');
+                    appendTerminalAction('✓ Conversation closed gracefully');
+                } else {
+                    // Acoustic Cooldown before re-enabling listening (prevent room echo / reverb)
+                    setTimeout(() => {
+                        isAiSpeaking = false;
+                        if (state.voiceAgentActive) {
+                            setVoiceAgentState('listening', '🟢 LISTENING');
+                            if (liveStatus) liveStatus.textContent = 'Listening (Audio Live)';
+                        }
+                    }, 600);
+                }
             };
 
             gigsyncTtsAudio.onerror = (e) => {
                 console.warn('MP3 stream error, switching to SpeechSynthesis fallback:', e);
-                fallbackSpeechSynthesis(text);
+                fallbackSpeechSynthesis(text, shouldEndCall);
             };
 
             const playPromise = gigsyncTtsAudio.play();
@@ -156,19 +189,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (playErr.name === 'NotAllowedError') {
                         showDiagError('Autoplay blocked. Click "Start Voice Agent" or "Test AI Voice" to enable audio.');
                     }
-                    fallbackSpeechSynthesis(text, playErr.message);
+                    fallbackSpeechSynthesis(text, shouldEndCall, playErr.message);
                 });
             }
         } catch(err) {
             console.warn('TTS streaming exception:', err);
-            fallbackSpeechSynthesis(text, err.message);
+            fallbackSpeechSynthesis(text, shouldEndCall, err.message);
         }
     }
 
-    function fallbackSpeechSynthesis(text, origErr) {
+    function fallbackSpeechSynthesis(text, shouldEndCall = false, origErr = null) {
         if (!('speechSynthesis' in window)) {
             updateDiagnostic('diagAudioPlayback', '🔴 Failed (No TTS)', 'err');
             showDiagError(origErr || 'Browser does not support Speech Synthesis');
+            isAiSpeaking = false;
             return;
         }
 
@@ -195,6 +229,8 @@ document.addEventListener('DOMContentLoaded', () => {
             window._currentSpeechUtterance = utterance;
 
             utterance.onstart = () => {
+                isAiSpeaking = true;
+                setVoiceAgentState('speaking', '🔵 GIGSYNC AI SPEAKING');
                 updateDiagnostic('diagTts', '🟢 Generated (SpeechSynth)', 'ok');
                 updateDiagnostic('diagAudioPlayback', '🟢 Playing (SpeechSynth)', 'ok');
                 const liveStatus = document.getElementById('terminalLiveAudioStatus');
@@ -204,20 +240,43 @@ document.addEventListener('DOMContentLoaded', () => {
             utterance.onend = () => {
                 window._currentSpeechUtterance = null;
                 updateDiagnostic('diagAudioPlayback', '✓ Finished', 'ok');
-                const liveStatus = document.getElementById('terminalLiveAudioStatus');
-                if (liveStatus && state.voiceAgentActive) liveStatus.textContent = 'Listening (Audio Live)';
+                
+                if (shouldEndCall) {
+                    setVoiceAgentState('ending', '🔴 CALL ENDED');
+                    stopTerminalAudioPipeline();
+                    state.voiceAgentActive = false;
+                    if (voiceAgentPowerBtn) {
+                        voiceAgentPowerBtn.classList.remove('on');
+                        voiceAgentPowerBtn.classList.add('off');
+                    }
+                    if (voiceAgentPowerLabel) voiceAgentPowerLabel.textContent = '🔴 OFF';
+                    state.sessionId = null;
+                    toast('🔴 Conversation Ended Naturally');
+                } else {
+                    setTimeout(() => {
+                        isAiSpeaking = false;
+                        if (state.voiceAgentActive) {
+                            setVoiceAgentState('listening', '🟢 LISTENING');
+                            const liveStatus = document.getElementById('terminalLiveAudioStatus');
+                            if (liveStatus) liveStatus.textContent = 'Listening (Audio Live)';
+                        }
+                    }, 600);
+                }
             };
 
             utterance.onerror = (e) => {
                 updateDiagnostic('diagAudioPlayback', '🔴 Failed', 'err');
                 showDiagError(e.error || origErr || 'Speech synthesis error');
+                isAiSpeaking = false;
             };
 
             window.speechSynthesis.speak(utterance);
         } catch (e) {
             updateDiagnostic('diagAudioPlayback', '🔴 Failed', 'err');
             showDiagError(e.message);
+            isAiSpeaking = false;
         }
+    }
     }
 
     function speakText(text) {
@@ -1040,13 +1099,71 @@ document.addEventListener('DOMContentLoaded', () => {
     let terminalSpeechRec = null;
     let terminalAudioAnimId = null;
 
+    // Conversational VAD & Turn State Variables
+    let isAiSpeaking = false;
+    let turnSilenceTimer = null;
+    let currentTurnTranscript = '';
+    let currentInterimTranscript = '';
+    const TURN_SILENCE_TIMEOUT_MS = 4500; // ~4.5 - 5 seconds natural silence timeout
+
+    function setVoiceAgentState(stateKey, labelText) {
+        const badge = document.getElementById('vaLiveStateBadge');
+        const text = document.getElementById('vaLiveStateText');
+        if (badge) {
+            badge.className = `va-state-pill ${stateKey.toLowerCase()}`;
+        }
+        if (text) {
+            text.textContent = labelText;
+        }
+    }
+
+    function deduplicateUtterance(str) {
+        if (!str) return '';
+        return str
+            .replace(/\b(\w+(?:\s+\w+){1,4})\s+\1\b/gi, '$1')
+            .replace(/\b(\w+)\s+\1\b/gi, '$1')
+            .trim();
+    }
+
+    function finalizeCallerTurn() {
+        clearTimeout(turnSilenceTimer);
+        turnSilenceTimer = null;
+
+        if (isAiSpeaking) return;
+
+        const raw = (currentTurnTranscript + ' ' + currentInterimTranscript).trim();
+        currentTurnTranscript = '';
+        currentInterimTranscript = '';
+
+        const cleaned = deduplicateUtterance(raw);
+        if (!cleaned || cleaned.length < 2) {
+            if (state.voiceAgentActive && !isAiSpeaking) {
+                setVoiceAgentState('listening', '🟢 LISTENING');
+            }
+            return;
+        }
+
+        // Prevent duplicate firing within 3 seconds
+        if (cleaned === state.lastProcessedTurn && (Date.now() - state.lastProcessedTurnTime < 3500)) {
+            return;
+        }
+        state.lastProcessedTurn = cleaned;
+        state.lastProcessedTurnTime = Date.now();
+
+        const input = document.getElementById('terminalTextInput');
+        if (input) input.value = cleaned;
+
+        setVoiceAgentState('processing', '🟡 PROCESSING');
+        sendAiTurn(cleaned);
+    }
+
     async function startTerminalAudioPipeline() {
         try {
             terminalMicrophoneStream = await navigator.mediaDevices.getUserMedia({
                 audio: {
-                    echoCancellation: false,
-                    noiseSuppression: false,
-                    autoGainControl: false
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
                 }
             });
 
@@ -1081,7 +1198,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 animateVU();
             }
 
-            // Start continuous Speech Recognition on Terminal
+            // Start continuous Speech Recognition with Proper Turn Segmentation
             const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (SpeechRec) {
                 terminalSpeechRec = new SpeechRec();
@@ -1089,42 +1206,68 @@ document.addEventListener('DOMContentLoaded', () => {
                 terminalSpeechRec.interimResults = true;
                 terminalSpeechRec.lang = 'en-IN';
 
-                let finalTranscript = '';
                 terminalSpeechRec.onresult = (e) => {
-                    let interim = '';
-                    for (let i = 0; i < e.results.length; ++i) {
+                    // ECHO SUPPRESSION: Discard input while AI is speaking
+                    if (isAiSpeaking) {
+                        currentTurnTranscript = '';
+                        currentInterimTranscript = '';
+                        return;
+                    }
+
+                    currentInterimTranscript = '';
+                    let newlyFinalized = '';
+
+                    for (let i = e.resultIndex; i < e.results.length; ++i) {
+                        const chunk = e.results[i][0].transcript;
                         if (e.results[i].isFinal) {
-                            finalTranscript += e.results[i][0].transcript + ' ';
+                            newlyFinalized += chunk + ' ';
                         } else {
-                            interim += e.results[i][0].transcript;
+                            currentInterimTranscript += chunk;
                         }
                     }
-                    const text = (finalTranscript + interim).trim();
-                    if (text) {
+
+                    if (newlyFinalized) {
+                        currentTurnTranscript = (currentTurnTranscript + ' ' + newlyFinalized).trim();
+                    }
+
+                    const livePreview = (currentTurnTranscript + (currentInterimTranscript ? ' ' + currentInterimTranscript : '')).trim();
+                    if (livePreview) {
                         const input = document.getElementById('terminalTextInput');
-                        if (input) input.value = text;
+                        if (input) input.value = livePreview;
+                        setVoiceAgentState('listening', '🟢 LISTENING');
+
+                        // Reset silence timer on every new sound packet
+                        clearTimeout(turnSilenceTimer);
+                        turnSilenceTimer = setTimeout(() => {
+                            finalizeCallerTurn();
+                        }, TURN_SILENCE_TIMEOUT_MS);
                     }
                 };
 
                 terminalSpeechRec.onspeechend = () => {
-                    const text = finalTranscript.trim();
-                    if (text) {
-                        finalTranscript = '';
-                        sendAiTurn(text);
+                    // Start silence timer when speech pauses
+                    if (currentTurnTranscript || currentInterimTranscript) {
+                        clearTimeout(turnSilenceTimer);
+                        turnSilenceTimer = setTimeout(() => {
+                            finalizeCallerTurn();
+                        }, 2500);
                     }
                 };
 
                 terminalSpeechRec.onerror = (err) => {
-                    console.warn('Terminal speech recognition:', err.error);
+                    if (err.error !== 'no-speech') {
+                        console.warn('Terminal speech recognition error:', err.error);
+                    }
                 };
 
                 terminalSpeechRec.onend = () => {
-                    if (state.voiceAgentActive) {
+                    if (state.voiceAgentActive && !isAiSpeaking) {
                         try { terminalSpeechRec.start(); } catch(e){}
                     }
                 };
 
                 terminalSpeechRec.start();
+                setVoiceAgentState('listening', '🟢 LISTENING');
             }
         } catch(err) {
             console.error('Audio hardware access error:', err);
@@ -1133,6 +1276,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function stopTerminalAudioPipeline() {
+        clearTimeout(turnSilenceTimer);
+        turnSilenceTimer = null;
+        currentTurnTranscript = '';
+        currentInterimTranscript = '';
+        isAiSpeaking = false;
+
         if (terminalAudioAnimId) {
             cancelAnimationFrame(terminalAudioAnimId);
             terminalAudioAnimId = null;
@@ -1156,6 +1305,7 @@ document.addEventListener('DOMContentLoaded', () => {
             vuStatus.textContent = 'Pipeline Idle';
             vuStatus.classList.remove('active');
         }
+        setVoiceAgentState('idle', '⚪ IDLE');
     }
 
     voiceAgentPowerBtn?.addEventListener('click', () => {
@@ -1165,7 +1315,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (state.voiceAgentActive) {
             voiceAgentPowerLabel.textContent = '🟢 ON';
-            voiceAgentPowerDesc.textContent = 'Voice processing pipeline is LIVE and actively listening through 3.5mm sound card.';
+            voiceAgentPowerDesc.textContent = 'Voice processing pipeline is LIVE and actively listening through 3.5mm sound card / Bluetooth.';
             toast('🟢 Voice Agent Pipeline Activated');
             appendTerminalActivity('Voice Agent pipeline enabled by operator');
             appendTerminalAction('✓ Voice processing pipeline initialized');
@@ -1185,6 +1335,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const text = input?.value.trim();
         if (text) {
             input.value = '';
+            setVoiceAgentState('processing', '🟡 PROCESSING');
             sendAiTurn(text);
         }
     });
@@ -1195,6 +1346,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const text = input?.value.trim();
             if (text) {
                 input.value = '';
+                setVoiceAgentState('processing', '🟡 PROCESSING');
                 sendAiTurn(text);
             }
         }
@@ -1204,7 +1356,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.t-q-chip').forEach(chip => {
         chip.addEventListener('click', () => {
             const prompt = chip.dataset.tprompt;
-            if (prompt) sendAiTurn(prompt);
+            if (prompt) {
+                setVoiceAgentState('processing', '🟡 PROCESSING');
+                sendAiTurn(prompt);
+            }
         });
     });
 
@@ -1514,7 +1669,7 @@ document.addEventListener('DOMContentLoaded', () => {
             appendTerminalTranscript('GIGSYNC AI', res.data.spokenResponse);
 
             // Play real TTS audio output through selected device
-            await playTtsAudio(res.data.spokenResponse);
+            await playTtsAudio(res.data.spokenResponse, !!res.data.shouldEndCall);
 
             if (res.data.actionsPerformed && Array.isArray(res.data.actionsPerformed)) {
                 res.data.actionsPerformed.forEach(action => {
