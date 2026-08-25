@@ -267,9 +267,6 @@ module.exports = async (req, res) => {
 
         actionsPerformed.push(`Identified ${role} (${callerName})`);
 
-        const isAffirmative = /^(yes|yeah|yep|sure|ok|okay|confirm|post it|go ahead|book him|book it|ha|haan|houdu|ಹೌದು|sari|ಸರಿ)\b/i.test(lower);
-        const isNegative = /^(no|nope|cancel|cancel it|don't|beda|ಬೇಡ|nahi)\b/i.test(lower);
-
         // Helper to extract trade
         function extractService(t) {
             const l = t.toLowerCase();
@@ -382,6 +379,8 @@ module.exports = async (req, res) => {
                 spokenResponse = `Understood. Would you like me to search for another specialist or post an open job?`;
                 session.pendingIntent = null;
             }
+        }
+
         else if (session.pendingIntent === 'CONFIRM_CANCEL_BOOKING' && (isAffirmative || isNegative)) {
             if (isAffirmative && session.pendingCancelJobId) {
                 const jId = session.pendingCancelJobId;
