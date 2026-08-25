@@ -204,10 +204,15 @@ button {
     font-size: 16px;
 }
 
+.role-option:hover {
+    color: var(--gs-primary);
+}
+
 .role-option.active {
     background: var(--gs-card);
     color: var(--gs-primary);
-    box-shadow: var(--gs-shadow-sm);
+    box-shadow: 0 2px 8px rgba(79, 70, 229, 0.15);
+    border: 1px solid rgba(79, 70, 229, 0.2);
 }
 
 /* Auth Tabs */

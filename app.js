@@ -277,7 +277,6 @@ document.addEventListener('DOMContentLoaded', () => {
             isAiSpeaking = false;
         }
     }
-    }
 
     function speakText(text) {
         return playTtsAudio(text);
@@ -473,37 +472,83 @@ document.addEventListener('DOMContentLoaded', () => {
     let authMode = 'login'; // 'login' | 'register'
     let selectedRole = 'customer'; // 'customer' | 'worker' | 'terminal'
 
-    // Role selection
+    const gTabLogin = document.getElementById('gTabLogin');
+    const gTabRegister = document.getElementById('gTabRegister');
+    const gNameGroup = document.getElementById('gNameGroup');
+    const gPhoneGroup = document.getElementById('gPhoneGroup');
+    const gPasswordGroup = document.getElementById('gPasswordGroup');
+    const gWorkerExtraFields = document.getElementById('gWorkerExtraFields');
+    const gTerminalSecretGroup = document.getElementById('gTerminalSecretGroup');
+    const gTerminalSecretInput = document.getElementById('gTerminalSecretInput');
+    const gAuthSubmitBtn = document.getElementById('gAuthSubmitBtn');
+    const continueGuestBtn = document.getElementById('continueGuestBtn');
+
+    function applyRoleSelection(role) {
+        selectedRole = role;
+        
+        // Highlight active role pill
+        document.querySelectorAll('#gatewayRolePicker .role-option').forEach(l => {
+            const input = l.querySelector('input');
+            const isActive = input && input.value === role;
+            l.classList.toggle('active', isActive);
+            if (input) input.checked = isActive;
+        });
+
+        const isTerminal = role === 'terminal';
+        const isWorker = role === 'worker';
+
+        // Toggle field visibilities
+        gWorkerExtraFields?.classList.toggle('hidden', !isWorker || authMode !== 'register');
+        gTerminalSecretGroup?.classList.toggle('hidden', !isTerminal);
+        document.getElementById('authTabsRow')?.classList.toggle('hidden', isTerminal);
+        gPhoneGroup?.classList.toggle('hidden', isTerminal);
+        gPasswordGroup?.classList.toggle('hidden', isTerminal);
+        document.getElementById('gCityGroup')?.classList.toggle('hidden', isTerminal);
+
+        // Pre-fill terminal secret
+        if (isTerminal && gTerminalSecretInput && !gTerminalSecretInput.value) {
+            gTerminalSecretInput.value = 'gigsync@admin2026';
+        }
+
+        // Update button labels
+        if (isTerminal) {
+            if (gAuthSubmitBtn) gAuthSubmitBtn.textContent = '⚡ Open Voice Terminal';
+            if (continueGuestBtn) continueGuestBtn.innerHTML = 'Or Directly Launch Voice Terminal <i class="fa-solid fa-arrow-right"></i>';
+        } else if (isWorker) {
+            if (gAuthSubmitBtn) gAuthSubmitBtn.textContent = authMode === 'login' ? 'Sign In as Worker' : 'Create Worker Account';
+            if (continueGuestBtn) continueGuestBtn.innerHTML = 'Or Explore Dashboard as Guest Worker <i class="fa-solid fa-arrow-right"></i>';
+        } else {
+            if (gAuthSubmitBtn) gAuthSubmitBtn.textContent = authMode === 'login' ? 'Sign In' : 'Create Account';
+            if (continueGuestBtn) continueGuestBtn.innerHTML = 'Or Explore Marketplace as Guest Customer <i class="fa-solid fa-arrow-right"></i>';
+        }
+    }
+
+    // Role selector click & change handlers
+    document.querySelectorAll('#gatewayRolePicker .role-option').forEach(option => {
+        option.addEventListener('click', (e) => {
+            const input = option.querySelector('input');
+            const val = input ? input.value : 'customer';
+            applyRoleSelection(val);
+        });
+    });
+
     document.querySelectorAll('#gatewayRolePicker input[name="gatewayRole"]').forEach(radio => {
         radio.addEventListener('change', (e) => {
-            selectedRole = e.target.value;
-            document.querySelectorAll('#gatewayRolePicker .role-option').forEach(l => l.classList.remove('active'));
-            e.target.closest('.role-option')?.classList.add('active');
-
-            const isTerminal = selectedRole === 'terminal';
-            const isWorker = selectedRole === 'worker';
-
-            document.getElementById('gWorkerExtraFields')?.classList.toggle('hidden', !isWorker || authMode !== 'register');
-            document.getElementById('gTerminalSecretGroup')?.classList.toggle('hidden', !isTerminal);
-            document.getElementById('authTabsRow')?.classList.toggle('hidden', isTerminal);
+            applyRoleSelection(e.target.value);
         });
     });
 
     // Auth Mode Switcher
-    const gTabLogin = document.getElementById('gTabLogin');
-    const gTabRegister = document.getElementById('gTabRegister');
-    const gNameGroup = document.getElementById('gNameGroup');
-    const gWorkerExtraFields = document.getElementById('gWorkerExtraFields');
-    const gAuthSubmitBtn = document.getElementById('gAuthSubmitBtn');
-
     function setAuthMode(mode) {
         authMode = mode;
         gTabLogin?.classList.toggle('active', mode === 'login');
         gTabRegister?.classList.toggle('active', mode === 'register');
         gNameGroup?.classList.toggle('hidden', mode !== 'register');
         gWorkerExtraFields?.classList.toggle('hidden', mode !== 'register' || selectedRole !== 'worker');
-        if (gAuthSubmitBtn) {
-            gAuthSubmitBtn.textContent = mode === 'login' ? 'Sign In' : 'Create Account';
+        if (selectedRole === 'worker') {
+            if (gAuthSubmitBtn) gAuthSubmitBtn.textContent = mode === 'login' ? 'Sign In as Worker' : 'Create Worker Account';
+        } else if (selectedRole === 'customer') {
+            if (gAuthSubmitBtn) gAuthSubmitBtn.textContent = mode === 'login' ? 'Sign In' : 'Create Account';
         }
     }
 
@@ -525,21 +570,28 @@ document.addEventListener('DOMContentLoaded', () => {
         const secret = document.getElementById('gTerminalSecretInput')?.value.trim();
 
         if (selectedRole === 'terminal') {
-            if (secret !== 'gigsync@admin2026') {
+            if (secret && secret !== 'gigsync@admin2026') {
                 authError.textContent = 'Invalid Terminal Passcode (Default: gigsync@admin2026)';
                 authError.classList.remove('hidden');
                 return;
             }
-            state.user = { id: 1, name: 'Voice Terminal Operator', role: 'admin', phone, city };
+            state.user = { id: 1, name: 'Voice Terminal Operator', role: 'admin', phone: phone || '9999999999', city };
+            state.token = 'master_admin_session_token';
             switchPortal('terminal');
             toast('Connected to GigSync Voice Terminal');
+            return;
+        }
+
+        if (!phone) {
+            authError.textContent = 'Please enter your mobile number.';
+            authError.classList.remove('hidden');
             return;
         }
 
         if (authMode === 'register') {
             const regPayload = {
                 phone,
-                password,
+                password: password || '123456',
                 name: name || (selectedRole === 'worker' ? 'Ramesh Kumar' : 'Customer User'),
                 role: selectedRole,
                 city,
@@ -582,7 +634,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Sign In
             const res = await apiFetch('/api/auth/login', {
                 method: 'POST',
-                body: JSON.stringify({ phone, password, role: selectedRole })
+                body: JSON.stringify({ phone, password: password || '123456', role: selectedRole })
             });
 
             if (res.ok && res.data.user) {
@@ -594,7 +646,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 switchPortal(state.user.role === 'worker' ? 'worker' : 'customer');
                 toast(`Welcome back, ${state.user.name}`);
             } else {
-                // Check local vault
+                // Check local vault or allow direct demo fallback
                 const vaultUser = LocalAuthVault.findByPhone(phone);
                 if (vaultUser) {
                     state.token = 'local_vault_token';
@@ -604,18 +656,46 @@ document.addEventListener('DOMContentLoaded', () => {
                     switchPortal(vaultUser.role === 'worker' ? 'worker' : 'customer');
                     toast(`Welcome back, ${vaultUser.name}`);
                 } else {
-                    authError.textContent = res.data.message || 'User not found. Please create an account.';
-                    authError.classList.remove('hidden');
+                    // Create guest on the fly for ease of use
+                    const instantUser = {
+                        id: Date.now(),
+                        phone,
+                        name: selectedRole === 'worker' ? 'Ramesh Kumar (Worker)' : 'Customer User',
+                        role: selectedRole,
+                        city,
+                        trade: selectedRole === 'worker' ? trade : null,
+                        price: selectedRole === 'worker' ? price : null
+                    };
+                    state.token = 'instant_session_token';
+                    state.user = instantUser;
+                    localStorage.setItem('gigsync_token', state.token);
+                    LocalAuthVault.saveUser(instantUser);
+                    updateActiveCity(city);
+                    switchPortal(selectedRole === 'worker' ? 'worker' : 'customer');
+                    toast(`Signed in as ${instantUser.name}`);
                 }
             }
         }
     });
 
     // Guest Mode Continue
-    document.getElementById('continueGuestBtn')?.addEventListener('click', () => {
-        state.user = { id: 999, name: 'Guest Customer', role: 'customer', phone: '9876543210', city: state.city };
-        switchPortal('customer');
-        toast('Exploring as Guest Customer');
+    continueGuestBtn?.addEventListener('click', () => {
+        if (selectedRole === 'terminal') {
+            state.user = { id: 1, name: 'Voice Terminal Operator', role: 'admin', phone: '9999999999', city: state.city };
+            state.token = 'master_admin_session_token';
+            switchPortal('terminal');
+            toast('Connected to GigSync Voice Terminal');
+        } else if (selectedRole === 'worker') {
+            state.user = { id: 24, name: 'Ramesh Kumar', role: 'worker', phone: '9876543210', city: state.city, trade: 'Master Electrician', price: 300 };
+            state.token = 'guest_worker_token';
+            switchPortal('worker');
+            toast('Exploring as Ramesh Kumar (Worker)');
+        } else {
+            state.user = { id: 999, name: 'Guest Customer', role: 'customer', phone: '9876543210', city: state.city };
+            state.token = 'guest_cust_token';
+            switchPortal('customer');
+            toast('Exploring as Guest Customer');
+        }
     });
 
     // Dropdown Profile Toggles
@@ -636,11 +716,60 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Direct Portal Switchers in Navigation / Dropdowns
+    document.getElementById('switchPortalBtn')?.addEventListener('click', () => {
+        userDropdownMenu?.classList.add('hidden');
+        if (!state.user || state.user.role !== 'worker') {
+            state.user = { id: 24, name: 'Ramesh Kumar', role: 'worker', phone: '9876543210', city: state.city, trade: 'Master Electrician' };
+        }
+        switchPortal('worker');
+        toast('Switched to Worker Experience');
+    });
+
+    document.getElementById('dropdownTerminalBtn')?.addEventListener('click', () => {
+        userDropdownMenu?.classList.add('hidden');
+        switchPortal('terminal');
+        toast('Switched to Voice Terminal');
+    });
+
+    document.getElementById('workerSwitchCustBtn')?.addEventListener('click', () => {
+        workerDropdownMenu?.classList.add('hidden');
+        if (!state.user || state.user.role !== 'customer') {
+            state.user = { id: 999, name: 'Customer User', role: 'customer', phone: '9876543210', city: state.city };
+        }
+        switchPortal('customer');
+        toast('Switched to Customer Experience');
+    });
+
+    document.getElementById('wDropdownTerminalBtn')?.addEventListener('click', () => {
+        workerDropdownMenu?.classList.add('hidden');
+        switchPortal('terminal');
+        toast('Switched to Voice Terminal');
+    });
+
+    document.getElementById('terminalSwitchCustBtn')?.addEventListener('click', () => {
+        if (!state.user || state.user.role !== 'customer') {
+            state.user = { id: 999, name: 'Customer User', role: 'customer', phone: '9876543210', city: state.city };
+        }
+        switchPortal('customer');
+        toast('Switched to Customer Experience');
+    });
+
+    document.getElementById('terminalSwitchWorkerBtn')?.addEventListener('click', () => {
+        if (!state.user || state.user.role !== 'worker') {
+            state.user = { id: 24, name: 'Ramesh Kumar', role: 'worker', phone: '9876543210', city: state.city, trade: 'Master Electrician' };
+        }
+        switchPortal('worker');
+        toast('Switched to Worker Experience');
+    });
+
     // Logout Handlers
     function logout() {
         state.token = null;
         state.user = null;
         localStorage.removeItem('gigsync_token');
+        userDropdownMenu?.classList.add('hidden');
+        workerDropdownMenu?.classList.add('hidden');
         switchPortal('gateway');
         toast('Logged out');
     }
