@@ -42,7 +42,11 @@ function sendJSON(res, data, statusCode = 200) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.status(statusCode).json(data);
+    if (typeof res.status === 'function' && typeof res.json === 'function') {
+        return res.status(statusCode).json(data);
+    }
+    res.statusCode = statusCode;
+    res.end(JSON.stringify(data));
 }
 
 module.exports = async (req, res) => {
@@ -235,6 +239,7 @@ module.exports = async (req, res) => {
     if (pathname.endsWith('/ai/voice-call') && req.method === 'POST') {
         const body = await parseBody(req);
         const speech = (body.speechText || '').trim();
+        const text = speech;
         const city = body.city || 'Ramanagara';
         const role = body.callerRole || 'customer';
         const callerPhone = (body.callerPhone || '9876543210').replace(/\D/g, '');
