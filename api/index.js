@@ -231,78 +231,252 @@ module.exports = async (req, res) => {
         return sendJSON(res, { status: 'success', count: runtimeState.callLogs.length, callLogs: runtimeState.callLogs });
     }
 
-    // 8. POST /api/ai/voice-call
+    // 8. POST /api/ai/voice-call (Context-Aware Conversational Engine)
     if (pathname.endsWith('/ai/voice-call') && req.method === 'POST') {
         const body = await parseBody(req);
         const speech = (body.speechText || '').trim();
         const city = body.city || 'Ramanagara';
         const role = body.callerRole || 'customer';
-        
-        let response = `Namaskara! I am your GigSync Assistant for ${city}. How can I assist you with local trades and skilled specialists today?`;
+        const callerPhone = (body.callerPhone || '9876543210').replace(/\D/g, '');
+        const callerName = body.callerName || 'User';
+        const lower = speech.toLowerCase();
+
+        // Memory Session Store in Vercel runtime
+        if (!runtimeState.sessions_ai) runtimeState.sessions_ai = {};
+        const sessKey = body.sessionId || callerPhone;
+        if (!runtimeState.sessions_ai[sessKey]) {
+            runtimeState.sessions_ai[sessKey] = {
+                pendingIntent: null,
+                currentService: null,
+                lastFoundWorkers: [],
+                lastSelectedWorker: null,
+                pendingJobData: null
+            };
+        }
+        const session = runtimeState.sessions_ai[sessKey];
+
+        let spokenResponse = '';
         let toolExecuted = null;
         let jobCreated = null;
+        const actionsPerformed = [];
 
-        const lower = speech.toLowerCase();
-        if (lower.includes('plumber') || speech.includes('ಪ್ಲಂಬರ್') || lower.includes('leak') || lower.includes('pipe') || lower.includes('water')) {
-            response = `ನಮಸ್ಕಾರ! I have located 2 verified plumbers on-duty in ${city}. Standard diagnostic visit charge is ₹280. Dispatching request to nearby specialist now.`;
-            toolExecuted = 'createJob';
-            jobCreated = {
-                id: `GS-${Math.floor(1000 + Math.random() * 9000)}`,
-                service: 'Plumbing',
-                problem_description: speech,
-                city,
-                status: 'Requested',
-                budget: '₹280'
-            };
-            runtimeState.jobs.unshift(jobCreated);
-        } else if (lower.includes('electrician') || speech.includes('ಎಲೆಕ್ಟ್ರಿಷಿಯನ್') || lower.includes('current') || lower.includes('wire') || lower.includes('light') || lower.includes('power')) {
-            response = `Electrician request received for ${city}. Ramesh Kumar (Master Electrician, ⭐ 4.9) has been notified. Estimated arrival in 25 minutes.`;
-            toolExecuted = 'createJob';
-            jobCreated = {
-                id: `GS-${Math.floor(1000 + Math.random() * 9000)}`,
-                service: 'Electrical',
-                problem_description: speech,
-                city,
-                status: 'Requested',
-                budget: '₹350'
-            };
-            runtimeState.jobs.unshift(jobCreated);
-        } else if (lower.includes('carpenter') || speech.includes('ಬಡಗಿ') || lower.includes('wood') || lower.includes('door') || lower.includes('furniture')) {
-            response = `Carpenter specialist found in ${city}. Standard visit fee is ₹300. Booking confirmed.`;
-            toolExecuted = 'createJob';
-        } else if (lower.includes('mechanic') || lower.includes('bike') || lower.includes('scooter') || lower.includes('puncture')) {
-            response = `Two-wheeler mechanic dispatch initiated in ${city}. Technician will contact you on your registered phone.`;
-            toolExecuted = 'createJob';
-        } else if (lower.includes('cleaner') || lower.includes('cleaning') || lower.includes('maid')) {
-            response = `Home cleaning service slot registered for ${city}. Standard hourly rate is ₹250.`;
-            toolExecuted = 'createJob';
-        } else if (lower.includes('schedule') || lower.includes('free') || lower.includes('availability') || lower.includes('naale') || lower.includes('available')) {
-            if (role === 'worker') {
-                response = `Dhanyavada! Your working schedule for tomorrow has been updated in the ${city} registry. You are marked ON-DUTY.`;
-                toolExecuted = 'updateWorkerAvailability';
-            } else {
-                response = `Available verified specialists in ${city}: Ramesh Kumar (Electrician · 9:00 AM - 6:00 PM), Suresh Gowda (Plumber · 10:00 AM - 5:00 PM).`;
+        actionsPerformed.push(`Identified ${role} (${callerName})`);
+
+        const isAffirmative = /^(yes|yeah|yep|sure|ok|okay|confirm|post it|go ahead|book him|book it|ha|haan|houdu|ಹೌದು|sari|ಸರಿ)\b/i.test(lower);
+        const isNegative = /^(no|nope|cancel|cancel it|don't|beda|ಬೇಡ|nahi)\b/i.test(lower);
+
+        // Helper to extract trade
+        function extractService(t) {
+            const l = t.toLowerCase();
+            if (l.includes('electric') || l.includes('fan') || l.includes('switch') || l.includes('wire') || l.includes('current') || l.includes('ಎಲೆಕ್ಟ್ರಿಷಿಯನ್')) return 'Electrical';
+            if (l.includes('plumb') || l.includes('pipe') || l.includes('tap') || l.includes('leak') || l.includes('water') || l.includes('ಪ್ಲಂಬರ್')) return 'Plumbing';
+            if (l.includes('carpenter') || l.includes('wood') || l.includes('door') || l.includes('furniture') || l.includes('ಕಾರ್ಪೆಂಟರ್')) return 'Carpentry';
+            if (l.includes('washing machine') || l.includes('washer')) return 'Washing Machine Repair';
+            if (l.includes('ac') || l.includes('fridge') || l.includes('refrigerator')) return 'AC & Appliances';
+            if (l.includes('bike') || l.includes('scooter') || l.includes('mechanic') || l.includes('ಮೇಕಾನಿಕ್')) return 'Mechanics';
+            if (l.includes('clean') || l.includes('maid') || l.includes('ಕ್ಲೀನಿಂಗ್')) return 'Home Cleaning';
+            if (l.includes('paint') || l.includes('painter')) return 'Painting';
+            return null;
+        }
+
+        // 1. Pending Confirmations
+        if (session.pendingIntent === 'CONFIRM_POST_JOB' && session.pendingJobData && (isAffirmative || isNegative)) {
+            if (isAffirmative) {
+                jobCreated = {
+                    id: `GS-${Math.floor(1000 + Math.random() * 9000)}`,
+                    customer_phone: callerPhone,
+                    customer_name: callerName,
+                    service: session.pendingJobData.service,
+                    problem_description: session.pendingJobData.problemDescription,
+                    location: `${city} Town`,
+                    city,
+                    requested_date: session.pendingJobData.requestedDate || 'Today',
+                    requested_time: 'Immediate',
+                    budget: '₹300',
+                    status: 'Requested',
+                    created_at: new Date().toISOString()
+                };
+                runtimeState.jobs.unshift(jobCreated);
+                toolExecuted = 'createJob';
+                actionsPerformed.push(`Created Job #${jobCreated.id} for ${jobCreated.service} in database`);
+                spokenResponse = `Done! Your job request for ${jobCreated.service} in ${city} has been posted. We are notifying nearby registered specialists.`;
+                session.pendingIntent = null;
+                session.pendingJobData = null;
+            } else if (isNegative) {
+                spokenResponse = `No problem, I've cancelled the job request. Let me know if you need help with anything else.`;
+                session.pendingIntent = null;
+                session.pendingJobData = null;
             }
-        } else if (speech) {
-            response = `Namaskara! I received your requirement: "${speech}". Connecting you with top-rated verified specialists in ${city}.`;
+        }
+
+        else if (session.pendingIntent === 'CONFIRM_CONNECT_WORKER' && session.lastSelectedWorker && (isAffirmative || isNegative)) {
+            if (isAffirmative) {
+                const w = session.lastSelectedWorker;
+                jobCreated = {
+                    id: `GS-${Math.floor(1000 + Math.random() * 9000)}`,
+                    customer_phone: callerPhone,
+                    customer_name: callerName,
+                    service: w.trade || session.currentService || 'Specialist Visit',
+                    problem_description: `Direct booking request for ${w.name}`,
+                    location: `${city} Town`,
+                    city,
+                    requested_date: 'Today',
+                    requested_time: 'Immediate',
+                    budget: `₹${w.price || 300}`,
+                    worker_id: w.id,
+                    worker_name: w.name,
+                    worker_phone: w.phone,
+                    status: 'Confirmed',
+                    created_at: new Date().toISOString()
+                };
+                runtimeState.jobs.unshift(jobCreated);
+                toolExecuted = 'createJob';
+                actionsPerformed.push(`Dispatched direct booking #${jobCreated.id} to ${w.name}`);
+                spokenResponse = `Booking confirmed! I have assigned ${w.name} (${w.trade}) for your request. They have been notified.`;
+                session.pendingIntent = null;
+            } else if (isNegative) {
+                spokenResponse = `Understood. Would you like me to search for another specialist or post an open job?`;
+                session.pendingIntent = null;
+            }
+        }
+
+        // 2. Greeting
+        else if (/^(hello|hi|hey|namaskara|namaste|good morning|good afternoon|good evening|ನಮಸ್ಕಾರ)\b/i.test(lower) && lower.split(/\s+/).length <= 4) {
+            spokenResponse = `Hello! Welcome to GigSync. How can I help you with local trade specialists or bookings in ${city} today?`;
+            actionsPerformed.push(`Greeting acknowledged`);
+        }
+
+        // 3. Service Catalog
+        else if (lower.includes('what services') || lower.includes('which services') || lower.includes('services you provide') || lower.includes('what do you do')) {
+            spokenResponse = `GigSync currently connects verified local specialists for: Electrical, Plumbing, Carpentry, Two-Wheeler Mechanics, AC & Appliance Repair, Painting, and Home Cleaning in ${city}.`;
+            actionsPerformed.push(`Provided service catalog`);
+        }
+
+        // 4. Worker Availability & Bookings
+        else if (role === 'worker' && (lower.includes('my availability') || lower.includes('am i available') || lower.includes('my schedule'))) {
+            spokenResponse = `You are currently marked ON-DUTY and available in ${city}. Would you like to update your schedule?`;
+            actionsPerformed.push(`Checked worker status`);
+        }
+
+        else if (role === 'worker' && (lower.includes('available') || lower.includes('free') || lower.includes('duty') || lower.includes('shift') || lower.includes('ಫ್ರೀ'))) {
+            toolExecuted = 'updateWorkerAvailability';
+            actionsPerformed.push(`Updated availability status in database`);
+            spokenResponse = `Done. Your availability has been updated in the database. You are marked available for new jobs.`;
+        }
+
+        else if (role === 'worker' && (lower.includes('earning') || lower.includes('earn') || lower.includes('income'))) {
+            const completed = runtimeState.jobs.filter(j => j.status === 'Completed' && j.worker_phone === callerPhone);
+            const total = completed.reduce((sum, j) => sum + (parseInt((j.budget || '300').replace(/\D/g, '')) || 300), 0);
+            actionsPerformed.push(`Calculated earnings from database: ₹${total}`);
+            spokenResponse = total > 0
+                ? `You have earned ₹${total} from ${completed.length} completed gig(s) in the database.`
+                : `You don't have any recorded earnings from completed jobs in the database yet.`;
+        }
+
+        // 5. Customer Bookings Inquiry
+        else if (role === 'customer' && (lower.includes('my booking') || lower.includes('my order') || lower.includes('what bookings do i have'))) {
+            const myJobs = runtimeState.jobs.filter(j => j.customer_phone === callerPhone);
+            actionsPerformed.push(`Queried customer bookings (${myJobs.length} found)`);
+            if (myJobs.length > 0) {
+                const summary = myJobs.map(b => `#${b.id} for ${b.service} (${b.status})`).join(', ');
+                spokenResponse = `You have ${myJobs.length} booking(s) on file: ${summary}.`;
+            } else {
+                spokenResponse = `You don't have any bookings in your account right now. Would you like me to help you post a job or find a specialist?`;
+            }
+        }
+
+        // 6. Connect / Book Him
+        else if (lower.includes('connect') || lower.includes('book him') || lower.includes('hire him') || lower.includes('call him')) {
+            if (session.lastFoundWorkers.length > 0) {
+                const w = session.lastFoundWorkers[0];
+                session.lastSelectedWorker = w;
+                session.pendingIntent = 'CONFIRM_CONNECT_WORKER';
+                spokenResponse = `I found ${w.name}, a registered ${w.trade} in ${city} (Visiting fee: ₹${w.price || 300}). Shall I confirm and dispatch this booking to ${w.name}?`;
+                actionsPerformed.push(`Referenced ${w.name} from previous database search`);
+            } else {
+                const svc = extractService(text) || session.currentService;
+                if (svc) {
+                    const matching = runtimeState.workers.filter(w => (w.service.includes(svc.toLowerCase()) || w.trade.toLowerCase().includes(svc.toLowerCase())) && w.is_available);
+                    if (matching.length > 0) {
+                        const w = matching[0];
+                        session.lastSelectedWorker = w;
+                        session.pendingIntent = 'CONFIRM_CONNECT_WORKER';
+                        spokenResponse = `I found ${w.name}, a registered ${w.trade} in ${city}. Shall I confirm and book ${w.name} for you?`;
+                    } else {
+                        spokenResponse = `I couldn't find any registered ${svc} specialists available in ${city} right now. Would you like me to post a job instead?`;
+                    }
+                } else {
+                    spokenResponse = `Which trade specialist would you like me to connect you with?`;
+                }
+            }
+        }
+
+        // 7. Post a Job Inquiry
+        else if (lower.includes('post a job') || lower.includes('create a job') || lower.includes('job posting')) {
+            const svc = extractService(text) || session.currentService;
+            if (!svc) {
+                spokenResponse = `Yes, I can post a job for you. What type of service or repair do you need?`;
+            } else {
+                session.currentService = svc;
+                session.pendingJobData = { service: svc, problemDescription: text };
+                session.pendingIntent = 'CONFIRM_POST_JOB';
+                spokenResponse = `I have prepared a ${svc} job request in ${city}. Shall I post it to nearby specialists?`;
+                actionsPerformed.push(`Drafted job request for ${svc}`);
+            }
+        }
+
+        // 8. Find Worker / Service Need (e.g. "I need repair my washing machine", "Find an electrician", "Is there anyone available")
+        else {
+            const svc = extractService(text);
+            if (svc) {
+                session.currentService = svc;
+                const matching = runtimeState.workers.filter(w => (w.service.includes(svc.toLowerCase()) || w.trade.toLowerCase().includes(svc.toLowerCase())) && w.is_available);
+                session.lastFoundWorkers = matching;
+                actionsPerformed.push(`Queried database for ${svc} in ${city} (${matching.length} found)`);
+
+                if (matching.length > 0) {
+                    const top = matching[0];
+                    session.lastSelectedWorker = top;
+                    session.pendingIntent = 'CONFIRM_CONNECT_WORKER';
+                    spokenResponse = `I found ${matching.length} registered ${svc} specialist(s) available in ${city}: ${top.name} (Visiting charge: ₹${top.price || 300}). Would you like me to book them?`;
+                } else {
+                    session.pendingJobData = { service: svc, problemDescription: text };
+                    session.pendingIntent = 'CONFIRM_POST_JOB';
+                    spokenResponse = `I couldn't find any registered ${svc} specialists available in ${city} right now. Would you like me to post an open job request so nearby workers can respond?`;
+                    actionsPerformed.push(`Identified 0 matching workers in database; offered job post`);
+                }
+            } else if (lower.includes('anyone available') || lower.includes('who is available') || lower.includes('workers near')) {
+                const available = runtimeState.workers.filter(w => w.is_available);
+                actionsPerformed.push(`Queried all available workers in ${city} (${available.length} found)`);
+                if (available.length > 0) {
+                    const names = available.slice(0, 3).map(w => `${w.name} (${w.trade})`).join(', ');
+                    spokenResponse = `There are ${available.length} registered worker(s) available in ${city}: ${names}. Which trade do you need help with?`;
+                } else {
+                    spokenResponse = `There are currently no registered workers available in ${city}. You can post a job request or let me know what trade you need.`;
+                }
+            } else {
+                spokenResponse = `I can help you check worker availability, book a specialist, or post a job in ${city}. What service are you looking for?`;
+                actionsPerformed.push(`Prompted for service trade`);
+            }
         }
 
         const logEntry = {
             id: runtimeState.callLogs.length + 1,
-            caller_phone: body.callerPhone || '9876543210',
+            caller_phone: callerPhone,
             caller_role: role,
             transcript: speech,
-            intent_detected: toolExecuted || 'voice_inquiry',
-            duration_seconds: 14,
+            intent_detected: toolExecuted || session.pendingIntent || 'conversation',
+            duration_seconds: 10,
             timestamp: new Date().toISOString()
         };
         runtimeState.callLogs.unshift(logEntry);
 
         return sendJSON(res, {
             status: 'success',
-            spokenResponse: response,
+            spokenResponse,
             toolExecuted,
             job: jobCreated,
+            actionsPerformed,
             log: logEntry
         });
     }

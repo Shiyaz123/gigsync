@@ -363,9 +363,9 @@ const server = http.createServer(async (req, res) => {
         }
 
         const session = getAuthSession(req);
-        let workerId = body.worker_id || null;
-        let workerName = body.worker_name || null;
-        let workerPhone = body.worker_phone || null;
+        let workerId = body.worker_id || body.workerId || null;
+        let workerName = body.worker_name || body.workerName || null;
+        let workerPhone = body.worker_phone || body.workerPhone || null;
 
         if (session && session.role === 'worker' && !workerId) {
             const worker = DB.getWorkerByUserId(session.user_id);
@@ -447,6 +447,7 @@ const server = http.createServer(async (req, res) => {
 
         try {
             const aiTurn = await aiAgent.processCallTurn({
+                sessionId: body.sessionId || (session ? session.phone : callerPhone),
                 callerPhone,
                 callerRole,
                 callerName,

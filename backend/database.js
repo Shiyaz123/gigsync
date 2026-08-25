@@ -362,8 +362,12 @@ const DB = {
     },
 
     updateWorkerAvailabilityStatus(workerIdOrPhone, isAvailable) {
-        let worker;
-        if (typeof workerIdOrPhone === 'number' || !isNaN(Number(workerIdOrPhone))) {
+        let worker = null;
+        if (typeof workerIdOrPhone === 'string' && workerIdOrPhone.length >= 10) {
+            worker = this.getWorkerByPhone(workerIdOrPhone);
+        } else if (typeof workerIdOrPhone === 'number') {
+            worker = this.getWorkerById(workerIdOrPhone);
+        } else if (!isNaN(Number(workerIdOrPhone)) && String(workerIdOrPhone).length < 10) {
             worker = this.getWorkerById(Number(workerIdOrPhone));
         } else {
             worker = this.getWorkerByPhone(workerIdOrPhone);
@@ -382,7 +386,7 @@ const DB = {
         if (workerId) worker = this.getWorkerById(workerId);
         else if (workerPhone) worker = this.getWorkerByPhone(workerPhone);
 
-        const phone = worker ? worker.phone : workerPhone;
+        const phone = worker ? worker.phone : (workerPhone || '').replace(/\D/g, '');
         const wTrade = worker ? worker.trade : trade || 'Skilled Specialist';
         const wId = worker ? worker.id : null;
 
@@ -404,31 +408,36 @@ const DB = {
     },
 
     getWorkerSchedule(workerIdOrPhone) {
-        let worker;
-        if (typeof workerIdOrPhone === 'number' || !isNaN(Number(workerIdOrPhone))) {
+        let worker = null;
+        if (typeof workerIdOrPhone === 'string' && workerIdOrPhone.length >= 10) {
+            worker = this.getWorkerByPhone(workerIdOrPhone);
+        } else if (typeof workerIdOrPhone === 'number') {
+            worker = this.getWorkerById(workerIdOrPhone);
+        } else if (!isNaN(Number(workerIdOrPhone)) && String(workerIdOrPhone).length < 10) {
             worker = this.getWorkerById(Number(workerIdOrPhone));
         } else {
             worker = this.getWorkerByPhone(workerIdOrPhone);
         }
 
-        if (!worker) return null;
+        const phone = worker ? worker.phone : String(workerIdOrPhone).replace(/\D/g, '');
+        const wId = worker ? worker.id : null;
 
         const availabilitySlots = db.prepare(`
             SELECT * FROM worker_availability
-            WHERE worker_phone = ? OR worker_id = ?
+            WHERE worker_phone = ? OR (worker_id IS NOT NULL AND worker_id = ?)
             ORDER BY updated_at DESC LIMIT 10
-        `).all(worker.phone, worker.id);
+        `).all(phone, wId || -1);
 
         const activeBookings = db.prepare(`
             SELECT id, service, problem_description, location, requested_date, requested_time, status, customer_name, budget
             FROM jobs
-            WHERE worker_id = ? AND status IN ('Accepted', 'On the Way', 'In Progress', 'Requested')
+            WHERE (worker_id = ? OR worker_phone = ?) AND status IN ('Accepted', 'On the Way', 'In Progress', 'Requested')
             ORDER BY created_at ASC
-        `).all(worker.id);
+        `).all(wId || -1, phone);
 
         return {
             worker,
-            isAvailableNow: Boolean(worker.is_available),
+            isAvailableNow: worker ? Boolean(worker.is_available) : true,
             availabilitySlots,
             activeBookings
         };
@@ -580,37 +589,51 @@ const DB = {
     },
 
     // ---------------- EARNINGS & DIGITAL WORK RECORD ----------------
-    getWorkerEarnings(workerId) {
+    getWorkerEarnings(workerIdOrPhone) {
+        let worker = null;
+        if (typeof workerIdOrPhone === 'string' && workerIdOrPhone.length >= 10) {
+            worker = this.getWorkerByPhone(workerIdOrPhone);
+        } else if (typeof workerIdOrPhone === 'number') {
+            worker = this.getWorkerById(workerIdOrPhone);
+        } else if (!isNaN(Number(workerIdOrPhone)) && String(workerIdOrPhone).length < 10) {
+            worker = this.getWorkerById(Number(workerIdOrPhone));
+        } else {
+            worker = this.getWorkerByPhone(workerIdOrPhone);
+        }
+
+        const wId = worker ? worker.id : (typeof workerIdOrPhone === 'number' ? workerIdOrPhone : -1);
+        const phone = worker ? worker.phone : String(workerIdOrPhone).replace(/\D/g, '');
+
         const totalRow = db.prepare(`
-            SELECT COALESCE(SUM(final_price), 0) as total, COUNT(*) as count
+            SELECT COALESCE(SUM(COALESCE(final_price, CAST(REPLACE(REPLACE(budget, '₹', ''), ' ', '') AS INTEGER), 300)), 0) as total, COUNT(*) as count
             FROM jobs
-            WHERE worker_id = ? AND status = 'Completed'
-        `).get(workerId);
+            WHERE (worker_id = ? OR worker_phone = ?) AND status = 'Completed'
+        `).get(wId, phone);
 
         const todayRow = db.prepare(`
-            SELECT COALESCE(SUM(final_price), 0) as today
+            SELECT COALESCE(SUM(COALESCE(final_price, CAST(REPLACE(REPLACE(budget, '₹', ''), ' ', '') AS INTEGER), 300)), 0) as today
             FROM jobs
-            WHERE worker_id = ? AND status = 'Completed' AND date(completed_at) = date('now')
-        `).get(workerId);
+            WHERE (worker_id = ? OR worker_phone = ?) AND status = 'Completed' AND date(completed_at) = date('now')
+        `).get(wId, phone);
 
         const monthRow = db.prepare(`
-            SELECT COALESCE(SUM(final_price), 0) as month
+            SELECT COALESCE(SUM(COALESCE(final_price, CAST(REPLACE(REPLACE(budget, '₹', ''), ' ', '') AS INTEGER), 300)), 0) as month
             FROM jobs
-            WHERE worker_id = ? AND status = 'Completed' AND strftime('%Y-%m', completed_at) = strftime('%Y-%m', 'now')
-        `).get(workerId);
+            WHERE (worker_id = ? OR worker_phone = ?) AND status = 'Completed' AND strftime('%Y-%m', completed_at) = strftime('%Y-%m', 'now')
+        `).get(wId, phone);
 
         const pendingRow = db.prepare(`
-            SELECT COALESCE(SUM(final_price), 0) as pending
+            SELECT COALESCE(SUM(COALESCE(final_price, CAST(REPLACE(REPLACE(budget, '₹', ''), ' ', '') AS INTEGER), 300)), 0) as pending
             FROM jobs
-            WHERE worker_id = ? AND status IN ('Accepted', 'On the Way', 'In Progress')
-        `).get(workerId);
+            WHERE (worker_id = ? OR worker_phone = ?) AND status IN ('Accepted', 'On the Way', 'In Progress')
+        `).get(wId, phone);
 
         const completedJobs = db.prepare(`
             SELECT id, service, customer_name, location, requested_date, final_price, completed_at, payment_status, payment_method, rating
             FROM jobs
-            WHERE worker_id = ? AND status = 'Completed'
+            WHERE (worker_id = ? OR worker_phone = ?) AND status = 'Completed'
             ORDER BY completed_at DESC
-        `).all(workerId);
+        `).all(wId, phone);
 
         return {
             today: todayRow?.today || 0,

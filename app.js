@@ -1104,6 +1104,10 @@ document.addEventListener('DOMContentLoaded', () => {
     async function sendAiTurn(speechText) {
         if (!speechText) return;
 
+        if (!state.sessionId) {
+            state.sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+        }
+
         // Append to dialog
         appendAiDialogue('CALLER', speechText);
         if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🧠 Processing requirement...';
@@ -1112,6 +1116,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const res = await apiFetch('/api/ai/voice-call', {
             method: 'POST',
             body: JSON.stringify({
+                sessionId: state.sessionId,
                 callerPhone: state.user ? state.user.phone : '9876543210',
                 callerRole: state.portal === 'worker' ? 'worker' : 'customer',
                 callerName: state.user ? state.user.name : 'User',
@@ -1127,18 +1132,28 @@ document.addEventListener('DOMContentLoaded', () => {
             appendAiDialogue('GIGSYNC AI', res.data.spokenResponse);
             speakText(res.data.spokenResponse);
 
-            // Also mirror to Terminal if active
+            // Also mirror to Terminal
             appendTerminalTranscript('CALLER', speechText);
             appendTerminalTranscript('GIGSYNC AI', res.data.spokenResponse);
-            if (res.data.toolExecuted) {
+
+            if (res.data.actionsPerformed && Array.isArray(res.data.actionsPerformed)) {
+                res.data.actionsPerformed.forEach(action => {
+                    appendTerminalAction(`✓ ${action}`);
+                    appendTerminalActivity(action);
+                });
+            } else if (res.data.toolExecuted) {
                 appendTerminalAction(`✓ Action executed: ${res.data.toolExecuted}`);
                 appendTerminalActivity(`AI dispatch: ${res.data.toolExecuted}`);
             }
 
-            if (res.data.job) {
-                toast(`✅ Booking #${res.data.job.id} dispatched!`);
+            if (res.data.job || (res.data.toolResult && res.data.toolResult.job)) {
+                const j = res.data.job || res.data.toolResult.job;
+                toast(`✅ Booking #${j.id} dispatched!`);
                 loadCustomerHomeData();
             }
+        } else {
+            if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = 'Click microphone to speak';
+            toast('AI processing service unavailable.');
         }
     }
 
