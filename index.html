@@ -588,12 +588,41 @@
                     </div>
                 </div>
 
-                <!-- Quick Terminal Test Prompts -->
-                <div class="quick-chips-row" style="margin-bottom:16px; justify-content:center;">
-                    <button type="button" class="q-chip t-q-chip" data-tprompt="Nanage electrician beku Ramanagara"><i class="fa-solid fa-bolt"></i> "Nanage electrician beku"</button>
-                    <button type="button" class="q-chip t-q-chip" data-tprompt="I need washing machine repair"><i class="fa-solid fa-wrench"></i> "Washing machine repair"</button>
-                    <button type="button" class="q-chip t-q-chip" data-tprompt="Is anyone available today?"><i class="fa-solid fa-user-check"></i> "Who is available?"</button>
-                    <button type="button" class="q-chip t-q-chip" data-tprompt="What services do you provide?"><i class="fa-solid fa-list"></i> "Services info"</button>
+                <!-- Real-Time Audio Diagnostics Panel -->
+                <div class="terminal-diagnostics-card" style="margin-bottom:16px;">
+                    <div class="diag-header">
+                        <h4><i class="fa-solid fa-stethoscope"></i> AUDIO PIPELINE DIAGNOSTICS</h4>
+                        <button type="button" class="btn btn-primary btn-sm" id="testAiVoiceBtn">
+                            <i class="fa-solid fa-volume-high"></i> 🔊 Test AI Voice
+                        </button>
+                    </div>
+                    <div class="diag-grid">
+                        <div class="diag-item" id="diagInputAudio">
+                            <span class="diag-label">INPUT AUDIO (3.5mm)</span>
+                            <strong class="diag-val idle">⚪ Idle</strong>
+                        </div>
+                        <div class="diag-item" id="diagStt">
+                            <span class="diag-label">SPEECH-TO-TEXT</span>
+                            <strong class="diag-val idle">⚪ Ready</strong>
+                        </div>
+                        <div class="diag-item" id="diagAiResponse">
+                            <span class="diag-label">AI RESPONSE</span>
+                            <strong class="diag-val idle">⚪ Ready</strong>
+                        </div>
+                        <div class="diag-item" id="diagTts">
+                            <span class="diag-label">TEXT-TO-SPEECH</span>
+                            <strong class="diag-val idle">⚪ Ready</strong>
+                        </div>
+                        <div class="diag-item" id="diagAudioPlayback">
+                            <span class="diag-label">AUDIO PLAYBACK</span>
+                            <strong class="diag-val idle">⚪ Ready</strong>
+                        </div>
+                        <div class="diag-item" id="diagOutputDevice">
+                            <span class="diag-label">OUTPUT DEVICE</span>
+                            <strong class="diag-val ok">🟢 Default / USB</strong>
+                        </div>
+                    </div>
+                    <div class="diag-error-box hidden" id="diagErrorBox"></div>
                 </div>
 
                 <!-- Live Transcript & Verified AI Actions Grid -->

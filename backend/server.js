@@ -469,6 +469,40 @@ const server = http.createServer(async (req, res) => {
         }
     }
 
+    // GET & POST /api/ai/tts (Real-Time Text-to-Speech Audio Stream)
+    if (pathname === '/api/ai/tts' && (req.method === 'GET' || req.method === 'POST')) {
+        let text = '';
+        let lang = 'en-IN';
+        if (req.method === 'GET') {
+            text = (parsedUrl.query && parsedUrl.query.text) ? parsedUrl.query.text : '';
+            lang = (parsedUrl.query && parsedUrl.query.lang) ? parsedUrl.query.lang : 'en-IN';
+        } else {
+            const body = await parseBody(req);
+            text = body.text || '';
+            lang = body.lang || 'en-IN';
+        }
+
+        if (!text) {
+            return sendJSON(res, { status: 'error', message: 'Text is required for TTS' }, 400);
+        }
+
+        const isKannada = /[\u0C80-\u0CFF]/.test(text);
+        const targetLang = isKannada ? 'kn' : (lang || 'en-IN');
+        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text.slice(0, 200))}&tl=${targetLang}&client=tw-ob`;
+
+        const https = require('node:https');
+        https.get(ttsUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } }, (ttsRes) => {
+            res.setHeader('Content-Type', 'audio/mpeg');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            ttsRes.pipe(res);
+        }).on('error', (err) => {
+            console.error('TTS Proxy Error:', err);
+            sendJSON(res, { status: 'error', message: 'TTS audio generation failed', error: err.message }, 500);
+        });
+        return;
+    }
+
     // GET /api/call-logs
     if (pathname === '/api/call-logs' && req.method === 'GET') {
         const logs = DB.getAllCallLogs();

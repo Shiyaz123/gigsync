@@ -486,6 +486,46 @@ module.exports = async (req, res) => {
         });
     }
 
+    // 9. GET & POST /api/ai/tts (Real-Time Text-to-Speech Audio Stream)
+    if (pathname.endsWith('/ai/tts') && (req.method === 'GET' || req.method === 'POST')) {
+        let text = '';
+        let lang = 'en-IN';
+        if (req.method === 'GET') {
+            text = url.searchParams.get('text') || '';
+            lang = url.searchParams.get('lang') || 'en-IN';
+        } else {
+            const body = await parseBody(req);
+            text = body.text || '';
+            lang = body.lang || 'en-IN';
+        }
+
+        if (!text) {
+            return sendJSON(res, { status: 'error', message: 'Text is required for TTS' }, 400);
+        }
+
+        const isKannada = /[\u0C80-\u0CFF]/.test(text);
+        const targetLang = isKannada ? 'kn' : (lang || 'en-IN');
+        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text.slice(0, 200))}&tl=${targetLang}&client=tw-ob`;
+
+        try {
+            const https = require('node:https');
+            return new Promise((resolve) => {
+                https.get(ttsUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } }, (ttsRes) => {
+                    res.setHeader('Content-Type', 'audio/mpeg');
+                    res.setHeader('Access-Control-Allow-Origin', '*');
+                    res.setHeader('Cache-Control', 'public, max-age=86400');
+                    ttsRes.pipe(res);
+                    ttsRes.on('end', () => resolve());
+                }).on('error', (err) => {
+                    sendJSON(res, { status: 'error', message: 'TTS generation failed', error: err.message }, 500);
+                    resolve();
+                });
+            });
+        } catch(err) {
+            return sendJSON(res, { status: 'error', message: 'TTS error', error: err.message }, 500);
+        }
+    }
+
     // Default Fallback
     return sendJSON(res, { status: 'ok', message: 'GigSync Vercel API Gateway Active' });
 };

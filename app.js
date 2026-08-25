@@ -52,9 +52,126 @@ document.addEventListener('DOMContentLoaded', () => {
         toast._timer = setTimeout(() => el.classList.add('hidden'), 3000);
     }
 
-    /* ---------- Speech Engine ---------- */
-    function speakText(text) {
-        if (!('speechSynthesis' in window)) return;
+    /* ---------- Audio Pipeline Diagnostics & Telemetry ---------- */
+    function updateDiagnostic(id, text, type = 'idle') {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const val = el.querySelector('.diag-val');
+        if (val) {
+            val.className = `diag-val ${type}`;
+            val.textContent = text;
+        }
+    }
+
+    function showDiagError(errText) {
+        const box = document.getElementById('diagErrorBox');
+        if (!box) return;
+        if (errText) {
+            box.textContent = `🔴 Playback Issue: ${errText}`;
+            box.classList.remove('hidden');
+        } else {
+            box.classList.add('hidden');
+            box.textContent = '';
+        }
+    }
+
+    /* ---------- Guaranteed Real TTS Audio Engine ---------- */
+    const gigsyncTtsAudio = new Audio();
+    gigsyncTtsAudio.crossOrigin = 'anonymous';
+
+    // Global unlock flag for autoplay permissions
+    let audioAutoplayUnlocked = false;
+
+    function unlockAudioAutoplay() {
+        if (audioAutoplayUnlocked) return;
+        audioAutoplayUnlocked = true;
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) {
+                const ctx = new AudioCtx();
+                if (ctx.state === 'suspended') ctx.resume();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                gain.gain.value = 0.001; // Inaudible unlock pulse
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.05);
+            }
+        } catch(e){}
+    }
+
+    async function playTtsAudio(text) {
+        if (!text) return;
+        unlockAudioAutoplay();
+        showDiagError(null);
+        updateDiagnostic('diagTts', '🟡 Generating...', 'working');
+        updateDiagnostic('diagAudioPlayback', '🟡 Preparing...', 'working');
+
+        const liveStatus = document.getElementById('terminalLiveAudioStatus');
+        if (liveStatus && state.voiceAgentActive) liveStatus.textContent = '🔊 Generating AI Voice...';
+
+        const isKannada = /[\u0C80-\u0CFF]/.test(text);
+        const lang = isKannada ? 'kn' : 'en-IN';
+        const ttsUrl = `/api/ai/tts?text=${encodeURIComponent(text)}&lang=${lang}`;
+
+        try {
+            gigsyncTtsAudio.pause();
+            gigsyncTtsAudio.src = ttsUrl;
+            gigsyncTtsAudio.load();
+
+            // Explicit Audio Output Routing (setSinkId)
+            const outputSelect = document.getElementById('terminalAudioOutputSelect');
+            const selectedSink = outputSelect ? outputSelect.value : 'default';
+            if (selectedSink && selectedSink !== 'default' && typeof gigsyncTtsAudio.setSinkId === 'function') {
+                try {
+                    await gigsyncTtsAudio.setSinkId(selectedSink);
+                    const optLabel = outputSelect.options[outputSelect.selectedIndex]?.text || '3.5mm Device';
+                    updateDiagnostic('diagOutputDevice', `🟢 ${optLabel.slice(0, 14)}`, 'ok');
+                } catch(sinkErr) {
+                    console.warn('setSinkId failed, using default output:', sinkErr);
+                }
+            }
+
+            gigsyncTtsAudio.onplay = () => {
+                updateDiagnostic('diagTts', '🟢 Generated (MP3)', 'ok');
+                updateDiagnostic('diagAudioPlayback', '🟢 Playing (MP3 Stream)', 'ok');
+                if (liveStatus && state.voiceAgentActive) liveStatus.textContent = '🔊 AI Speaking (Output Active)';
+            };
+
+            gigsyncTtsAudio.onended = () => {
+                updateDiagnostic('diagAudioPlayback', '✓ Finished', 'ok');
+                if (liveStatus && state.voiceAgentActive) liveStatus.textContent = 'Listening (Audio Live)';
+            };
+
+            gigsyncTtsAudio.onerror = (e) => {
+                console.warn('MP3 stream error, switching to SpeechSynthesis fallback:', e);
+                fallbackSpeechSynthesis(text);
+            };
+
+            const playPromise = gigsyncTtsAudio.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(playErr => {
+                    console.warn('Audio play() blocked by browser autoplay or error:', playErr);
+                    if (playErr.name === 'NotAllowedError') {
+                        showDiagError('Autoplay blocked. Click "Start Voice Agent" or "Test AI Voice" to enable audio.');
+                    }
+                    fallbackSpeechSynthesis(text, playErr.message);
+                });
+            }
+        } catch(err) {
+            console.warn('TTS streaming exception:', err);
+            fallbackSpeechSynthesis(text, err.message);
+        }
+    }
+
+    function fallbackSpeechSynthesis(text, origErr) {
+        if (!('speechSynthesis' in window)) {
+            updateDiagnostic('diagAudioPlayback', '🔴 Failed (No TTS)', 'err');
+            showDiagError(origErr || 'Browser does not support Speech Synthesis');
+            return;
+        }
+
         try {
             if (window.speechSynthesis.paused) {
                 window.speechSynthesis.resume();
@@ -68,26 +185,43 @@ document.addEventListener('DOMContentLoaded', () => {
             const isKannada = /[\u0C80-\u0CFF]/.test(text);
             utterance.lang = isKannada ? 'kn-IN' : 'en-IN';
 
-            // Retain reference on window so Chrome/Brave does not garbage-collect active speech
+            // Voice matching
+            const voices = window.speechSynthesis.getVoices();
+            if (voices && voices.length > 0) {
+                const match = voices.find(v => isKannada ? (v.lang.startsWith('kn') || v.name.includes('Kannada')) : (v.lang.startsWith('en-IN') || v.lang.startsWith('en-US') || v.lang.startsWith('en')));
+                if (match) utterance.voice = match;
+            }
+
             window._currentSpeechUtterance = utterance;
 
             utterance.onstart = () => {
+                updateDiagnostic('diagTts', '🟢 Generated (SpeechSynth)', 'ok');
+                updateDiagnostic('diagAudioPlayback', '🟢 Playing (SpeechSynth)', 'ok');
                 const liveStatus = document.getElementById('terminalLiveAudioStatus');
                 if (liveStatus && state.voiceAgentActive) liveStatus.textContent = '🔊 AI Speaking (Output Active)';
             };
+
             utterance.onend = () => {
                 window._currentSpeechUtterance = null;
+                updateDiagnostic('diagAudioPlayback', '✓ Finished', 'ok');
                 const liveStatus = document.getElementById('terminalLiveAudioStatus');
                 if (liveStatus && state.voiceAgentActive) liveStatus.textContent = 'Listening (Audio Live)';
             };
+
             utterance.onerror = (e) => {
-                console.warn('Speech synthesis error:', e);
+                updateDiagnostic('diagAudioPlayback', '🔴 Failed', 'err');
+                showDiagError(e.error || origErr || 'Speech synthesis error');
             };
 
             window.speechSynthesis.speak(utterance);
         } catch (e) {
-            console.warn('Speech synthesis:', e);
+            updateDiagnostic('diagAudioPlayback', '🔴 Failed', 'err');
+            showDiagError(e.message);
         }
+    }
+
+    function speakText(text) {
+        return playTtsAudio(text);
     }
 
     /* ---------- API Fetch Helper ---------- */
@@ -1150,34 +1284,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (phoneEl) phoneEl.textContent = 'Connection status unavailable';
     }
 
+    // Test AI Voice Diagnostic Button Handler
+    document.getElementById('testAiVoiceBtn')?.addEventListener('click', async () => {
+        toast('🔊 Generating and playing test AI voice...');
+        appendTerminalActivity('Diagnostic: AI voice test triggered');
+        updateDiagnostic('diagAiResponse', '🟢 Test Triggered', 'ok');
+        appendTerminalTranscript('SYSTEM TEST', 'Generating audio: "Hello. This is the GigSync voice agent. Audio output is working."');
+        await playTtsAudio('Hello. This is the GigSync voice agent. Audio output is working.');
+    });
+
     // Test Audio Output Button Handler
-    document.getElementById('testAudioOutputBtn')?.addEventListener('click', () => {
+    document.getElementById('testAudioOutputBtn')?.addEventListener('click', async () => {
         toast('🔊 Playing 3.5mm audio output test...');
         appendTerminalActivity('Output audio test triggered');
-        
-        // Play dual tone chime via Web Audio
-        try {
-            const AudioCtx = window.AudioContext || window.webkitAudioContext;
-            if (AudioCtx) {
-                const ctx = new AudioCtx();
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-                osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.15); // A5
-                gain.gain.setValueAtTime(0.3, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.start();
-                osc.stop(ctx.currentTime + 0.5);
-            }
-        } catch(e){}
-
-        // Also Speak Test
-        setTimeout(() => {
-            speakText('GigSync audio output test. 3.5mm signal output is working.');
-        }, 400);
+        updateDiagnostic('diagAiResponse', '🟢 Test Triggered', 'ok');
+        await playTtsAudio('Hello. This is the GigSync voice agent. Audio output is working.');
     });
 
     /* ======================================================================
@@ -1327,8 +1448,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Append to dialog
         appendAiDialogue('CALLER', speechText);
+        appendTerminalTranscript('CALLER', speechText);
         if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🧠 Processing requirement...';
         aiModalWaveBars?.classList.remove('hidden');
+
+        updateDiagnostic('diagInputAudio', '🟢 Received', 'ok');
+        updateDiagnostic('diagStt', '🟢 Working (Transcribed)', 'ok');
+        updateDiagnostic('diagAiResponse', '🟡 Generating...', 'working');
 
         const res = await apiFetch('/api/ai/voice-call', {
             method: 'POST',
@@ -1346,12 +1472,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (res.ok && res.data.spokenResponse) {
             if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🔊 Responding...';
+            updateDiagnostic('diagAiResponse', '🟢 Generated', 'ok');
             appendAiDialogue('GIGSYNC AI', res.data.spokenResponse);
-            speakText(res.data.spokenResponse);
-
-            // Also mirror to Terminal
-            appendTerminalTranscript('CALLER', speechText);
             appendTerminalTranscript('GIGSYNC AI', res.data.spokenResponse);
+
+            // Play real TTS audio output through selected device
+            await playTtsAudio(res.data.spokenResponse);
 
             if (res.data.actionsPerformed && Array.isArray(res.data.actionsPerformed)) {
                 res.data.actionsPerformed.forEach(action => {
@@ -1370,6 +1496,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } else {
             if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = 'Click microphone to speak';
+            updateDiagnostic('diagAiResponse', '🔴 Failed', 'err');
             toast('AI processing service unavailable.');
         }
     }
