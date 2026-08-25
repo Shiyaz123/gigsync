@@ -1228,12 +1228,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let terminalSpeechRec = null;
     let terminalAudioAnimId = null;
 
-    // Conversational VAD & Turn State Variables
+    // Conversational VAD & Turn State Variables (Exact 2-Second Natural Gap)
     let isAiSpeaking = false;
     let turnSilenceTimer = null;
     let currentTurnTranscript = '';
     let currentInterimTranscript = '';
-    const TURN_SILENCE_TIMEOUT_MS = 4500; // ~4.5 - 5 seconds natural silence timeout
+    const TURN_SILENCE_TIMEOUT_MS = 2000; // Exact 2.0 seconds silence window
 
     function setVoiceAgentState(stateKey, labelText) {
         const badge = document.getElementById('vaLiveStateBadge');
@@ -1272,8 +1272,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Prevent duplicate firing within 3 seconds
-        if (cleaned === state.lastProcessedTurn && (Date.now() - state.lastProcessedTurnTime < 3500)) {
+        // Prevent duplicate firing within 2 seconds
+        if (cleaned === state.lastProcessedTurn && (Date.now() - state.lastProcessedTurnTime < 2000)) {
             return;
         }
         state.lastProcessedTurn = cleaned;
@@ -1327,7 +1327,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 animateVU();
             }
 
-            // Start continuous Speech Recognition with Proper Turn Segmentation
+            // Start continuous Speech Recognition with 2-Second Turn Segmentation
             const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (SpeechRec) {
                 terminalSpeechRec = new SpeechRec();
@@ -1365,7 +1365,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (input) input.value = livePreview;
                         setVoiceAgentState('listening', '🟢 LISTENING');
 
-                        // Reset silence timer on every new sound packet
+                        // Reset silence timer on every new word / sound packet: triggers after 2 seconds of silence
                         clearTimeout(turnSilenceTimer);
                         turnSilenceTimer = setTimeout(() => {
                             finalizeCallerTurn();
@@ -1374,12 +1374,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 };
 
                 terminalSpeechRec.onspeechend = () => {
-                    // Start silence timer when speech pauses
+                    // Start 2-second silence countdown as soon as caller stops speaking
                     if (currentTurnTranscript || currentInterimTranscript) {
                         clearTimeout(turnSilenceTimer);
                         turnSilenceTimer = setTimeout(() => {
                             finalizeCallerTurn();
-                        }, 2500);
+                        }, TURN_SILENCE_TIMEOUT_MS);
                     }
                 };
 
@@ -1655,8 +1655,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let aiAudioStream = null;
     let speechRecNetworkBlocked = false;
 
+    let modalSilenceTimer = null;
+
     async function startAiModalListening() {
         accumulatedAiSpeech = '';
+        clearTimeout(modalSilenceTimer);
+        modalSilenceTimer = null;
+
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             try {
                 aiAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1669,7 +1674,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.isAiModalRecording = true;
         aiModalBigMicBtn?.classList.add('recording');
         aiModalWaveBars?.classList.remove('hidden');
-        if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🔴 Listening... Click mic again when finished';
+        if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🔴 Listening... (Will automatically reply 2s after you stop speaking)';
         if (aiLiveStreamTranscript) aiLiveStreamTranscript.classList.remove('hidden');
         if (aiLiveStreamText) aiLiveStreamText.textContent = 'Listening to your voice... Speak now';
 
@@ -1705,6 +1710,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (modalInput && liveTextCaptured) {
                         modalInput.value = liveTextCaptured;
                     }
+
+                    // 2-second silence auto-send timer
+                    if (liveTextCaptured) {
+                        clearTimeout(modalSilenceTimer);
+                        modalSilenceTimer = setTimeout(() => {
+                            if (state.isAiModalRecording) {
+                                stopAiModalListening(true);
+                            }
+                        }, 2000);
+                    }
+                };
+
+                aiSpeechRecognizer.onspeechend = () => {
+                    if (accumulatedAiSpeech) {
+                        clearTimeout(modalSilenceTimer);
+                        modalSilenceTimer = setTimeout(() => {
+                            if (state.isAiModalRecording) {
+                                stopAiModalListening(true);
+                            }
+                        }, 2000);
+                    }
                 };
 
                 aiSpeechRecognizer.onerror = (err) => {
@@ -1726,6 +1752,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function stopAiModalListening(send = true) {
+        clearTimeout(modalSilenceTimer);
+        modalSilenceTimer = null;
         state.isAiModalRecording = false;
         aiModalBigMicBtn?.classList.remove('recording');
         aiModalWaveBars?.classList.add('hidden');
