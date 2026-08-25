@@ -1293,6 +1293,43 @@ document.addEventListener('DOMContentLoaded', () => {
         await playTtsAudio('Hello. This is the GigSync voice agent. Audio output is working.');
     });
 
+    // Play 3.5mm Signal Tone Handler (Continuous / Chime Tone for Telephony Line Testing)
+    document.getElementById('testToneSignalBtn')?.addEventListener('click', () => {
+        toast('🎵 Transmitting 3.5mm electrical tone to phone line...');
+        appendTerminalActivity('Diagnostic: 3.5mm signal tone sent to phone');
+        updateDiagnostic('diagAudioPlayback', '🟢 Tone Transmitting', 'ok');
+
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) {
+                const ctx = new AudioCtx();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                
+                // Play a pulsing telecommunication beep pattern (800Hz / 1000Hz)
+                osc.frequency.setValueAtTime(800, ctx.currentTime);
+                osc.frequency.setValueAtTime(1000, ctx.currentTime + 0.3);
+                osc.frequency.setValueAtTime(800, ctx.currentTime + 0.6);
+                osc.frequency.setValueAtTime(1200, ctx.currentTime + 0.9);
+                
+                gain.gain.setValueAtTime(0.5, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.5);
+                
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 1.5);
+                
+                setTimeout(() => {
+                    updateDiagnostic('diagAudioPlayback', '✓ Tone Finished', 'ok');
+                }, 1600);
+            }
+        } catch(e) {
+            console.error('Tone generation error:', e);
+        }
+    });
+
     // Test Audio Output Button Handler
     document.getElementById('testAudioOutputBtn')?.addEventListener('click', async () => {
         toast('🔊 Playing 3.5mm audio output test...');
