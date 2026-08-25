@@ -742,21 +742,25 @@ class ContextAwareVoiceAgent {
             }
         }
 
-        // 22. Intent: Find Worker / Need Help with Service (e.g. "I need repair my washing machine", "Is there anyone available now?", "Find me an electrician")
+        // 22. Intent: Find Worker / Check Worker Availability / Service Need
         else {
-            const detectedTrade = extractTradeAndService(text) || session.context.currentService;
+            const explicitTrade = extractTradeAndService(text);
             const { date, time } = extractDateTimeEntities(text);
 
-            if (detectedTrade) {
-                session.context.currentService = detectedTrade;
+            const isWorkerAvailabilityQuery = /\b(anyone available|who is available|workers available|worker available|available today|available now|check availability|check worker|check workers|check worker available|check worker availability|is worker available|is any worker free|any worker free|who is free|is anyone free|do you have anyone available|do you have workers|can i get a worker|is there someone available|someone available near me|any worker|any specialist|specialist available|specialists available|workers near me|workers in [a-z]+|available|availability|free today|free now|on duty|ಲಭ್ಯವಿದ್ದಾರೆ|ಯಾರು ಲಭ್ಯವಿದ್ದಾರೆ)\b/i.test(lowerCleaned) ||
+                (/\b(available|availability|free|duty|specialist|specialists|worker|workers)\b/i.test(lowerCleaned) && /\b(today|now|near|city|check|get|have|any|anyone|someone|who|is|are)\b/i.test(lowerCleaned));
+
+            // Case A: Specific Trade Specified (e.g. "Any electrician available?", "I need a plumber", "Washing machine repair")
+            if (explicitTrade) {
+                session.context.currentService = explicitTrade;
                 if (date) session.context.currentDate = date;
                 if (time) session.context.currentTime = time;
 
-                // Query REAL SQLite database first
+                // Query REAL SQLite database
                 toolExecuted = 'findWorkers';
-                toolResult = AI_TOOLS.findWorkers({ service: detectedTrade, city: session.city });
+                toolResult = AI_TOOLS.findWorkers({ service: explicitTrade, city: session.city });
                 session.context.lastFoundWorkers = toolResult.workers;
-                actionsPerformed.push(`Queried SQLite database for ${detectedTrade} in ${session.city} (${toolResult.count} found)`);
+                actionsPerformed.push(`Queried SQLite database for ${explicitTrade} in ${session.city} (${toolResult.count} found)`);
 
                 if (toolResult.count > 0) {
                     const topWorker = toolResult.workers[0];
@@ -764,16 +768,16 @@ class ContextAwareVoiceAgent {
                     session.context.pendingIntent = 'CONFIRM_CONNECT_WORKER';
 
                     if (toolResult.count === 1) {
-                        spokenResponse = `I found 1 registered ${detectedTrade} specialist available in ${session.city}: ${topWorker.name} (Visiting charge: ${topWorker.startingPrice}). Would you like me to book them?`;
+                        spokenResponse = `Yes, I found 1 registered ${explicitTrade} specialist available in ${session.city}: ${topWorker.name} (Visiting charge: ${topWorker.startingPrice}). Would you like me to book them?`;
                     } else {
-                        spokenResponse = `I found ${toolResult.count} registered ${detectedTrade} specialists available in ${session.city}. The closest is ${topWorker.name} (${topWorker.startingPrice}). Shall I connect you with ${topWorker.name}?`;
+                        spokenResponse = `Yes, I found ${toolResult.count} registered ${explicitTrade} specialists available in ${session.city}. The closest is ${topWorker.name} (${topWorker.startingPrice}). Shall I connect you with ${topWorker.name}?`;
                     }
                 } else {
                     // ZERO WORKERS IN DATABASE -> HONEST ANSWER
                     session.context.pendingJobData = {
                         customerPhone: session.callerPhone,
                         customerName: session.callerName,
-                        service: detectedTrade,
+                        service: explicitTrade,
                         problemDescription: text,
                         location: `${session.city} Town`,
                         city: session.city,
@@ -782,25 +786,38 @@ class ContextAwareVoiceAgent {
                         budget: '₹300'
                     };
                     session.context.pendingIntent = 'CONFIRM_POST_JOB';
-                    spokenResponse = `I couldn't find any registered ${detectedTrade} specialists available in ${session.city} right now. Would you like me to post an open job request so nearby workers can respond?`;
+                    spokenResponse = `I couldn't find any registered ${explicitTrade} specialists available in ${session.city} today. Would you like me to post an open job request so nearby workers can respond?`;
                     actionsPerformed.push(`Identified 0 matching workers in database; offered job post`);
                 }
-            } else if (lowerCleaned.includes('anyone available') || lowerCleaned.includes('who is available') || lowerCleaned.includes('workers near') || lowerCleaned.includes('is anyone free') || lowerCleaned.includes('who is free') || lowerCleaned.includes('ಯಾರು ಲಭ್ಯವಿದ್ದಾರೆ')) {
-                // General availability query without trade specified
+            }
+            // Case B: General Worker Availability Query (e.g. "available today", "worker available", "I would like to check worker available")
+            else if (isWorkerAvailabilityQuery) {
+                session.context.currentService = null;
                 toolExecuted = 'findWorkers';
                 toolResult = AI_TOOLS.findWorkers({ service: 'all', city: session.city });
                 actionsPerformed.push(`Queried all available workers in ${session.city} (${toolResult.count} found)`);
 
                 if (toolResult.count > 0) {
-                    const workerNames = toolResult.workers.slice(0, 3).map(w => `${w.name} (${w.trade})`).join(', ');
-                    spokenResponse = `There are ${toolResult.count} registered worker(s) available in ${session.city}: ${workerNames}. Which trade do you need help with?`;
+                    const unique = [...new Map(toolResult.workers.map(w => [`${w.name}_${w.trade}`, w])).values()];
+                    const workerNames = unique.slice(0, 3).map(w => `${w.name} (${w.trade})`).join(', ');
+                    spokenResponse = `Yes, I found ${toolResult.count} worker(s) currently available in ${session.city}: ${workerNames}. Which service or specialist do you need?`;
                 } else {
-                    spokenResponse = `There are currently no registered workers available in ${session.city}. You can post a job request or let me know what trade you need.`;
+                    spokenResponse = `I couldn't find any registered workers available in ${session.city} today. What trade or service do you need help with, so I can post an open job request?`;
                 }
-            } else {
-                // Conversational Fallback without generic loops
-                spokenResponse = `I can help you check worker availability, book a specialist, or track a job in ${session.city}. What service or repair are you looking for?`;
-                actionsPerformed.push(`Prompted for service trade`);
+            }
+            // Case C: Conversational Adaptive Fallback (No identical static loops)
+            else {
+                if (!session.context.fallbackStep) session.context.fallbackStep = 0;
+                session.context.fallbackStep++;
+
+                if (session.context.fallbackStep === 1) {
+                    spokenResponse = `I can help you check worker availability, book a specialist, or post a job in ${session.city}. What service or repair are you looking for?`;
+                } else if (session.context.fallbackStep === 2) {
+                    spokenResponse = `We have verified specialists for Electrical, Plumbing, Carpentry, and Appliance Repair in ${session.city}. Which of these services do you need today?`;
+                } else {
+                    spokenResponse = `Please describe what problem you need fixed, like a fan repair, leaking tap, or washing machine issue, and I will connect you with a verified specialist.`;
+                }
+                actionsPerformed.push(`Conversational guidance (step ${session.context.fallbackStep})`);
             }
         }
 

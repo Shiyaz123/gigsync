@@ -593,9 +593,13 @@ module.exports = async (req, res) => {
             }
         }
 
-        // 8. Find Worker / Service Need (e.g. "I need repair my washing machine", "Find an electrician", "Is there anyone available")
+        // 8. Find Worker / Check Worker Availability / Service Need
         else {
             const svc = extractService(text);
+            const isWorkerAvailabilityQuery = /\b(anyone available|who is available|workers available|worker available|available today|available now|check availability|check worker|check workers|check worker available|check worker availability|is worker available|is any worker free|any worker free|who is free|is anyone free|do you have anyone available|do you have workers|can i get a worker|is there someone available|someone available near me|any worker|any specialist|specialist available|specialists available|workers near me|workers in [a-z]+|available|availability|free today|free now|on duty|ಲಭ್ಯವಿದ್ದಾರೆ|ಯಾರು ಲಭ್ಯವಿದ್ದಾರೆ)\b/i.test(lowerCleaned) ||
+                (/\b(available|availability|free|duty|specialist|specialists|worker|workers)\b/i.test(lowerCleaned) && /\b(today|now|near|city|check|get|have|any|anyone|someone|who|is|are)\b/i.test(lowerCleaned));
+
+            // Case A: Specific Trade Specified
             if (svc) {
                 session.currentService = svc;
                 const matching = runtimeState.workers.filter(w => (w.service.includes(svc.toLowerCase()) || w.trade.toLowerCase().includes(svc.toLowerCase())) && w.is_available);
@@ -606,25 +610,40 @@ module.exports = async (req, res) => {
                     const top = matching[0];
                     session.lastSelectedWorker = top;
                     session.pendingIntent = 'CONFIRM_CONNECT_WORKER';
-                    spokenResponse = `I found ${matching.length} registered ${svc} specialist(s) available in ${city}: ${top.name} (Visiting charge: ₹${top.price || 300}). Would you like me to book them?`;
+                    spokenResponse = `Yes, I found ${matching.length} registered ${svc} specialist(s) available in ${city}: ${top.name} (Visiting charge: ₹${top.price || 300}). Would you like me to book them?`;
                 } else {
                     session.pendingJobData = { service: svc, problemDescription: text };
                     session.pendingIntent = 'CONFIRM_POST_JOB';
-                    spokenResponse = `I couldn't find any registered ${svc} specialists available in ${city} right now. Would you like me to post an open job request so nearby workers can respond?`;
+                    spokenResponse = `I couldn't find any registered ${svc} specialists available in ${city} today. Would you like me to post an open job request so nearby workers can respond?`;
                     actionsPerformed.push(`Identified 0 matching workers in database; offered job post`);
                 }
-            } else if (lower.includes('anyone available') || lower.includes('who is available') || lower.includes('workers near')) {
+            }
+            // Case B: General Worker Availability Query
+            else if (isWorkerAvailabilityQuery) {
+                session.currentService = null;
                 const available = runtimeState.workers.filter(w => w.is_available);
                 actionsPerformed.push(`Queried all available workers in ${city} (${available.length} found)`);
                 if (available.length > 0) {
-                    const names = available.slice(0, 3).map(w => `${w.name} (${w.trade})`).join(', ');
-                    spokenResponse = `There are ${available.length} registered worker(s) available in ${city}: ${names}. Which trade do you need help with?`;
+                    const unique = [...new Map(available.map(w => [`${w.name}_${w.trade}`, w])).values()];
+                    const names = unique.slice(0, 3).map(w => `${w.name} (${w.trade})`).join(', ');
+                    spokenResponse = `Yes, I found ${available.length} worker(s) currently available in ${city}: ${names}. Which service or specialist do you need?`;
                 } else {
-                    spokenResponse = `There are currently no registered workers available in ${city}. You can post a job request or let me know what trade you need.`;
+                    spokenResponse = `I couldn't find any registered workers available in ${city} today. What trade or service do you need help with, so I can post an open job request?`;
                 }
-            } else {
-                spokenResponse = `I can help you check worker availability, book a specialist, or post a job in ${city}. What service are you looking for?`;
-                actionsPerformed.push(`Prompted for service trade`);
+            }
+            // Case C: Adaptive Fallback
+            else {
+                if (!session.fallbackStep) session.fallbackStep = 0;
+                session.fallbackStep++;
+
+                if (session.fallbackStep === 1) {
+                    spokenResponse = `I can help you check worker availability, book a specialist, or post a job in ${city}. What service or repair are you looking for?`;
+                } else if (session.fallbackStep === 2) {
+                    spokenResponse = `We have verified specialists for Electrical, Plumbing, Carpentry, and Appliance Repair in ${city}. Which of these services do you need today?`;
+                } else {
+                    spokenResponse = `Please describe what problem you need fixed, like a fan repair, leaking tap, or washing machine issue, and I will connect you with a verified specialist.`;
+                }
+                actionsPerformed.push(`Conversational guidance (step ${session.fallbackStep})`);
             }
         }
 
