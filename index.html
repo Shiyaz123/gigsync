@@ -554,12 +554,31 @@
 
                 <!-- Central Big Voice Agent Switch -->
                 <div class="voice-agent-master-switch-card">
-                    <span class="switch-title">VOICE AGENT</span>
+                    <span class="switch-title">VOICE AGENT MASTER CONTROL</span>
                     <button type="button" class="agent-power-btn off" id="voiceAgentPowerBtn">
                         <i class="fa-solid fa-power-off"></i>
                         <span id="voiceAgentPowerLabel">🔴 OFF</span>
                     </button>
-                    <p class="switch-desc" id="voiceAgentPowerDesc">Click to enable incoming voice/audio processing pipeline.</p>
+                    <p class="switch-desc" id="voiceAgentPowerDesc">Click to enable incoming voice/audio processing pipeline from 3.5mm sound card.</p>
+
+                    <!-- Real-Time Hardware Signal VU Meter -->
+                    <div class="terminal-vu-container" id="terminalVuContainer" style="margin-top:16px;">
+                        <div class="vu-label-row">
+                            <span><i class="fa-solid fa-wave-square"></i> 3.5mm Signal Level:</span>
+                            <span class="vu-status-badge" id="terminalLiveAudioStatus">Pipeline Idle</span>
+                        </div>
+                        <div class="vu-meter-track">
+                            <div class="vu-meter-fill" id="terminalVuMeterBar" style="width: 0%;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Terminal Test Prompts -->
+                <div class="quick-chips-row" style="margin-bottom:16px; justify-content:center;">
+                    <button type="button" class="q-chip t-q-chip" data-tprompt="Nanage electrician beku Ramanagara"><i class="fa-solid fa-bolt"></i> "Nanage electrician beku"</button>
+                    <button type="button" class="q-chip t-q-chip" data-tprompt="I need washing machine repair"><i class="fa-solid fa-wrench"></i> "Washing machine repair"</button>
+                    <button type="button" class="q-chip t-q-chip" data-tprompt="Is anyone available today?"><i class="fa-solid fa-user-check"></i> "Who is available?"</button>
+                    <button type="button" class="q-chip t-q-chip" data-tprompt="What services do you provide?"><i class="fa-solid fa-list"></i> "Services info"</button>
                 </div>
 
                 <!-- Live Transcript & Verified AI Actions Grid -->
@@ -575,6 +594,12 @@
                                 <i class="fa-solid fa-microphone-slash"></i>
                                 <p>Waiting for voice input...</p>
                             </div>
+                        </div>
+                        <div class="terminal-input-bar">
+                            <input type="text" id="terminalTextInput" placeholder="Type caller message or speak into 3.5mm line...">
+                            <button type="button" class="btn btn-primary btn-sm" id="terminalSendBtn">
+                                <i class="fa-solid fa-paper-plane"></i>
+                            </button>
                         </div>
                     </div>
 

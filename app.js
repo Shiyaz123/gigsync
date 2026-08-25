@@ -877,6 +877,130 @@ document.addEventListener('DOMContentLoaded', () => {
     const voiceAgentPowerLabel = document.getElementById('voiceAgentPowerLabel');
     const voiceAgentPowerDesc = document.getElementById('voiceAgentPowerDesc');
 
+    let terminalAudioCtx = null;
+    let terminalAnalyser = null;
+    let terminalMicrophoneStream = null;
+    let terminalSpeechRec = null;
+    let terminalAudioAnimId = null;
+
+    async function startTerminalAudioPipeline() {
+        try {
+            terminalMicrophoneStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false
+                }
+            });
+
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) {
+                terminalAudioCtx = new AudioCtx();
+                const source = terminalAudioCtx.createMediaStreamSource(terminalMicrophoneStream);
+                terminalAnalyser = terminalAudioCtx.createAnalyser();
+                terminalAnalyser.fftSize = 128;
+                source.connect(terminalAnalyser);
+
+                const dataArray = new Uint8Array(terminalAnalyser.frequencyBinCount);
+                const vuBar = document.getElementById('terminalVuMeterBar');
+                const vuStatus = document.getElementById('terminalLiveAudioStatus');
+                if (vuStatus) {
+                    vuStatus.textContent = 'Listening (Audio Live)';
+                    vuStatus.classList.add('active');
+                }
+
+                function animateVU() {
+                    if (!state.voiceAgentActive) return;
+                    terminalAnalyser.getByteFrequencyData(dataArray);
+                    let sum = 0;
+                    for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+                    const avg = sum / dataArray.length;
+                    if (vuBar) {
+                        const pct = Math.min(100, Math.round((avg / 80) * 100));
+                        vuBar.style.width = `${pct}%`;
+                    }
+                    terminalAudioAnimId = requestAnimationFrame(animateVU);
+                }
+                animateVU();
+            }
+
+            // Start continuous Speech Recognition on Terminal
+            const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (SpeechRec) {
+                terminalSpeechRec = new SpeechRec();
+                terminalSpeechRec.continuous = true;
+                terminalSpeechRec.interimResults = true;
+                terminalSpeechRec.lang = 'en-IN';
+
+                let finalTranscript = '';
+                terminalSpeechRec.onresult = (e) => {
+                    let interim = '';
+                    for (let i = 0; i < e.results.length; ++i) {
+                        if (e.results[i].isFinal) {
+                            finalTranscript += e.results[i][0].transcript + ' ';
+                        } else {
+                            interim += e.results[i][0].transcript;
+                        }
+                    }
+                    const text = (finalTranscript + interim).trim();
+                    if (text) {
+                        const input = document.getElementById('terminalTextInput');
+                        if (input) input.value = text;
+                    }
+                };
+
+                terminalSpeechRec.onspeechend = () => {
+                    const text = finalTranscript.trim();
+                    if (text) {
+                        finalTranscript = '';
+                        sendAiTurn(text);
+                    }
+                };
+
+                terminalSpeechRec.onerror = (err) => {
+                    console.warn('Terminal speech recognition:', err.error);
+                };
+
+                terminalSpeechRec.onend = () => {
+                    if (state.voiceAgentActive) {
+                        try { terminalSpeechRec.start(); } catch(e){}
+                    }
+                };
+
+                terminalSpeechRec.start();
+            }
+        } catch(err) {
+            console.error('Audio hardware access error:', err);
+            toast('Please grant microphone permission to capture 3.5mm sound card audio.');
+        }
+    }
+
+    function stopTerminalAudioPipeline() {
+        if (terminalAudioAnimId) {
+            cancelAnimationFrame(terminalAudioAnimId);
+            terminalAudioAnimId = null;
+        }
+        if (terminalMicrophoneStream) {
+            terminalMicrophoneStream.getTracks().forEach(t => t.stop());
+            terminalMicrophoneStream = null;
+        }
+        if (terminalAudioCtx) {
+            try { terminalAudioCtx.close(); } catch(e){}
+            terminalAudioCtx = null;
+        }
+        if (terminalSpeechRec) {
+            try { terminalSpeechRec.stop(); } catch(e){}
+            terminalSpeechRec = null;
+        }
+        const vuBar = document.getElementById('terminalVuMeterBar');
+        if (vuBar) vuBar.style.width = '0%';
+        const vuStatus = document.getElementById('terminalLiveAudioStatus');
+        if (vuStatus) {
+            vuStatus.textContent = 'Pipeline Idle';
+            vuStatus.classList.remove('active');
+        }
+    }
+
     voiceAgentPowerBtn?.addEventListener('click', () => {
         state.voiceAgentActive = !state.voiceAgentActive;
         voiceAgentPowerBtn.classList.toggle('on', state.voiceAgentActive);
@@ -884,16 +1008,47 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (state.voiceAgentActive) {
             voiceAgentPowerLabel.textContent = '🟢 ON';
-            voiceAgentPowerDesc.textContent = 'Voice processing pipeline is LIVE and actively listening.';
+            voiceAgentPowerDesc.textContent = 'Voice processing pipeline is LIVE and actively listening through 3.5mm sound card.';
             toast('🟢 Voice Agent Pipeline Activated');
             appendTerminalActivity('Voice Agent pipeline enabled by operator');
             appendTerminalAction('✓ Voice processing pipeline initialized');
+            startTerminalAudioPipeline();
         } else {
             voiceAgentPowerLabel.textContent = '🔴 OFF';
             voiceAgentPowerDesc.textContent = 'Click to enable incoming voice/audio processing pipeline.';
             toast('🔴 Voice Agent Pipeline Deactivated');
             appendTerminalActivity('Voice Agent pipeline disabled');
+            stopTerminalAudioPipeline();
         }
+    });
+
+    // Terminal Input Bar Handlers
+    document.getElementById('terminalSendBtn')?.addEventListener('click', () => {
+        const input = document.getElementById('terminalTextInput');
+        const text = input?.value.trim();
+        if (text) {
+            input.value = '';
+            sendAiTurn(text);
+        }
+    });
+
+    document.getElementById('terminalTextInput')?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            const input = document.getElementById('terminalTextInput');
+            const text = input?.value.trim();
+            if (text) {
+                input.value = '';
+                sendAiTurn(text);
+            }
+        }
+    });
+
+    // Terminal Quick Test Prompts
+    document.querySelectorAll('.t-q-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            const prompt = chip.dataset.tprompt;
+            if (prompt) sendAiTurn(prompt);
+        });
     });
 
     function appendTerminalTranscript(speaker, text) {
