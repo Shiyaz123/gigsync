@@ -56,11 +56,34 @@ document.addEventListener('DOMContentLoaded', () => {
     function speakText(text) {
         if (!('speechSynthesis' in window)) return;
         try {
+            if (window.speechSynthesis.paused) {
+                window.speechSynthesis.resume();
+            }
             window.speechSynthesis.cancel();
+
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            utterance.volume = 1.0;
             const isKannada = /[\u0C80-\u0CFF]/.test(text);
             utterance.lang = isKannada ? 'kn-IN' : 'en-IN';
+
+            // Retain reference on window so Chrome/Brave does not garbage-collect active speech
+            window._currentSpeechUtterance = utterance;
+
+            utterance.onstart = () => {
+                const liveStatus = document.getElementById('terminalLiveAudioStatus');
+                if (liveStatus && state.voiceAgentActive) liveStatus.textContent = '🔊 AI Speaking (Output Active)';
+            };
+            utterance.onend = () => {
+                window._currentSpeechUtterance = null;
+                const liveStatus = document.getElementById('terminalLiveAudioStatus');
+                if (liveStatus && state.voiceAgentActive) liveStatus.textContent = 'Listening (Audio Live)';
+            };
+            utterance.onerror = (e) => {
+                console.warn('Speech synthesis error:', e);
+            };
+
             window.speechSynthesis.speak(utterance);
         } catch (e) {
             console.warn('Speech synthesis:', e);
@@ -1103,11 +1126,20 @@ document.addEventListener('DOMContentLoaded', () => {
         // Honest hardware detection indicators
         const audio35El = document.getElementById('audio35ConnStatus');
         const phoneEl = document.getElementById('phoneConnStatus');
+        const outputSelect = document.getElementById('terminalAudioOutputSelect');
 
         if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
             navigator.mediaDevices.enumerateDevices().then(devices => {
                 const hasAudioInput = devices.some(d => d.kind === 'audioinput');
                 if (audio35El) audio35El.textContent = hasAudioInput ? 'Connected (Audio Input Detected)' : 'Disconnected';
+
+                // Populate Audio Output Devices
+                if (outputSelect) {
+                    const outputs = devices.filter(d => d.kind === 'audiooutput');
+                    if (outputs.length > 0) {
+                        outputSelect.innerHTML = outputs.map(o => `<option value="${o.deviceId}">${o.label || 'Audio Output (' + o.deviceId.slice(0, 8) + ')'}</option>`).join('');
+                    }
+                }
             }).catch(() => {
                 if (audio35El) audio35El.textContent = 'Connection status unavailable';
             });
@@ -1117,6 +1149,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (phoneEl) phoneEl.textContent = 'Connection status unavailable';
     }
+
+    // Test Audio Output Button Handler
+    document.getElementById('testAudioOutputBtn')?.addEventListener('click', () => {
+        toast('🔊 Playing 3.5mm audio output test...');
+        appendTerminalActivity('Output audio test triggered');
+        
+        // Play dual tone chime via Web Audio
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) {
+                const ctx = new AudioCtx();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+                osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.15); // A5
+                gain.gain.setValueAtTime(0.3, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.5);
+            }
+        } catch(e){}
+
+        // Also Speak Test
+        setTimeout(() => {
+            speakText('GigSync audio output test. 3.5mm signal output is working.');
+        }, 400);
+    });
 
     /* ======================================================================
        4. TALK TO GIGSYNC AI VOICE ASSISTANT MODAL
