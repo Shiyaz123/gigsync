@@ -1365,21 +1365,34 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (input) input.value = livePreview;
                         setVoiceAgentState('listening', '🟢 LISTENING');
 
-                        // Reset silence timer on every new word / sound packet: triggers after 2 seconds of silence
-                        clearTimeout(turnSilenceTimer);
-                        turnSilenceTimer = setTimeout(() => {
+                        // ZERO GAP GREETING: If user starts with an opening greeting (hello/hi/hey/namaskara), answer IMMEDIATELY with zero seconds delay!
+                        const isImmediateGreeting = /^(hello|hi|hey|namaskara|namaste|good morning|good afternoon|good evening|ನಮಸ್ಕಾರ)[\s.!?,]*$/i.test(livePreview.trim());
+                        if (isImmediateGreeting) {
+                            clearTimeout(turnSilenceTimer);
                             finalizeCallerTurn();
-                        }, TURN_SILENCE_TIMEOUT_MS);
+                        } else {
+                            // Standard 2-second silence timer for detailed conversation / requests
+                            clearTimeout(turnSilenceTimer);
+                            turnSilenceTimer = setTimeout(() => {
+                                finalizeCallerTurn();
+                            }, TURN_SILENCE_TIMEOUT_MS);
+                        }
                     }
                 };
 
                 terminalSpeechRec.onspeechend = () => {
                     // Start 2-second silence countdown as soon as caller stops speaking
                     if (currentTurnTranscript || currentInterimTranscript) {
-                        clearTimeout(turnSilenceTimer);
-                        turnSilenceTimer = setTimeout(() => {
+                        const isImmediateGreeting = /^(hello|hi|hey|namaskara|namaste|good morning|good afternoon|good evening|ನಮಸ್ಕಾರ)[\s.!?,]*$/i.test((currentTurnTranscript + ' ' + currentInterimTranscript).trim());
+                        if (isImmediateGreeting) {
+                            clearTimeout(turnSilenceTimer);
                             finalizeCallerTurn();
-                        }, TURN_SILENCE_TIMEOUT_MS);
+                        } else {
+                            clearTimeout(turnSilenceTimer);
+                            turnSilenceTimer = setTimeout(() => {
+                                finalizeCallerTurn();
+                            }, TURN_SILENCE_TIMEOUT_MS);
+                        }
                     }
                 };
 

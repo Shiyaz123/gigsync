@@ -408,7 +408,7 @@ module.exports = async (req, res) => {
 
         // 4. Greeting
         else if (/^(hello|hi|hey|namaskara|namaste|good morning|good afternoon|good evening|ನಮಸ್ಕಾರ)\b/i.test(lowerCleaned) && lowerCleaned.split(/\s+/).length <= 4) {
-            spokenResponse = `Hello! Welcome to GigSync. How can I help you with local trade specialists or bookings in ${city} today?`;
+            spokenResponse = `Hello! Welcome to GigSync. How may I help you today?`;
             actionsPerformed.push(`Greeting acknowledged`);
         }
 
