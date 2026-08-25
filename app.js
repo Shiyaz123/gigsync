@@ -101,6 +101,51 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch(e){}
     }
 
+    /* ---------- Echo Suppression & Speech Recognition Control ---------- */
+    function pauseSpeechRecognitionForTts() {
+        isAiSpeaking = true;
+        clearTimeout(turnSilenceTimer);
+        turnSilenceTimer = null;
+        currentTurnTranscript = '';
+        currentInterimTranscript = '';
+        if (terminalSpeechRec) {
+            try {
+                terminalSpeechRec.abort(); // Immediately flush internal Web Speech buffer
+            } catch(e){}
+        }
+        if (aiSpeechRecognizer) {
+            try {
+                aiSpeechRecognizer.abort();
+            } catch(e){}
+        }
+    }
+
+    function resumeSpeechRecognitionAfterTts(delayMs = 800) {
+        clearTimeout(turnSilenceTimer);
+        turnSilenceTimer = null;
+        currentTurnTranscript = '';
+        currentInterimTranscript = '';
+
+        setTimeout(() => {
+            isAiSpeaking = false;
+            if (state.voiceAgentActive) {
+                setVoiceAgentState('listening', '🟢 LISTENING');
+                const liveStatus = document.getElementById('terminalLiveAudioStatus');
+                if (liveStatus) liveStatus.textContent = 'Listening (Audio Live)';
+                if (terminalSpeechRec) {
+                    try {
+                        terminalSpeechRec.start();
+                    } catch(e){}
+                }
+            }
+            if (state.isAiModalRecording && aiSpeechRecognizer) {
+                try {
+                    aiSpeechRecognizer.start();
+                } catch(e){}
+            }
+        }, delayMs);
+    }
+
     async function playTtsAudio(text, shouldEndCall = false) {
         if (!text) return;
         unlockAudioAutoplay();
@@ -108,9 +153,14 @@ document.addEventListener('DOMContentLoaded', () => {
         updateDiagnostic('diagTts', '🟡 Generating...', 'working');
         updateDiagnostic('diagAudioPlayback', '🟡 Preparing...', 'working');
 
-        // ECHO SUPPRESSION: Set flag immediately so no microphone audio enters STT
-        isAiSpeaking = true;
+        // ECHO SUPPRESSION LAYER 1: Pause and abort STT immediately before TTS generation & playback
+        pauseSpeechRecognitionForTts();
         setVoiceAgentState('speaking', '🔵 GIGSYNC AI SPEAKING');
+
+        // Track recent AI spoken responses for ECHO SUPPRESSION LAYER 3 (Self-Echo Filter)
+        if (!state.recentAiResponses) state.recentAiResponses = [];
+        state.recentAiResponses.unshift({ text, time: Date.now() });
+        if (state.recentAiResponses.length > 6) state.recentAiResponses.pop();
 
         const liveStatus = document.getElementById('terminalLiveAudioStatus');
         if (liveStatus && state.voiceAgentActive) liveStatus.textContent = '🔊 AI Speaking (Output Active)';
@@ -140,6 +190,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             gigsyncTtsAudio.onplay = () => {
                 isAiSpeaking = true;
+                pauseSpeechRecognitionForTts();
                 setVoiceAgentState('speaking', '🔵 GIGSYNC AI SPEAKING');
                 updateDiagnostic('diagTts', '🟢 Generated (MP3)', 'ok');
                 updateDiagnostic('diagAudioPlayback', '🟢 Playing (MP3 Stream)', 'ok');
@@ -166,14 +217,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     appendTerminalActivity('Call completed & voice session ended');
                     appendTerminalAction('✓ Conversation closed gracefully');
                 } else {
-                    // Acoustic Cooldown before re-enabling listening (prevent room echo / reverb)
-                    setTimeout(() => {
-                        isAiSpeaking = false;
-                        if (state.voiceAgentActive) {
-                            setVoiceAgentState('listening', '🟢 LISTENING');
-                            if (liveStatus) liveStatus.textContent = 'Listening (Audio Live)';
-                        }
-                    }, 600);
+                    // ECHO SUPPRESSION LAYER 2: Acoustic decay cooldown (800ms) before re-activating microphone
+                    resumeSpeechRecognitionAfterTts(800);
                 }
             };
 
@@ -202,7 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!('speechSynthesis' in window)) {
             updateDiagnostic('diagAudioPlayback', '🔴 Failed (No TTS)', 'err');
             showDiagError(origErr || 'Browser does not support Speech Synthesis');
-            isAiSpeaking = false;
+            resumeSpeechRecognitionAfterTts(300);
             return;
         }
 
@@ -230,6 +275,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             utterance.onstart = () => {
                 isAiSpeaking = true;
+                pauseSpeechRecognitionForTts();
                 setVoiceAgentState('speaking', '🔵 GIGSYNC AI SPEAKING');
                 updateDiagnostic('diagTts', '🟢 Generated (SpeechSynth)', 'ok');
                 updateDiagnostic('diagAudioPlayback', '🟢 Playing (SpeechSynth)', 'ok');
@@ -253,28 +299,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     state.sessionId = null;
                     toast('🔴 Conversation Ended Naturally');
                 } else {
-                    setTimeout(() => {
-                        isAiSpeaking = false;
-                        if (state.voiceAgentActive) {
-                            setVoiceAgentState('listening', '🟢 LISTENING');
-                            const liveStatus = document.getElementById('terminalLiveAudioStatus');
-                            if (liveStatus) liveStatus.textContent = 'Listening (Audio Live)';
-                        }
-                    }, 600);
+                    resumeSpeechRecognitionAfterTts(800);
                 }
             };
 
             utterance.onerror = (e) => {
                 updateDiagnostic('diagAudioPlayback', '🔴 Failed', 'err');
                 showDiagError(e.error || origErr || 'Speech synthesis error');
-                isAiSpeaking = false;
+                resumeSpeechRecognitionAfterTts(300);
             };
 
             window.speechSynthesis.speak(utterance);
         } catch (e) {
             updateDiagnostic('diagAudioPlayback', '🔴 Failed', 'err');
             showDiagError(e.message);
-            isAiSpeaking = false;
+            resumeSpeechRecognitionAfterTts(300);
         }
     }
 
@@ -1254,11 +1293,48 @@ document.addEventListener('DOMContentLoaded', () => {
             .trim();
     }
 
+    /* ---------- Echo Detection & Self-Voice Filter ---------- */
+    function isAiSelfEcho(callerText) {
+        if (!callerText) return false;
+        const cClean = callerText.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+        const cTokens = cClean.split(/\s+/).filter(Boolean);
+        if (cTokens.length === 0) return false;
+
+        // Check against recent AI responses within last 15 seconds
+        for (const item of (state.recentAiResponses || [])) {
+            if (Date.now() - item.time < 15000) {
+                const aiClean = item.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+                const aiTokens = aiClean.split(/\s+/).filter(Boolean);
+                if (aiTokens.length === 0) continue;
+
+                // Check 1: Direct substring containment (e.g. caller speech is contained within AI response or vice versa)
+                if (aiClean.includes(cClean) || (cClean.length > 8 && aiClean.includes(cClean.slice(0, Math.floor(cClean.length * 0.8))))) {
+                    return true;
+                }
+
+                // Check 2: Word token overlap ratio >= 50%
+                let matches = 0;
+                for (const token of cTokens) {
+                    if (aiTokens.includes(token)) matches++;
+                }
+                const overlapRatio = matches / cTokens.length;
+                if (overlapRatio >= 0.50 && cTokens.length >= 2) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     function finalizeCallerTurn() {
         clearTimeout(turnSilenceTimer);
         turnSilenceTimer = null;
 
-        if (isAiSpeaking) return;
+        if (isAiSpeaking) {
+            currentTurnTranscript = '';
+            currentInterimTranscript = '';
+            return;
+        }
 
         const raw = (currentTurnTranscript + ' ' + currentInterimTranscript).trim();
         currentTurnTranscript = '';
@@ -1266,6 +1342,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const cleaned = deduplicateUtterance(raw);
         if (!cleaned || cleaned.length < 2) {
+            if (state.voiceAgentActive && !isAiSpeaking) {
+                setVoiceAgentState('listening', '🟢 LISTENING');
+            }
+            return;
+        }
+
+        // ECHO SUPPRESSION LAYER 3: Check if this utterance is actually the AI's own audio feedback
+        if (isAiSelfEcho(cleaned)) {
+            console.log('🔇 Suppressed AI Self-Echo Loopback:', cleaned);
+            appendTerminalActivity(`Acoustic echo suppressed: "${cleaned.slice(0, 35)}..."`);
             if (state.voiceAgentActive && !isAiSpeaking) {
                 setVoiceAgentState('listening', '🟢 LISTENING');
             }
@@ -1803,6 +1889,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Send AI turn
     async function sendAiTurn(speechText) {
         if (!speechText) return;
+
+        // Immediately silence & abort microphone STT while AI processes and speaks
+        pauseSpeechRecognitionForTts();
 
         if (!state.sessionId) {
             state.sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
