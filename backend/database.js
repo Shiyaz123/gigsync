@@ -215,6 +215,35 @@ const DB = {
         return db.prepare('SELECT * FROM customers WHERE id = ?').get(id) || null;
     },
 
+    updateCustomerProfile(phoneOrId, updates = {}) {
+        let customer = null;
+        if (typeof phoneOrId === 'number') {
+            customer = this.getCustomerById(phoneOrId);
+        } else {
+            const clean = String(phoneOrId).replace(/\D/g, '');
+            customer = db.prepare('SELECT * FROM customers WHERE phone = ?').get(clean);
+        }
+        if (!customer) return null;
+
+        const fields = [];
+        const params = [];
+        if (updates.city) { fields.push('city = ?'); params.push(updates.city); }
+        if (updates.area) { fields.push('area = ?'); params.push(updates.area); }
+        if (updates.name) { fields.push('name = ?'); params.push(updates.name); }
+        if (updates.email) { fields.push('email = ?'); params.push(updates.email); }
+
+        if (fields.length > 0) {
+            params.push(customer.id);
+            db.prepare(`UPDATE customers SET ${fields.join(', ')} WHERE id = ?`).run(...params);
+            if (updates.city || updates.area) {
+                db.prepare(`UPDATE users SET city = ?, area = ? WHERE phone = ?`).run(updates.city || customer.city, updates.area || customer.area, customer.phone);
+            }
+        }
+        const updated = this.getCustomerById(customer.id);
+        FirebaseSync.syncCustomer(updated).catch(e => console.warn('[Firebase Sync Error]:', e));
+        return updated;
+    },
+
     authenticateUser(phone, password) {
         const cleanPhone = phone.replace(/\D/g, '');
         const user = db.prepare('SELECT * FROM users WHERE phone = ?').get(cleanPhone);

@@ -359,6 +359,7 @@ class ContextAwareVoiceAgent {
 
         const isAffirmative = /\b(yes|yeah|yep|sure|ok|okay|confirm|post it|please post|post|go ahead|book him|book it|book|ha|haan|houdu|ಹೌದು|sari|ಸರಿ)\b/i.test(lowerCleaned);
         const isNegative = /\b(no|nope|cancel|cancel it|don't|beda|ಬೇಡ|nahi)\b/i.test(lowerCleaned);
+        const isShortNegation = /^(no|nope|no thanks|no thank you|nothing else|nothing more|nothing|thats all|that's all|beda|ಬೇಡ|nahi)\b/i.test(lowerCleaned);
 
         let shouldEndCall = false;
 
@@ -382,7 +383,7 @@ class ContextAwareVoiceAgent {
             session.context.pendingIntent = null;
         }
 
-        // 3. Check for Pending Confirmation / Affirmation (e.g. "Yes", "Confirm", "Post it", "Go ahead")
+        // 3. Pending Confirmation / Affirmation (e.g. "Yes", "Confirm", "Post it", "Cancel it")
         else if (session.context.pendingIntent === 'CONFIRM_POST_JOB' && (isAffirmative || isNegative)) {
             if (isAffirmative && session.context.pendingJobData) {
                 const jobData = session.context.pendingJobData;
@@ -429,8 +430,25 @@ class ContextAwareVoiceAgent {
             }
         }
 
+        else if (session.context.pendingIntent === 'CONFIRM_CANCEL_BOOKING' && (isAffirmative || isNegative)) {
+            if (isAffirmative && session.context.pendingCancelJobId) {
+                const jId = session.context.pendingCancelJobId;
+                toolExecuted = 'cancelJob';
+                toolResult = AI_TOOLS.cancelJob({ jobId: jId, customerPhone: session.callerPhone });
+                actionsPerformed.push(`Cancelled Booking #${jId} in SQLite database`);
+                spokenResponse = `Your booking #${jId} has been cancelled successfully. Is there anything else I can help you with?`;
+                session.context.pendingIntent = null;
+                session.context.pendingCancelJobId = null;
+                session.context.lastActionCompleted = 'BOOKING_CANCELLED';
+            } else if (isNegative) {
+                spokenResponse = `Your booking remains active. Let me know if you need any other assistance.`;
+                session.context.pendingIntent = null;
+                session.context.pendingCancelJobId = null;
+            }
+        }
+
         // 4. Follow-up after completed action when user says "No" / "Nothing else"
-        else if (session.context.lastActionCompleted && isNegative) {
+        else if (session.context.lastActionCompleted && isShortNegation) {
             spokenResponse = `You're welcome! Have a great day.`;
             actionsPerformed.push(`Completed conversation after action`);
             session.context.lastActionCompleted = null;
@@ -443,13 +461,115 @@ class ContextAwareVoiceAgent {
             actionsPerformed.push(`Greeting acknowledged`);
         }
 
-        // 6. Intent: Service Catalog Inquiries
+        // 6. Intent: General Platform Questions & Capabilities (Type A)
+        else if (lowerCleaned.includes('what is gigsync') || lowerCleaned.includes('how does gigsync work') || lowerCleaned.includes('what can gigsync do') || lowerCleaned.includes('about gigsync')) {
+            spokenResponse = `GigSync is an on-demand hyperlocal platform connecting verified trade specialists like electricians, plumbers, and mechanics with customers in real time through web and voice.`;
+            actionsPerformed.push(`Explained GigSync platform architecture`);
+        }
+
+        else if (lowerCleaned.includes('kannada') || lowerCleaned.includes('ಕನ್ನಡ') || lowerCleaned.includes('hindi') || lowerCleaned.includes('language')) {
+            spokenResponse = `Yes! GigSync supports English, Kannada, and Hindi voice interactions. You can speak naturally in any of these languages.`;
+            actionsPerformed.push(`Confirmed multi-language support`);
+        }
+
+        else if (lowerCleaned.includes('how do workers receive') || lowerCleaned.includes('how worker gets job') || lowerCleaned.includes('how worker receive')) {
+            spokenResponse = `When a customer posts a job or books a specialist, nearby on-duty registered workers receive instant notifications directly on their GigSync dashboard.`;
+            actionsPerformed.push(`Explained worker dispatch workflow`);
+        }
+
+        else if (lowerCleaned.includes('what happens after i post') || lowerCleaned.includes('after posting')) {
+            spokenResponse = `After you post a job, nearby registered specialists are notified. As soon as a worker accepts, your booking status updates and the technician heads to your location.`;
+            actionsPerformed.push(`Explained post-job lifecycle`);
+        }
+
+        else if (lowerCleaned.includes('online payment') || lowerCleaned.includes('pay online') || lowerCleaned.includes('upi') || lowerCleaned.includes('card payment')) {
+            spokenResponse = `Currently, payments are settled directly via cash on service completion. Online digital payments will be available in an upcoming update.`;
+            actionsPerformed.push(`Explained current payment method`);
+        }
+
+        // 7. Intent: Off-Topic / Unrelated Questions
+        else if (lowerCleaned.includes('capital of') || lowerCleaned.includes('who is president') || lowerCleaned.includes('tell me a joke') || lowerCleaned.includes('weather in') || lowerCleaned.includes('how tall is')) {
+            spokenResponse = `I'm mainly here to help with GigSync trade specialists, jobs and bookings in ${session.city}. How can I assist you with your home or vehicle service needs?`;
+            actionsPerformed.push(`Politely refocused off-topic question`);
+        }
+
+        // 8. Intent: Service Catalog Inquiries
         else if (lowerCleaned.includes('what services') || lowerCleaned.includes('which services') || lowerCleaned.includes('services you provide') || lowerCleaned.includes('what do you do') || lowerCleaned.includes('ಯಾವ ಸೇವೆಗಳು')) {
-            spokenResponse = `GigSync currently connects verified local specialists for: Electrical, Plumbing, Carpentry, Two-Wheeler Mechanics, AC & Appliance Repair, Painting, and Home Cleaning in ${session.city}.`;
+            spokenResponse = `GigSync currently connects verified local specialists for: Electrical, Plumbing, Carpentry, Two-Wheeler Mechanics, AC & Appliance Repair, Washing Machine Repair, Painting, and Home Cleaning in ${session.city}.`;
             actionsPerformed.push(`Provided service catalog`);
         }
 
-        // 7. Worker Queries: Check My Availability / Schedule
+        // 9. Customer Queries: Profile & Location Information
+        else if (lowerCleaned.includes('my profile') || lowerCleaned.includes('my location') || lowerCleaned.includes('saved on my account') || lowerCleaned.includes('where am i currently set')) {
+            const user = DB.getUserByPhone(session.callerPhone);
+            const cityName = user ? user.city : session.city;
+            const areaName = user ? user.area : 'Town';
+            spokenResponse = `Your account is registered under ${user ? user.name : session.callerName} with service location set to ${cityName} (${areaName}).`;
+            actionsPerformed.push(`Retrieved customer profile from database`);
+        }
+
+        else if (lowerCleaned.includes('change my location') || lowerCleaned.includes('update my location') || lowerCleaned.includes('set location')) {
+            const locMatch = text.match(/(?:to|in|set to)\s+([A-Za-z]+)/i);
+            const newCity = locMatch ? locMatch[1] : 'Ramanagara';
+            session.city = newCity;
+            session.context.currentLocation = newCity;
+            DB.updateCustomerProfile(session.callerPhone, { city: newCity });
+            spokenResponse = `Your service location has been updated to ${newCity}. Registered specialists in ${newCity} will now be prioritized.`;
+            actionsPerformed.push(`Updated service location to ${newCity}`);
+        }
+
+        // 10. Customer Queries: Price & Fee Questions
+        else if (session.callerRole === 'customer' && (lowerCleaned.includes('price') || lowerCleaned.includes('visiting fee') || lowerCleaned.includes('rate') || (lowerCleaned.includes('how much') && !lowerCleaned.includes('earn')) || (lowerCleaned.includes('cost') && !lowerCleaned.includes('earn')))) {
+            const detectedTrade = extractTradeAndService(text) || session.context.currentService || 'specialist visit';
+            spokenResponse = `The standard visiting fee for registered ${detectedTrade} specialists in ${session.city} starts from ₹300 to ₹350, with the final cost determined by required parts and labor.`;
+            actionsPerformed.push(`Provided transparent pricing estimate`);
+        }
+
+        // 11. Customer Queries: Booking Status, Tracking & "Who accepted my request?"
+        else if (session.callerRole === 'customer' && (lowerCleaned.includes('who accepted') || lowerCleaned.includes('when is the worker coming') || lowerCleaned.includes('what\'s happening with my booking') || lowerCleaned.includes('what is happening with my booking') || lowerCleaned.includes('is my booking confirmed') || lowerCleaned.includes('booking status'))) {
+            toolExecuted = 'getCustomerBookings';
+            toolResult = AI_TOOLS.getCustomerBookings({ customerPhone: session.callerPhone });
+            actionsPerformed.push(`Checked customer active booking status`);
+
+            if (toolResult.count > 0) {
+                const latest = toolResult.bookings[0];
+                if (latest.status === 'Confirmed' || latest.status === 'Accepted') {
+                    spokenResponse = `Your ${latest.service} booking #${latest.id} is confirmed with ${latest.worker_name || 'an assigned specialist'}. They are scheduled for ${latest.requested_date} (${latest.requested_time}).`;
+                } else if (latest.status === 'On the Way') {
+                    spokenResponse = `Your specialist ${latest.worker_name || ''} is currently on the way to your location for job #${latest.id}.`;
+                } else if (latest.status === 'Requested') {
+                    spokenResponse = `Your ${latest.service} job request #${latest.id} is posted and currently waiting for a nearby specialist to accept.`;
+                } else {
+                    spokenResponse = `Your latest ${latest.service} booking #${latest.id} has status: ${latest.status}.`;
+                }
+            } else {
+                spokenResponse = `You don't have any active bookings right now. Would you like me to help you find a specialist or post a job?`;
+            }
+        }
+
+        // 12. Customer Queries: Cancel Booking
+        else if (session.callerRole === 'customer' && (lowerCleaned.includes('cancel my booking') || lowerCleaned.includes('cancel my job') || lowerCleaned.includes('cancel booking'))) {
+            toolExecuted = 'getCustomerBookings';
+            toolResult = AI_TOOLS.getCustomerBookings({ customerPhone: session.callerPhone });
+            actionsPerformed.push(`Queried customer bookings for cancellation`);
+
+            const activeJobs = toolResult.bookings.filter(b => b.status !== 'Completed' && b.status !== 'Cancelled');
+            if (activeJobs.length === 1) {
+                const target = activeJobs[0];
+                session.context.pendingIntent = 'CONFIRM_CANCEL_BOOKING';
+                session.context.pendingCancelJobId = target.id;
+                spokenResponse = `I found active booking #${target.id} for ${target.service}. Are you sure you want to cancel this booking?`;
+            } else if (activeJobs.length > 1) {
+                const target = activeJobs[0];
+                session.context.pendingIntent = 'CONFIRM_CANCEL_BOOKING';
+                session.context.pendingCancelJobId = target.id;
+                spokenResponse = `You have ${activeJobs.length} active bookings. Would you like to cancel the latest one: #${target.id} for ${target.service}?`;
+            } else {
+                spokenResponse = `You don't have any active bookings to cancel in the database right now.`;
+            }
+        }
+
+        // 13. Worker Queries: Check My Availability / Schedule
         else if (session.callerRole === 'worker' && (lowerCleaned.includes('my availability') || lowerCleaned.includes('am i available') || lowerCleaned.includes('my schedule') || lowerCleaned.includes('ನನ್ನ ಶೆಡ್ಯೂಲ್'))) {
             const { date } = extractDateTimeEntities(text);
             const targetDate = date || 'Tomorrow';
@@ -466,7 +586,7 @@ class ContextAwareVoiceAgent {
             }
         }
 
-        // 8. Worker Queries: Update My Availability
+        // 14. Worker Queries: Update My Availability
         else if (session.callerRole === 'worker' && (lowerCleaned.includes('available') || lowerCleaned.includes('free') || lowerCleaned.includes('duty') || lowerCleaned.includes('shift') || lowerCleaned.includes('ಫ್ರೀ') || lowerCleaned.includes('ಲಭ್ಯ'))) {
             const { date, time } = extractDateTimeEntities(text);
             const targetDate = date || 'Tomorrow';
@@ -495,8 +615,8 @@ class ContextAwareVoiceAgent {
                 : `Done. You have been marked OFF-DUTY for ${targetDate}.`;
         }
 
-        // 9. Worker Queries: Check My Earnings
-        else if (session.callerRole === 'worker' && (lowerCleaned.includes('earning') || lowerCleaned.includes('earn') || lowerCleaned.includes('income') || lowerCleaned.includes('payment') || lowerCleaned.includes('ಸಂಪಾದನೆ'))) {
+        // 15. Worker Queries: Check My Earnings & Completed Job Count
+        else if (session.callerRole === 'worker' && (lowerCleaned.includes('earning') || lowerCleaned.includes('earn') || lowerCleaned.includes('income') || lowerCleaned.includes('payment') || lowerCleaned.includes('how many jobs have i completed') || lowerCleaned.includes('ಸಂಪಾದನೆ'))) {
             toolExecuted = 'getWorkerEarnings';
             toolResult = AI_TOOLS.getWorkerEarnings({ workerPhone: session.callerPhone });
             actionsPerformed.push(`Computed earnings from completed database gigs`);
@@ -508,8 +628,8 @@ class ContextAwareVoiceAgent {
             }
         }
 
-        // 10. Worker Queries: Check Assigned Jobs / Bookings
-        else if (session.callerRole === 'worker' && (lowerCleaned.includes('my jobs') || lowerCleaned.includes('my bookings') || lowerCleaned.includes('assigned') || lowerCleaned.includes('work today') || lowerCleaned.includes('work tomorrow'))) {
+        // 16. Worker Queries: Check Assigned Jobs / Schedule
+        else if (session.callerRole === 'worker' && (lowerCleaned.includes('my jobs') || lowerCleaned.includes('my bookings') || lowerCleaned.includes('assigned') || lowerCleaned.includes('what jobs do i have') || lowerCleaned.includes('do i have any jobs') || lowerCleaned.includes('work today') || lowerCleaned.includes('work tomorrow'))) {
             const { date } = extractDateTimeEntities(text);
             toolExecuted = 'getWorkerBookings';
             toolResult = AI_TOOLS.getWorkerBookings({ workerPhone: session.callerPhone, date });
@@ -523,8 +643,34 @@ class ContextAwareVoiceAgent {
             }
         }
 
-        // 11. Customer Queries: Check My Bookings / Orders
-        else if (session.callerRole === 'customer' && (lowerCleaned.includes('booking') || lowerCleaned.includes('bookings') || lowerCleaned.includes('my order') || lowerCleaned.includes('my job') || lowerCleaned.includes('active job') || lowerCleaned.includes('ನನ್ನ ಬುಕಿಂಗ್')) && !lowerCleaned.includes('book him') && !lowerCleaned.includes('book her') && !lowerCleaned.includes('book them')) {
+        // 17. Worker Queries: Check Open / Available Jobs
+        else if (session.callerRole === 'worker' && (lowerCleaned.includes('what jobs are available') || lowerCleaned.includes('open jobs') || lowerCleaned.includes('available jobs') || lowerCleaned.includes('show jobs'))) {
+            const worker = DB.getWorkerByPhone(session.callerPhone);
+            const trade = worker ? worker.trade : 'General Specialist';
+            const openJobs = DB.getAvailableJobsForWorker(trade, session.city);
+            actionsPerformed.push(`Queried open ${trade} requests in ${session.city}`);
+
+            if (openJobs.length > 0) {
+                const jobList = openJobs.slice(0, 3).map(j => `#${j.id} ${j.service} at ${j.location}`).join(', ');
+                spokenResponse = `There are ${openJobs.length} open job(s) in ${session.city}: ${jobList}.`;
+            } else {
+                spokenResponse = `There are currently no open job requests for ${trade} in ${session.city}.`;
+            }
+        }
+
+        // 18. Worker Queries: Profile & Registered Trade
+        else if (session.callerRole === 'worker' && (lowerCleaned.includes('profession') || lowerCleaned.includes('what am i registered') || lowerCleaned.includes('my trade') || lowerCleaned.includes('my skills'))) {
+            const worker = DB.getWorkerByPhone(session.callerPhone);
+            if (worker) {
+                spokenResponse = `You are registered as a ${worker.trade} in ${worker.city} with a rating of ${worker.rating} stars and ${worker.jobs_completed} completed gigs.`;
+                actionsPerformed.push(`Retrieved worker trade credentials`);
+            } else {
+                spokenResponse = `I couldn't find a registered worker profile for this phone number.`;
+            }
+        }
+
+        // 19. Customer Queries: Check My Bookings / Orders
+        else if (session.callerRole === 'customer' && (lowerCleaned.includes('booking') || lowerCleaned.includes('bookings') || lowerCleaned.includes('my order') || lowerCleaned.includes('my job') || lowerCleaned.includes('active job') || lowerCleaned.includes('do i have a booking') || lowerCleaned.includes('what bookings do i have') || lowerCleaned.includes('ನನ್ನ ಬುಕಿಂಗ್')) && !lowerCleaned.includes('book him') && !lowerCleaned.includes('book her') && !lowerCleaned.includes('book them')) {
             toolExecuted = 'getCustomerBookings';
             toolResult = AI_TOOLS.getCustomerBookings({ customerPhone: session.callerPhone });
             actionsPerformed.push(`Queried customer booking records`);
@@ -537,9 +683,8 @@ class ContextAwareVoiceAgent {
             }
         }
 
-        // 12. Intent: Connect / Book Specific Worker or Pronoun Reference ("connect me to him", "book him", "call him")
+        // 20. Intent: Connect / Book Specific Worker or Pronoun Reference ("connect me to him", "book him", "call him")
         else if (lowerCleaned.includes('connect') || lowerCleaned.includes('book him') || lowerCleaned.includes('book her') || lowerCleaned.includes('hire him') || lowerCleaned.includes('call him') || lowerCleaned.includes('contact him')) {
-            // Check if we previously found workers in session context
             if (session.context.lastFoundWorkers.length > 0) {
                 const worker = session.context.lastFoundWorkers[0];
                 session.context.lastSelectedWorker = worker;
@@ -547,7 +692,6 @@ class ContextAwareVoiceAgent {
                 spokenResponse = `I found ${worker.name}, a registered ${worker.trade} in ${worker.city} with a visiting fee of ${worker.startingPrice}. Shall I confirm and dispatch this booking to ${worker.name}?`;
                 actionsPerformed.push(`Referenced ${worker.name} from previous database search`);
             } else {
-                // Try searching database for current trade
                 const trade = extractTradeAndService(text) || session.context.currentService;
                 if (trade) {
                     toolExecuted = 'findWorkers';
@@ -569,14 +713,14 @@ class ContextAwareVoiceAgent {
             }
         }
 
-        // 13. Intent: Explicit Create Job / Post a Job
-        else if (lowerCleaned.includes('post a job') || lowerCleaned.includes('create a job') || lowerCleaned.includes('job posting') || lowerCleaned.includes('post job')) {
+        // 21. Intent: Explicit Create Job / Post a Job
+        else if (lowerCleaned.includes('post a job') || lowerCleaned.includes('create a job') || lowerCleaned.includes('job posting') || lowerCleaned.includes('post job') || lowerCleaned.includes('can you post a job')) {
             const detectedTrade = extractTradeAndService(text) || session.context.currentService;
             const { date, time } = extractDateTimeEntities(text);
 
             if (!detectedTrade) {
                 session.context.pendingIntent = 'CREATE_JOB_AWAITING_SERVICE';
-                spokenResponse = `Yes, I can post a job for you. What type of service or repair do you need?`;
+                spokenResponse = `Sure. What type of trade specialist or repair work do you need?`;
             } else {
                 session.context.currentService = detectedTrade;
                 session.context.currentDate = date || session.context.currentDate || 'Today';
@@ -598,7 +742,7 @@ class ContextAwareVoiceAgent {
             }
         }
 
-        // 14. Intent: Find Worker / Need Help with Service (e.g. "I need repair my washing machine", "Is there anyone available now?", "Find me an electrician")
+        // 22. Intent: Find Worker / Need Help with Service (e.g. "I need repair my washing machine", "Is there anyone available now?", "Find me an electrician")
         else {
             const detectedTrade = extractTradeAndService(text) || session.context.currentService;
             const { date, time } = extractDateTimeEntities(text);
@@ -641,7 +785,7 @@ class ContextAwareVoiceAgent {
                     spokenResponse = `I couldn't find any registered ${detectedTrade} specialists available in ${session.city} right now. Would you like me to post an open job request so nearby workers can respond?`;
                     actionsPerformed.push(`Identified 0 matching workers in database; offered job post`);
                 }
-            } else if (lowerCleaned.includes('anyone available') || lowerCleaned.includes('who is available') || lowerCleaned.includes('workers near') || lowerCleaned.includes('ಯಾರು ಲಭ್ಯವಿದ್ದಾರೆ')) {
+            } else if (lowerCleaned.includes('anyone available') || lowerCleaned.includes('who is available') || lowerCleaned.includes('workers near') || lowerCleaned.includes('is anyone free') || lowerCleaned.includes('who is free') || lowerCleaned.includes('ಯಾರು ಲಭ್ಯವಿದ್ದಾರೆ')) {
                 // General availability query without trade specified
                 toolExecuted = 'findWorkers';
                 toolResult = AI_TOOLS.findWorkers({ service: 'all', city: session.city });
@@ -654,8 +798,8 @@ class ContextAwareVoiceAgent {
                     spokenResponse = `There are currently no registered workers available in ${session.city}. You can post a job request or let me know what trade you need.`;
                 }
             } else {
-                // Conversational Fallback without templates
-                spokenResponse = `I can help you check worker availability, book a specialist, or post a job in ${session.city}. What service are you looking for?`;
+                // Conversational Fallback without generic loops
+                spokenResponse = `I can help you check worker availability, book a specialist, or track a job in ${session.city}. What service or repair are you looking for?`;
                 actionsPerformed.push(`Prompted for service trade`);
             }
         }

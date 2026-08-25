@@ -297,6 +297,7 @@ module.exports = async (req, res) => {
 
         const isAffirmative = /\b(yes|yeah|yep|sure|ok|okay|confirm|post it|please post|post|go ahead|book him|book it|book|ha|haan|houdu|ಹೌದು|sari|ಸರಿ)\b/i.test(lowerCleaned);
         const isNegative = /\b(no|nope|cancel|cancel it|don't|beda|ಬೇಡ|nahi)\b/i.test(lowerCleaned);
+        const isShortNegation = /^(no|nope|no thanks|no thank you|nothing else|nothing more|nothing|thats all|that's all|beda|ಬೇಡ|nahi)\b/i.test(lowerCleaned);
 
         let shouldEndCall = false;
 
@@ -381,10 +382,25 @@ module.exports = async (req, res) => {
                 spokenResponse = `Understood. Would you like me to search for another specialist or post an open job?`;
                 session.pendingIntent = null;
             }
+        else if (session.pendingIntent === 'CONFIRM_CANCEL_BOOKING' && (isAffirmative || isNegative)) {
+            if (isAffirmative && session.pendingCancelJobId) {
+                const jId = session.pendingCancelJobId;
+                const targetJob = runtimeState.jobs.find(j => j.id === jId);
+                if (targetJob) targetJob.status = 'Cancelled';
+                actionsPerformed.push(`Cancelled Booking #${jId} in database`);
+                spokenResponse = `Your booking #${jId} has been cancelled successfully. Is there anything else I can help you with?`;
+                session.pendingIntent = null;
+                session.pendingCancelJobId = null;
+                session.lastActionCompleted = 'BOOKING_CANCELLED';
+            } else if (isNegative) {
+                spokenResponse = `Your booking remains active. Let me know if you need any other assistance.`;
+                session.pendingIntent = null;
+                session.pendingCancelJobId = null;
+            }
         }
 
         // 3. Action follow-up negation
-        else if (session.lastActionCompleted && isNegative) {
+        else if (session.lastActionCompleted && isShortNegation) {
             spokenResponse = `You're welcome! Have a great day.`;
             actionsPerformed.push(`Completed conversation`);
             session.lastActionCompleted = null;
@@ -397,25 +413,115 @@ module.exports = async (req, res) => {
             actionsPerformed.push(`Greeting acknowledged`);
         }
 
-        // 5. Service Catalog
+        // 5. General Platform Questions & Capabilities (Type A)
+        else if (lowerCleaned.includes('what is gigsync') || lowerCleaned.includes('how does gigsync work') || lowerCleaned.includes('what can gigsync do') || lowerCleaned.includes('about gigsync')) {
+            spokenResponse = `GigSync is an on-demand hyperlocal platform connecting verified trade specialists like electricians, plumbers, and mechanics with customers in real time through web and voice.`;
+            actionsPerformed.push(`Explained GigSync platform architecture`);
+        }
+
+        else if (lowerCleaned.includes('kannada') || lowerCleaned.includes('ಕನ್ನಡ') || lowerCleaned.includes('hindi') || lowerCleaned.includes('language')) {
+            spokenResponse = `Yes! GigSync supports English, Kannada, and Hindi voice interactions. You can speak naturally in any of these languages.`;
+            actionsPerformed.push(`Confirmed multi-language support`);
+        }
+
+        else if (lowerCleaned.includes('how do workers receive') || lowerCleaned.includes('how worker gets job') || lowerCleaned.includes('how worker receive')) {
+            spokenResponse = `When a customer posts a job or books a specialist, nearby on-duty registered workers receive instant notifications directly on their GigSync dashboard.`;
+            actionsPerformed.push(`Explained worker dispatch workflow`);
+        }
+
+        else if (lowerCleaned.includes('what happens after i post') || lowerCleaned.includes('after posting')) {
+            spokenResponse = `After you post a job, nearby registered specialists are notified. As soon as a worker accepts, your booking status updates and the technician heads to your location.`;
+            actionsPerformed.push(`Explained post-job lifecycle`);
+        }
+
+        else if (lowerCleaned.includes('online payment') || lowerCleaned.includes('pay online') || lowerCleaned.includes('upi') || lowerCleaned.includes('card payment')) {
+            spokenResponse = `Currently, payments are settled directly via cash on service completion. Online digital payments will be available in an upcoming update.`;
+            actionsPerformed.push(`Explained current payment method`);
+        }
+
+        // 6. Off-Topic / Unrelated Questions
+        else if (lowerCleaned.includes('capital of') || lowerCleaned.includes('who is president') || lowerCleaned.includes('tell me a joke') || lowerCleaned.includes('weather in') || lowerCleaned.includes('how tall is')) {
+            spokenResponse = `I'm mainly here to help with GigSync trade specialists, jobs and bookings in ${city}. How can I assist you with your home or vehicle service needs?`;
+            actionsPerformed.push(`Politely refocused off-topic question`);
+        }
+
+        // 7. Service Catalog
         else if (lowerCleaned.includes('what services') || lowerCleaned.includes('which services') || lowerCleaned.includes('services you provide') || lowerCleaned.includes('what do you do')) {
             spokenResponse = `GigSync currently connects verified local specialists for: Electrical, Plumbing, Carpentry, Two-Wheeler Mechanics, AC & Appliance Repair, Painting, and Home Cleaning in ${city}.`;
             actionsPerformed.push(`Provided service catalog`);
         }
 
-        // 4. Worker Availability & Bookings
-        else if (role === 'worker' && (lower.includes('my availability') || lower.includes('am i available') || lower.includes('my schedule'))) {
+        // 8. Customer Profile & Location Information
+        else if (lowerCleaned.includes('my profile') || lowerCleaned.includes('my location') || lowerCleaned.includes('saved on my account') || lowerCleaned.includes('where am i currently set')) {
+            spokenResponse = `Your account is registered under ${callerName} with service location set to ${city} (Town Area).`;
+            actionsPerformed.push(`Retrieved customer profile`);
+        }
+
+        else if (lowerCleaned.includes('change my location') || lowerCleaned.includes('update my location') || lowerCleaned.includes('set location')) {
+            const locMatch = speech.match(/(?:to|in|set to)\s+([A-Za-z]+)/i);
+            const newCity = locMatch ? locMatch[1] : 'Ramanagara';
+            session.currentLocation = newCity;
+            spokenResponse = `Your service location has been updated to ${newCity}. Registered specialists in ${newCity} will now be prioritized.`;
+            actionsPerformed.push(`Updated service location to ${newCity}`);
+        }
+
+        // 9. Price & Fee Questions
+        else if (role === 'customer' && (lowerCleaned.includes('price') || lowerCleaned.includes('visiting fee') || lowerCleaned.includes('rate') || (lowerCleaned.includes('how much') && !lowerCleaned.includes('earn')) || (lowerCleaned.includes('cost') && !lowerCleaned.includes('earn')))) {
+            const detectedTrade = extractService(speech) || session.currentService || 'specialist visit';
+            spokenResponse = `The standard visiting fee for registered ${detectedTrade} specialists in ${city} starts from ₹300 to ₹350, with the final cost determined by required parts and labor.`;
+            actionsPerformed.push(`Provided transparent pricing estimate`);
+        }
+
+        // 10. Customer Queries: Booking Status, Tracking & "Who accepted my request?"
+        else if (role === 'customer' && (lowerCleaned.includes('who accepted') || lowerCleaned.includes('when is the worker coming') || lowerCleaned.includes('what\'s happening with my booking') || lowerCleaned.includes('what is happening with my booking') || lowerCleaned.includes('is my booking confirmed') || lowerCleaned.includes('booking status'))) {
+            const myJobs = runtimeState.jobs.filter(j => j.customer_phone === callerPhone);
+            actionsPerformed.push(`Checked customer active booking status`);
+
+            if (myJobs.length > 0) {
+                const latest = myJobs[0];
+                if (latest.status === 'Confirmed' || latest.status === 'Accepted') {
+                    spokenResponse = `Your ${latest.service} booking #${latest.id} is confirmed with ${latest.worker_name || 'an assigned specialist'}. They are scheduled for ${latest.requested_date} (${latest.requested_time}).`;
+                } else if (latest.status === 'On the Way') {
+                    spokenResponse = `Your specialist ${latest.worker_name || ''} is currently on the way to your location for job #${latest.id}.`;
+                } else if (latest.status === 'Requested') {
+                    spokenResponse = `Your ${latest.service} job request #${latest.id} is posted and currently waiting for a nearby specialist to accept.`;
+                } else {
+                    spokenResponse = `Your latest ${latest.service} booking #${latest.id} has status: ${latest.status}.`;
+                }
+            } else {
+                spokenResponse = `You don't have any active bookings right now. Would you like me to help you find a specialist or post a job?`;
+            }
+        }
+
+        // 11. Customer Queries: Cancel Booking
+        else if (role === 'customer' && (lowerCleaned.includes('cancel my booking') || lowerCleaned.includes('cancel my job') || lowerCleaned.includes('cancel booking'))) {
+            const myJobs = runtimeState.jobs.filter(j => j.customer_phone === callerPhone && j.status !== 'Completed' && j.status !== 'Cancelled');
+            actionsPerformed.push(`Queried customer bookings for cancellation`);
+
+            if (myJobs.length > 0) {
+                const target = myJobs[0];
+                session.pendingIntent = 'CONFIRM_CANCEL_BOOKING';
+                session.pendingCancelJobId = target.id;
+                spokenResponse = `I found active booking #${target.id} for ${target.service}. Are you sure you want to cancel this booking?`;
+            } else {
+                spokenResponse = `You don't have any active bookings to cancel in the database right now.`;
+            }
+        }
+
+        // 12. Worker Availability & Schedule
+        else if (role === 'worker' && (lowerCleaned.includes('my availability') || lowerCleaned.includes('am i available') || lowerCleaned.includes('my schedule'))) {
             spokenResponse = `You are currently marked ON-DUTY and available in ${city}. Would you like to update your schedule?`;
             actionsPerformed.push(`Checked worker status`);
         }
 
-        else if (role === 'worker' && (lower.includes('available') || lower.includes('free') || lower.includes('duty') || lower.includes('shift') || lower.includes('ಫ್ರೀ'))) {
+        else if (role === 'worker' && (lowerCleaned.includes('available') || lowerCleaned.includes('free') || lowerCleaned.includes('duty') || lowerCleaned.includes('shift') || lowerCleaned.includes('ಫ್ರೀ'))) {
             toolExecuted = 'updateWorkerAvailability';
             actionsPerformed.push(`Updated availability status in database`);
             spokenResponse = `Done. Your availability has been updated in the database. You are marked available for new jobs.`;
         }
 
-        else if (role === 'worker' && (lower.includes('earning') || lower.includes('earn') || lower.includes('income'))) {
+        // 13. Worker Earnings
+        else if (role === 'worker' && (lowerCleaned.includes('earning') || lowerCleaned.includes('earn') || lowerCleaned.includes('income') || lowerCleaned.includes('how many jobs have i completed'))) {
             const completed = runtimeState.jobs.filter(j => j.status === 'Completed' && j.worker_phone === callerPhone);
             const total = completed.reduce((sum, j) => sum + (parseInt((j.budget || '300').replace(/\D/g, '')) || 300), 0);
             actionsPerformed.push(`Calculated earnings from database: ₹${total}`);
@@ -424,8 +530,20 @@ module.exports = async (req, res) => {
                 : `You don't have any recorded earnings from completed jobs in the database yet.`;
         }
 
-        // 5. Customer Bookings Inquiry
-        else if (role === 'customer' && (lower.includes('my booking') || lower.includes('my order') || lower.includes('what bookings do i have'))) {
+        // 14. Worker Open Jobs
+        else if (role === 'worker' && (lowerCleaned.includes('what jobs are available') || lowerCleaned.includes('open jobs') || lowerCleaned.includes('available jobs') || lowerCleaned.includes('show jobs'))) {
+            const openJobs = runtimeState.jobs.filter(j => j.status === 'Requested' && j.city === city);
+            actionsPerformed.push(`Queried open jobs in ${city}`);
+            if (openJobs.length > 0) {
+                const list = openJobs.slice(0, 3).map(j => `#${j.id} ${j.service} at ${j.location}`).join(', ');
+                spokenResponse = `There are ${openJobs.length} open job(s) in ${city}: ${list}.`;
+            } else {
+                spokenResponse = `There are currently no open job requests in ${city}.`;
+            }
+        }
+
+        // 15. Customer Bookings Inquiry
+        else if (role === 'customer' && (lowerCleaned.includes('my booking') || lowerCleaned.includes('my order') || lowerCleaned.includes('what bookings do i have') || lowerCleaned.includes('do i have a booking'))) {
             const myJobs = runtimeState.jobs.filter(j => j.customer_phone === callerPhone);
             actionsPerformed.push(`Queried customer bookings (${myJobs.length} found)`);
             if (myJobs.length > 0) {
@@ -436,8 +554,8 @@ module.exports = async (req, res) => {
             }
         }
 
-        // 6. Connect / Book Him
-        else if (lower.includes('connect') || lower.includes('book him') || lower.includes('hire him') || lower.includes('call him')) {
+        // 16. Connect / Book Him
+        else if (lowerCleaned.includes('connect') || lowerCleaned.includes('book him') || lowerCleaned.includes('hire him') || lowerCleaned.includes('call him')) {
             if (session.lastFoundWorkers.length > 0) {
                 const w = session.lastFoundWorkers[0];
                 session.lastSelectedWorker = w;
@@ -445,7 +563,7 @@ module.exports = async (req, res) => {
                 spokenResponse = `I found ${w.name}, a registered ${w.trade} in ${city} (Visiting fee: ₹${w.price || 300}). Shall I confirm and dispatch this booking to ${w.name}?`;
                 actionsPerformed.push(`Referenced ${w.name} from previous database search`);
             } else {
-                const svc = extractService(text) || session.currentService;
+                const svc = extractService(speech) || session.currentService;
                 if (svc) {
                     const matching = runtimeState.workers.filter(w => (w.service.includes(svc.toLowerCase()) || w.trade.toLowerCase().includes(svc.toLowerCase())) && w.is_available);
                     if (matching.length > 0) {
