@@ -486,7 +486,7 @@ const DB = {
                 SELECT date_str, start_time, end_time, is_available, updated_at
                 FROM worker_availability
                 WHERE worker_id = ? OR worker_phone = ?
-                ORDER BY updated_at DESC LIMIT 1
+                ORDER BY updated_at DESC, id DESC LIMIT 1
             `).get(w.id, w.phone);
             return {
                 ...w,
@@ -494,6 +494,22 @@ const DB = {
                 availability_hours: latestSlot ? `${latestSlot.start_time} – ${latestSlot.end_time} (${latestSlot.date_str})` : 'Available'
             };
         });
+    },
+
+    deleteTestWorkerByPhone(phone) {
+        if (!phone) return;
+        const clean = String(phone).replace(/\D/g, '');
+        const worker = this.getWorkerByPhone(clean);
+        if (worker) {
+            db.prepare('DELETE FROM worker_availability WHERE worker_id = ? OR worker_phone = ?').run(worker.id, clean);
+            db.prepare('DELETE FROM workers WHERE id = ?').run(worker.id);
+            if (worker.user_id) {
+                db.prepare('DELETE FROM users WHERE id = ?').run(worker.user_id);
+            }
+        } else {
+            db.prepare('DELETE FROM worker_availability WHERE worker_phone = ?').run(clean);
+            db.prepare('DELETE FROM users WHERE phone = ?').run(clean);
+        }
     },
 
     getWorkerById(id) {
@@ -740,7 +756,7 @@ const DB = {
         const availabilitySlots = db.prepare(`
             SELECT * FROM worker_availability
             WHERE worker_phone = ? OR (worker_id IS NOT NULL AND worker_id = ?)
-            ORDER BY updated_at DESC LIMIT 10
+            ORDER BY updated_at DESC, id DESC LIMIT 10
         `).all(phone, wId || -1);
 
         const activeBookings = db.prepare(`
@@ -843,15 +859,15 @@ const DB = {
         if (typeof customerPhoneOrId === 'number') {
             return db.prepare('SELECT * FROM jobs WHERE customer_id = ? ORDER BY created_at DESC').all(customerPhoneOrId);
         }
-        const clean = customerPhoneOrId.replace(/\D/g, '');
+        const clean = (customerPhoneOrId || '').replace(/\D/g, '');
         return db.prepare('SELECT * FROM jobs WHERE customer_phone = ? ORDER BY created_at DESC').all(clean);
     },
 
     getJobsByWorker(workerIdOrPhone) {
-        if (typeof workerIdOrPhone === 'number' || !isNaN(Number(workerIdOrPhone))) {
+        if (typeof workerIdOrPhone === 'number' || (!isNaN(Number(workerIdOrPhone)) && workerIdOrPhone !== null && workerIdOrPhone !== '')) {
             return db.prepare('SELECT * FROM jobs WHERE worker_id = ? ORDER BY created_at DESC').all(Number(workerIdOrPhone));
         }
-        const clean = workerIdOrPhone.replace(/\D/g, '');
+        const clean = (workerIdOrPhone || '').replace(/\D/g, '');
         return db.prepare('SELECT * FROM jobs WHERE worker_phone = ? ORDER BY created_at DESC').all(clean);
     },
 
@@ -969,7 +985,7 @@ const DB = {
 
     // ---------------- CALL LOGS (TELEPHONY / VOICE) ----------------
     logCall({ callerPhone, callerRole = 'customer', transcript, intentDetected, actionsTaken, durationSeconds = 15 }) {
-        const clean = callerPhone.replace(/\D/g, '');
+        const clean = (callerPhone || 'anonymous').replace(/\D/g, '') || 'anonymous';
         const stmt = db.prepare(`
             INSERT INTO call_logs (caller_phone, caller_role, transcript, intent_detected, actions_taken, duration_seconds)
             VALUES (?, ?, ?, ?, ?, ?)

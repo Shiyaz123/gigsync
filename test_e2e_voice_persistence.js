@@ -19,12 +19,10 @@ async function runE2ETests() {
     const testWorkerPhone = '7012280695';
 
     // Clean up any previous test record for this phone to start fresh
-    try {
-        const existing = DB.getWorkerByPhone(testWorkerPhone);
-        if (existing) {
-            DB.getWorkerSchedule(testWorkerPhone);
-        }
-    } catch (_) {}
+    DB.deleteTestWorkerByPhone(testWorkerPhone);
+    DB.deleteTestWorkerByPhone('9845011111');
+    DB.deleteTestWorkerByPhone('9845022222');
+    DB.deleteTestWorkerByPhone('9845033333');
 
     // --------------------------------------------------------------------------
     // TEST 1: Worker Voice Registration + Availability with Confirmation
@@ -299,6 +297,185 @@ async function runE2ETests() {
         passed++;
     } catch (err) {
         console.error('  ❌ TEST 8 FAILED:', err.message, '\n');
+        failed++;
+    }
+
+    // --------------------------------------------------------------------------
+    // TEST 9: Multi-Turn Slot Filling When Name Is Missing
+    // --------------------------------------------------------------------------
+    try {
+        console.log('TEST 9: Multi-Turn Slot Filling (Missing Name)...');
+
+        const s9 = {
+            callerPhone: '9845011111',
+            callerRole: 'worker',
+            city: 'Ramanagara',
+            history: [],
+            context: {}
+        };
+
+        const t1 = await aiAgent.processCallTurn(s9, "I am an electrician and I am available tomorrow from 11 to 5.");
+        console.log('  T1 Spoken:', t1.spokenResponse);
+        assert(t1.spokenResponse.toLowerCase().includes('name'), `Must prompt for missing name. Got: ${t1.spokenResponse}`);
+
+        const t2 = await aiAgent.processCallTurn(s9, "Rajesh.");
+        console.log('  T2 Spoken:', t2.spokenResponse);
+        assert(
+            t2.spokenResponse.toLowerCase().includes('rajesh') &&
+            t2.spokenResponse.toLowerCase().includes('electrician') &&
+            t2.spokenResponse.toLowerCase().includes('11 am') &&
+            t2.spokenResponse.toLowerCase().includes('5 pm') &&
+            (t2.spokenResponse.toLowerCase().includes('save') || t2.spokenResponse.toLowerCase().includes('shall i')),
+            `Must summarize all details and ask confirmation. Got: ${t2.spokenResponse}`
+        );
+
+        const t3 = await aiAgent.processCallTurn(s9, "Yes.");
+        console.log('  T3 Spoken:', t3.spokenResponse);
+        assert(
+            t3.spokenResponse.toLowerCase().includes('done') &&
+            t3.spokenResponse.toLowerCase().includes('electrician') &&
+            t3.spokenResponse.toLowerCase().includes('11 am') &&
+            t3.spokenResponse.toLowerCase().includes('5 pm'),
+            `Must confirm saved details. Got: ${t3.spokenResponse}`
+        );
+
+        const w9 = DB.getWorkerByPhone('9845011111');
+        assert(w9 && w9.name === 'Rajesh');
+        const sch9 = DB.getWorkerSchedule('9845011111');
+        assert(sch9.availabilitySlots[0].start_time === '11:00 AM');
+        assert(sch9.availabilitySlots[0].end_time === '05:00 PM');
+
+        console.log('  ✅ TEST 9 PASSED: Missing name collected and complete worker saved.\n');
+        passed++;
+    } catch (err) {
+        console.error('  ❌ TEST 9 FAILED:', err.message, '\n');
+        failed++;
+    }
+
+    // --------------------------------------------------------------------------
+    // TEST 10: Multi-Turn Slot Filling When Trade Is Missing
+    // --------------------------------------------------------------------------
+    try {
+        console.log('TEST 10: Multi-Turn Slot Filling (Missing Trade)...');
+
+        const s10 = {
+            callerPhone: '9845022222',
+            callerRole: 'worker',
+            city: 'Ramanagara',
+            history: [],
+            context: {}
+        };
+
+        const t1 = await aiAgent.processCallTurn(s10, "My name is Anas and I'm available today from 9 AM to 4 PM.");
+        console.log('  T1 Spoken:', t1.spokenResponse);
+        assert(
+            t1.spokenResponse.toLowerCase().includes('work') ||
+            t1.spokenResponse.toLowerCase().includes('trade') ||
+            t1.spokenResponse.toLowerCase().includes('do you do'),
+            `Must prompt for missing profession. Got: ${t1.spokenResponse}`
+        );
+
+        const t2 = await aiAgent.processCallTurn(s10, "Plumber.");
+        console.log('  T2 Spoken:', t2.spokenResponse);
+        assert(
+            t2.spokenResponse.toLowerCase().includes('anas') &&
+            t2.spokenResponse.toLowerCase().includes('plumber') &&
+            t2.spokenResponse.toLowerCase().includes('9 am') &&
+            t2.spokenResponse.toLowerCase().includes('4 pm'),
+            `Must summarize all details. Got: ${t2.spokenResponse}`
+        );
+
+        const t3 = await aiAgent.processCallTurn(s10, "Yes.");
+        console.log('  T3 Spoken:', t3.spokenResponse);
+        assert(t3.spokenResponse.toLowerCase().includes('done'));
+
+        const w10 = DB.getWorkerByPhone('9845022222');
+        assert(w10 && w10.name === 'Anas');
+        assert(w10.trade.toLowerCase().includes('plumb'));
+
+        console.log('  ✅ TEST 10 PASSED: Missing trade collected and worker persisted.\n');
+        passed++;
+    } catch (err) {
+        console.error('  ❌ TEST 10 FAILED:', err.message, '\n');
+        failed++;
+    }
+
+    // --------------------------------------------------------------------------
+    // TEST 11: Real Profile Query ("What are my details?")
+    // --------------------------------------------------------------------------
+    try {
+        console.log('TEST 11: Worker Profile Details Query ("What are my details?")...');
+
+        const s11 = {
+            callerPhone: '9845022222',
+            callerRole: 'worker',
+            city: 'Ramanagara',
+            history: [],
+            context: {}
+        };
+
+        const res11 = await aiAgent.processCallTurn(s11, "What are my details?");
+        console.log('  Profile Spoken:', res11.spokenResponse);
+
+        assert(
+            res11.spokenResponse.toLowerCase().includes('anas') &&
+            res11.spokenResponse.toLowerCase().includes('plumber') &&
+            res11.spokenResponse.toLowerCase().includes('09:00 am') &&
+            res11.spokenResponse.toLowerCase().includes('04:00 pm'),
+            `Must query real database profile and respond accurately. Got: ${res11.spokenResponse}`
+        );
+
+        console.log('  ✅ TEST 11 PASSED: Profile details queried and spoken accurately from SQLite.\n');
+        passed++;
+    } catch (err) {
+        console.error('  ❌ TEST 11 FAILED:', err.message, '\n');
+        failed++;
+    }
+
+    // --------------------------------------------------------------------------
+    // TEST 12: Anonymous Caller Missing Phone & "10 in the morning until 6"
+    // --------------------------------------------------------------------------
+    try {
+        console.log('TEST 12: Anonymous Caller Phone Missing & Natural Timing...');
+
+        const s12 = {
+            callerPhone: null,
+            callerRole: 'worker',
+            city: 'Ramanagara',
+            history: [],
+            context: {}
+        };
+
+        const t1 = await aiAgent.processCallTurn(s12, "My name is Ramesh and I am a carpenter.");
+        console.log('  T1 Spoken:', t1.spokenResponse);
+        assert(t1.spokenResponse.toLowerCase().includes('phone number'), `Must prompt for missing phone. Got: ${t1.spokenResponse}`);
+
+        const t2 = await aiAgent.processCallTurn(s12, "9845033333");
+        console.log('  T2 Spoken:', t2.spokenResponse);
+        assert(t2.spokenResponse.toLowerCase().includes('hours') || t2.spokenResponse.toLowerCase().includes('available'), `Must prompt for missing availability. Got: ${t2.spokenResponse}`);
+
+        const t3 = await aiAgent.processCallTurn(s12, "10 in the morning until 6 tomorrow");
+        console.log('  T3 Spoken:', t3.spokenResponse);
+        assert(
+            t3.spokenResponse.toLowerCase().includes('ramesh') &&
+            t3.spokenResponse.toLowerCase().includes('carpenter') &&
+            t3.spokenResponse.toLowerCase().includes('10 am') &&
+            t3.spokenResponse.toLowerCase().includes('6 pm'),
+            `Must summarize understood timing. Got: ${t3.spokenResponse}`
+        );
+
+        const t4 = await aiAgent.processCallTurn(s12, "Yes.");
+        console.log('  T4 Spoken:', t4.spokenResponse);
+        assert(t4.spokenResponse.toLowerCase().includes('done'));
+
+        const w12 = DB.getWorkerByPhone('9845033333');
+        assert(w12 && w12.name === 'Ramesh');
+        assert(w12.trade.toLowerCase().includes('carpent'));
+
+        console.log('  ✅ TEST 12 PASSED: Anonymous caller phone and natural hours successfully processed.\n');
+        passed++;
+    } catch (err) {
+        console.error('  ❌ TEST 12 FAILED:', err.message, '\n');
         failed++;
     }
 

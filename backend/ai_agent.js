@@ -839,8 +839,33 @@ function extractTimeRange(text) {
     if (!text) return { startTime: '09:00 AM', endTime: '05:00 PM', startDisplay: '9 AM', endDisplay: '5 PM' };
     const lower = text.toLowerCase();
 
+    // Match "10 in the morning until 6", "10 in the morning to 6 in the evening", etc.
+    if (lower.includes('in the morning') && (lower.includes('until') || lower.includes('to') || lower.includes('till'))) {
+        const m = lower.match(/(\d{1,2})\s*in the morning\s*(?:until|to|till)\s*(\d{1,2})/);
+        if (m) {
+            let sVal = parseInt(m[1]);
+            let eVal = parseInt(m[2]);
+            let sAmPm = 'AM';
+            let eAmPm = (eVal <= 11) ? 'PM' : 'AM';
+            const startTime = `${sVal < 10 ? '0' + sVal : sVal}:00 ${sAmPm}`;
+            const endTime = `${eVal < 10 ? '0' + eVal : eVal}:00 ${eAmPm}`;
+            return { startTime, endTime, startDisplay: `${sVal} ${sAmPm}`, endDisplay: `${eVal} ${eAmPm}` };
+        }
+    }
+
+    // Match "free today evening", "this evening", "evening"
+    if (lower.includes('evening') && !lower.match(/\d/)) {
+        return { startTime: '05:00 PM', endTime: '09:00 PM', startDisplay: '5 PM', endDisplay: '9 PM' };
+    }
+    if (lower.includes('morning') && !lower.match(/\d/)) {
+        return { startTime: '09:00 AM', endTime: '01:00 PM', startDisplay: '9 AM', endDisplay: '1 PM' };
+    }
+    if (lower.includes('afternoon') && !lower.match(/\d/)) {
+        return { startTime: '01:00 PM', endTime: '05:00 PM', startDisplay: '1 PM', endDisplay: '5 PM' };
+    }
+
     // Match variations: "6 to 5", "11 to 5", "11 to 5 o'clock", "11 am till 5 pm", "11 inda 5 varege", "from 11:00 to 17:00", etc.
-    const rangeMatch = text.match(/(\d{1,2}(?::\d{2})?)\s*(?:am|pm)?\s*(?:to|till|until|inda|inda\s*te|\-)\s*(\d{1,2}(?::\d{2})?)\s*(?:am|pm|o'clock|varege)?/i);
+    const rangeMatch = text.match(/(\d{1,2}(?::\d{2})?)\s*(?:am|pm|in the morning|in the evening)?\s*(?:to|till|until|inda|inda\s*te|\-)\s*(\d{1,2}(?::\d{2})?)\s*(?:am|pm|o'clock|varege|in the evening|in the afternoon)?/i);
 
     if (rangeMatch) {
         let sStr = rangeMatch[1];
@@ -854,10 +879,10 @@ function extractTimeRange(text) {
         let eAmPm = (eVal >= 1 && eVal <= 11) ? 'PM' : ((eVal === 12) ? 'PM' : 'AM');
         if (sVal === 12) sAmPm = 'PM';
 
-        if (lower.includes(sStr + ' am') || lower.includes(sStr + 'am')) sAmPm = 'AM';
-        if (lower.includes(sStr + ' pm') || lower.includes(sStr + 'pm')) sAmPm = 'PM';
+        if (lower.includes(sStr + ' am') || lower.includes(sStr + 'am') || lower.includes(sStr + ' in the morning')) sAmPm = 'AM';
+        if (lower.includes(sStr + ' pm') || lower.includes(sStr + 'pm') || lower.includes(sStr + ' in the afternoon') || lower.includes(sStr + ' in the evening')) sAmPm = 'PM';
         if (lower.includes(eStr + ' am') || lower.includes(eStr + 'am')) eAmPm = 'AM';
-        if (lower.includes(eStr + ' pm') || lower.includes(eStr + 'pm')) eAmPm = 'PM';
+        if (lower.includes(eStr + ' pm') || lower.includes(eStr + 'pm') || lower.includes(eStr + ' in the evening') || lower.includes(eStr + ' in the afternoon')) eAmPm = 'PM';
 
         const startTime = `${sVal < 10 ? '0' + sVal : sVal}:00 ${sAmPm}`;
         const endTime = `${eVal < 10 ? '0' + eVal : eVal}:00 ${eAmPm}`;
@@ -900,15 +925,15 @@ function isWorkerIntent(text, currentRole = 'customer') {
     const lower = text.toLowerCase();
 
     // Inquiries asking about current availability or schedule are questions, not availability declarations
-    if (/\b(?:am i available|am i free|check my availability|my working hours|what are my hours|what jobs|who is my next|where is my next|how much did i earn)\b/i.test(lower)) {
+    if (/\b(?:am i available|am i free|check my availability|my working hours|what are my hours|what jobs|who is my next|where is my next|how much did i earn|what are my details|what is my profile)\b/i.test(lower)) {
         return false;
     }
 
-    // Customer explicit requests in Kannada / English (e.g. "nanage electrician beku", "i need an electrician")
-    if (/\b(?:nanage|ನನಗೆ)\b/i.test(lower) && /\b(?:beku|ಬೇಕಾಗಿದೆ|ಬೇಕು)\b/i.test(lower)) {
+    // Customer explicit inquiries or search requests (English / Kannada)
+    if (/\b(?:which|who|find|search|need|looking for|look for|want to hire|can you|send me|book me|beku|ಬೇಕು|is there|are there|how many|show me specialists|show me workers)\b/i.test(lower)) {
         return false;
     }
-    if (/\b(?:i need|need|looking for|want to hire|can you find|send me|book me|beku|ಬೇಕು)\b/i.test(lower)) {
+    if (/\b(?:nanage|ನನಗೆ)\b/i.test(lower) && /\b(?:beku|ಬೇಕಾಗಿದೆ|ಬೇಕು)\b/i.test(lower)) {
         return false;
     }
 
@@ -916,11 +941,13 @@ function isWorkerIntent(text, currentRole = 'customer') {
     const selfIdPatterns = [
         /\b(?:i am|i'm|myself|i work as|naanu|ನಾನು|naan)\s+(?:an?|a registered|a skilled)?\s*(?:electrician|plumber|carpenter|mechanic|painter|technician|mason|tailor|welder|driver|specialist|ಎಲೆಕ್ಟ್ರಿಷಿಯನ್|ಪ್ಲಂಬರ್|ಕಾರ್ಪೆಂಟರ್|ಮೆಕ್ಯಾನಿಕ್)\b/i,
         /\b(?:my name is|name is|this is|hesaru|ಹೆಸರು)\s+[a-z]+\s+(?:and\s+)?(?:i am|i'm|i work as|naanu)\s+(?:an?|a)?\s*(?:electrician|plumber|carpenter|mechanic|painter|technician|mason|tailor|welder|driver)\b/i,
+        /\b(?:my name is|name is|this is)\s+[a-z]+\s+(?:and\s+)?(?:i'm\s+available|i am\s+available|available)\b/i,
         /\b(?:i am|i'm|myself|iddini|ಇದ್ದೇನೆ)\s+(?:available|free|on duty|off duty|labhyaviddini|ಲಭ್ಯ)\s+(?:from|for|today|tomorrow|naale|ivathu|now|between|till|after|\d)\b/i,
         /\b(?:wanted to work|want to work|ready to work|kelasa madalu|kelasa madbeku|i wanted to work|i want to work)\b/i,
         /\b(?:my availability|my schedule|my working hours|my shift|nanna availability|nanna schedule)\s+(?:is|for|from|to|inda)\b/i,
-        /\b(?:set|update|change|mark|add)\s+(?:my\s+)?(?:availability|schedule|timing|shift|hours)\b/i,
+        /\b(?:set|update|change|mark|add)\s+(?:my\s+|tomorrow's\s+|today's\s+)?(?:availability|schedule|timing|shift|hours)\b/i,
         /\b(?:i can work|i will be available|i am not available|i won't be available|i will work|add me as available)\b/i,
+        /\b(?:free today|free tomorrow|available today|available tomorrow)\b/i,
         /\b(?:not available on|make me unavailable|cancel my availability|cancel availability|not available)\b/i,
         /\b(?:inda|ರಿಂದ)\s+\d{1,2}\s*(?:to|till|varege|ವರೆಗೆ)\s+\d{1,2}\s*(?:available|iddini|ಇದ್ದೇನೆ)\b/i
     ];
@@ -932,13 +959,85 @@ function isWorkerIntent(text, currentRole = 'customer') {
     // Contextual follow-up if caller is already identified as a worker
     if (currentRole === 'worker') {
         if (/\b(?:available|free|from \d|to \d|\d to \d|tomorrow too|saturday too|sunday too|off duty|on duty|leave|varege|inda)\b/i.test(lower)) {
-            if (!/\b(?:find|search|need|look for|book|hire|get me|send me|beku|ಬೇಕು|am i|check)\b/i.test(lower)) {
+            if (!/\b(?:which|who|find|search|need|look for|book|hire|get me|send me|beku|ಬೇಕು|am i|check)\b/i.test(lower)) {
                 return true;
             }
         }
     }
 
     return false;
+}
+
+// Helper for slot-filling worker registration and availability without guessing
+function evaluateWorkerDraft(session, text, actionsPerformed) {
+    session.context.workerDraft = session.context.workerDraft || {
+        name: null,
+        phone: (session.callerPhone && /^[6-9]\d{9}$/.test(session.callerPhone)) ? session.callerPhone : null,
+        trade: null,
+        date: null,
+        startTime: null,
+        endTime: null,
+        startDisplay: null,
+        endDisplay: null,
+        hasAvailability: false
+    };
+
+    const draft = session.context.workerDraft;
+
+    if (!draft.phone && session.callerPhone && /^[6-9]\d{9}$/.test(session.callerPhone)) {
+        draft.phone = session.callerPhone;
+    }
+
+    const existingWorker = draft.phone ? DB.getWorkerByPhone(draft.phone) : null;
+    if (existingWorker) {
+        if (!draft.name) draft.name = existingWorker.name;
+        if (!draft.trade) draft.trade = existingWorker.trade;
+    }
+
+    if (!draft.name) {
+        session.context.pendingIntent = 'AWAITING_WORKER_NAME';
+        actionsPerformed.push('Prompted worker for missing name');
+        return `Sure. What is your name?`;
+    }
+
+    if (!draft.phone) {
+        session.context.pendingIntent = 'AWAITING_WORKER_PHONE';
+        actionsPerformed.push('Prompted worker for missing phone');
+        return draft.name ? `Thanks, ${draft.name}. What is your phone number?` : `Thanks. What is your phone number?`;
+    }
+
+    if (!draft.trade) {
+        session.context.pendingIntent = 'AWAITING_WORKER_TRADE';
+        actionsPerformed.push('Prompted worker for missing trade');
+        return `What type of work do you do?`;
+    }
+
+    if (!draft.hasAvailability) {
+        session.context.pendingIntent = 'AWAITING_WORKER_AVAILABILITY';
+        actionsPerformed.push('Prompted worker for missing availability');
+        return `What hours are you available?`;
+    }
+
+    // All 5 fields present!
+    const tradeNoun = getTradePersonNoun(draft.trade).replace(/^(an?)\s+/i, '');
+    const article = /^[aeiou]/i.test(tradeNoun) ? 'an' : 'a';
+    session.context.pendingIntent = 'CONFIRM_UPDATE_AVAILABILITY';
+    session.context.pendingAvailabilityData = {
+        workerId: existingWorker ? existingWorker.id : null,
+        name: draft.name,
+        phone: draft.phone,
+        trade: draft.trade,
+        tradeNoun: tradeNoun,
+        date: draft.date,
+        startTime: draft.startTime,
+        endTime: draft.endTime,
+        startDisplay: draft.startDisplay,
+        endDisplay: draft.endDisplay,
+        isAvailable: true,
+        updateType: (!existingWorker ? 'REGISTRATION_AND_AVAILABILITY' : 'MULTIPLE_DETAILS')
+    };
+    actionsPerformed.push(`Prepared complete worker details for confirmation`);
+    return `Got it. You're ${draft.name}, ${article} ${tradeNoun}, available ${draft.date.toLowerCase()} from ${draft.startDisplay} to ${draft.endDisplay}. Shall I save these details?`;
 }
 
 // 5. Intelligent Multi-Turn Conversational Processor
@@ -1058,8 +1157,57 @@ class ContextAwareVoiceAgent {
         // C. DETERMINISTIC OFFLINE RULES & DATABASE ENGINE (FALLBACK ONLY)
         // ======================================================================
         if (!spokenResponse) {
-            // C.1 Multi-Turn Pending Confirmations
-            if (session.context.pendingIntent === 'CONFIRM_UPDATE_AVAILABILITY' && (isAffirmative || isNegative)) {
+            // C.1 Multi-Turn Pending Confirmations & Slot-Filling Responses
+            if (session.context.pendingIntent === 'AWAITING_WORKER_NAME') {
+                detectedIntent = 'provide_worker_name';
+                session.context.workerDraft = session.context.workerDraft || {};
+                const candidateName = extractCallerName(text) || text.replace(/^(my name is|name is|i am|i'm|it's|its|this is|call me|hesaru|ಹೆಸರು)\s+/i, '').trim().replace(/[^a-zA-Z\s]/g, '').trim().split(/\s+/)[0];
+                if (candidateName && candidateName.length >= 2) {
+                    session.context.workerDraft.name = candidateName.charAt(0).toUpperCase() + candidateName.slice(1).toLowerCase();
+                }
+                session.context.pendingIntent = null;
+                spokenResponse = evaluateWorkerDraft(session, text, actionsPerformed);
+            }
+
+            else if (session.context.pendingIntent === 'AWAITING_WORKER_PHONE') {
+                detectedIntent = 'provide_worker_phone';
+                session.context.workerDraft = session.context.workerDraft || {};
+                const candidatePhone = extractPhoneNumber(text) || text.replace(/\D/g, '');
+                if (candidatePhone && candidatePhone.length === 10) {
+                    session.context.workerDraft.phone = candidatePhone;
+                    session.callerPhone = candidatePhone;
+                }
+                session.context.pendingIntent = null;
+                spokenResponse = evaluateWorkerDraft(session, text, actionsPerformed);
+            }
+
+            else if (session.context.pendingIntent === 'AWAITING_WORKER_TRADE') {
+                detectedIntent = 'provide_worker_trade';
+                session.context.workerDraft = session.context.workerDraft || {};
+                const candidateTrade = extractTradeAndService(text);
+                if (candidateTrade) {
+                    session.context.workerDraft.trade = candidateTrade;
+                }
+                session.context.pendingIntent = null;
+                spokenResponse = evaluateWorkerDraft(session, text, actionsPerformed);
+            }
+
+            else if (session.context.pendingIntent === 'AWAITING_WORKER_AVAILABILITY') {
+                detectedIntent = 'provide_worker_availability';
+                session.context.workerDraft = session.context.workerDraft || {};
+                const range = extractTimeRange(text);
+                const { date } = extractDateTimeEntities(text);
+                session.context.workerDraft.date = date || 'Tomorrow';
+                session.context.workerDraft.startTime = range.startTime;
+                session.context.workerDraft.endTime = range.endTime;
+                session.context.workerDraft.startDisplay = range.startDisplay;
+                session.context.workerDraft.endDisplay = range.endDisplay;
+                session.context.workerDraft.hasAvailability = true;
+                session.context.pendingIntent = null;
+                spokenResponse = evaluateWorkerDraft(session, text, actionsPerformed);
+            }
+
+            else if (session.context.pendingIntent === 'CONFIRM_UPDATE_AVAILABILITY' && (isAffirmative || isNegative)) {
                 detectedIntent = 'confirm_availability';
                 if (isAffirmative && session.context.pendingAvailabilityData) {
                     const avail = session.context.pendingAvailabilityData;
@@ -1093,7 +1241,7 @@ class ContextAwareVoiceAgent {
                             spokenResponse = `Done. Your details have been updated:\nName: ${avail.name}\nProfession: ${tradeNoun.charAt(0).toUpperCase() + tradeNoun.slice(1)}\nAvailability: ${avail.date}, ${avail.startDisplay} to ${avail.endDisplay}.`;
                         } else {
                             const article = /^[aeiou]/i.test(tradeNoun) ? 'an' : 'a';
-                            spokenResponse = `Done. Your details have been updated successfully. You are registered as ${article} ${tradeNoun} and you're available ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
+                            spokenResponse = `Done. Your details have been updated successfully. You're registered as ${article} ${tradeNoun} and available ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
                         }
                     } else {
                         spokenResponse = `Sorry, I couldn't update your details. Please try again.`;
@@ -1101,11 +1249,13 @@ class ContextAwareVoiceAgent {
 
                     session.context.pendingIntent = null;
                     session.context.pendingAvailabilityData = null;
+                    session.context.workerDraft = null;
                     session.context.lastActionCompleted = 'AVAILABILITY_UPDATED';
                 } else if (isNegative) {
                     spokenResponse = `No problem, I haven't saved this to your schedule. Let me know if you need anything else.`;
                     session.context.pendingIntent = null;
                     session.context.pendingAvailabilityData = null;
+                    session.context.workerDraft = null;
                 }
             }
 
@@ -1130,10 +1280,12 @@ class ContextAwareVoiceAgent {
                     }
                     session.context.pendingIntent = null;
                     session.context.pendingProfessionData = null;
+                    session.context.workerDraft = null;
                 } else if (isNegative) {
                     spokenResponse = `Understood, your profession remains unchanged. Let me know if you need anything else.`;
                     session.context.pendingIntent = null;
                     session.context.pendingProfessionData = null;
+                    session.context.workerDraft = null;
                 }
             }
 
@@ -1246,76 +1398,107 @@ class ContextAwareVoiceAgent {
 
             // C.4 Worker Self-Identification & Availability Statements
             else if (isWorkerIntent(text, session.callerRole)) {
-                const worker = DB.getWorkerByPhone(session.callerPhone);
-                const hasAvailabilityClause = /\b(available|free|duty|from \d|to \d|\d to \d|timing|hours|schedule|varege|inda|o'clock|wanted to work|want to work|ready to work)\b/i.test(lowerCleaned);
-                const detectedTrade = extractTradeAndService(text);
-                const statedName = extractCallerName(text);
-                const tradeNoun = getTradePersonNoun(detectedTrade || (worker ? worker.trade : 'Specialist')).replace(/^(an?)\s+/i, '');
+                session.callerRole = 'worker';
+                session.context.workerDraft = session.context.workerDraft || {
+                    name: null,
+                    phone: (session.callerPhone && /^[6-9]\d{9}$/.test(session.callerPhone)) ? session.callerPhone : null,
+                    trade: null,
+                    date: null,
+                    startTime: null,
+                    endTime: null,
+                    startDisplay: null,
+                    endDisplay: null,
+                    hasAvailability: false
+                };
+                const draft = session.context.workerDraft;
 
-                if (hasAvailabilityClause) {
+                const statedName = extractCallerName(text);
+                if (statedName) draft.name = statedName;
+
+                const statedPhone = extractPhoneNumber(text);
+                if (statedPhone) {
+                    draft.phone = statedPhone;
+                    session.callerPhone = statedPhone;
+                } else if (!draft.phone && session.callerPhone && /^[6-9]\d{9}$/.test(session.callerPhone)) {
+                    draft.phone = session.callerPhone;
+                }
+
+                const statedTrade = extractTradeAndService(text);
+                if (statedTrade) draft.trade = statedTrade;
+
+                const hasAvail = /\b(available|free|duty|from \d|to \d|\d to \d|timing|hours|schedule|varege|inda|o'clock|wanted to work|want to work|ready to work|\d+ to \d+|\d+\s*am|\d+\s*pm|morning|evening|afternoon|today|tomorrow)\b/i.test(lowerCleaned);
+                if (hasAvail && (text.match(/\d/) || lowerCleaned.includes('morning') || lowerCleaned.includes('evening') || lowerCleaned.includes('afternoon') || lowerCleaned.includes('today') || lowerCleaned.includes('tomorrow'))) {
                     const range = extractTimeRange(text);
                     const { date } = extractDateTimeEntities(text);
-                    const targetDate = date || 'Tomorrow';
-                    const isAvail = !lowerCleaned.includes('not available') && !lowerCleaned.includes('unavailable') && !lowerCleaned.includes('off') && !lowerCleaned.includes('leave');
+                    draft.date = date || 'Tomorrow';
+                    draft.startTime = range.startTime;
+                    draft.endTime = range.endTime;
+                    draft.startDisplay = range.startDisplay;
+                    draft.endDisplay = range.endDisplay;
+                    draft.hasAvailability = true;
+                }
 
-                    // Determine update type
-                    let updateType = 'AVAILABILITY_ONLY';
-                    if (!worker) {
-                        updateType = 'REGISTRATION_AND_AVAILABILITY';
-                    } else if (statedName && detectedTrade) {
-                        updateType = 'MULTIPLE_DETAILS';
-                    } else if (detectedTrade && detectedTrade.toLowerCase() !== worker.trade.toLowerCase()) {
-                        updateType = 'MULTIPLE_DETAILS';
-                    } else {
-                        updateType = 'AVAILABILITY_ONLY';
-                    }
+                const existingWorker = draft.phone ? DB.getWorkerByPhone(draft.phone) : null;
 
-                    session.callerRole = 'worker';
-                    session.context.pendingAvailabilityData = {
-                        workerId: worker ? worker.id : null,
-                        name: statedName || (worker ? worker.name : 'Rajesh'),
-                        trade: detectedTrade || (worker ? worker.trade : 'Electrician'),
-                        tradeNoun: tradeNoun,
-                        phone: session.callerPhone,
-                        date: targetDate,
-                        startTime: range.startTime,
-                        endTime: range.endTime,
-                        startDisplay: range.startDisplay,
-                        endDisplay: range.endDisplay,
-                        isAvailable: isAvail,
-                        updateType
-                    };
-                    session.context.pendingIntent = 'CONFIRM_UPDATE_AVAILABILITY';
-                    actionsPerformed.push(`Prepared worker ${updateType} for ${targetDate}`);
-
-                    if (updateType === 'AVAILABILITY_ONLY') {
-                        spokenResponse = `Got it. You want to update your availability to ${targetDate.toLowerCase()}, ${range.startDisplay} to ${range.endDisplay}. Shall I save this?`;
-                    } else if (updateType === 'MULTIPLE_DETAILS') {
-                        spokenResponse = `Got it. I have your details as ${statedName || worker.name}, ${tradeNoun}, available ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}. Shall I save this?`;
-                    } else {
-                        spokenResponse = `Got it. I have your details as ${statedName || 'Rajesh'}, ${tradeNoun}, available ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}. Shall I save this?`;
-                    }
-                } else if (detectedTrade && /\b(now|became|changed to|change to|new trade|profession)\b/i.test(lowerCleaned)) {
-                    session.callerRole = 'worker';
+                // Specific case: Worker explicitly requested trade/profession change
+                if (statedTrade && /\b(now|became|changed to|change to|new trade|profession)\b/i.test(lowerCleaned)) {
+                    const tradeNoun = getTradePersonNoun(statedTrade).replace(/^(an?)\s+/i, '');
                     session.context.pendingProfessionData = {
-                        workerId: worker ? worker.id : null,
-                        name: statedName || (worker ? worker.name : 'Worker'),
-                        trade: detectedTrade,
+                        workerId: existingWorker ? existingWorker.id : null,
+                        name: draft.name || (existingWorker ? existingWorker.name : 'Worker'),
+                        trade: statedTrade,
                         tradeNoun: tradeNoun,
-                        phone: session.callerPhone
+                        phone: draft.phone || session.callerPhone
                     };
                     session.context.pendingIntent = 'CONFIRM_UPDATE_PROFESSION';
                     spokenResponse = `Got it. You want to update your profession to ${tradeNoun}. Shall I save this?`;
-                    actionsPerformed.push(`Prompted confirmation for trade change to ${detectedTrade}`);
-                } else {
-                    if (worker) {
-                        spokenResponse = `Hello! I recognize you as a registered ${worker.trade}. Would you like to update your schedule, check your bookings, or view your earnings?`;
-                    } else {
-                        session.context.pendingIntent = 'CONFIRM_REGISTER_OFFER';
-                        spokenResponse = `Got it. I have your details as ${statedName || 'a worker'}, ${tradeNoun}. Would you like to set your working availability for today or tomorrow?`;
-                    }
-                    actionsPerformed.push(`Recognized worker self-identification`);
+                    actionsPerformed.push(`Prompted confirmation for trade change to ${statedTrade}`);
                 }
+                // Specific case: Existing worker changing availability only
+                else if (existingWorker && draft.hasAvailability && !statedName && (!statedTrade || statedTrade.toLowerCase() === existingWorker.trade.toLowerCase())) {
+                    session.context.pendingAvailabilityData = {
+                        workerId: existingWorker.id,
+                        name: existingWorker.name,
+                        trade: existingWorker.trade,
+                        tradeNoun: getTradePersonNoun(existingWorker.trade).replace(/^(an?)\s+/i, ''),
+                        phone: draft.phone,
+                        date: draft.date,
+                        startTime: draft.startTime,
+                        endTime: draft.endTime,
+                        startDisplay: draft.startDisplay,
+                        endDisplay: draft.endDisplay,
+                        isAvailable: true,
+                        updateType: 'AVAILABILITY_ONLY'
+                    };
+                    session.context.pendingIntent = 'CONFIRM_UPDATE_AVAILABILITY';
+                    spokenResponse = `Got it. You want to update your availability to ${draft.date.toLowerCase()}, ${draft.startDisplay} to ${draft.endDisplay}. Shall I save this?`;
+                    actionsPerformed.push(`Prepared worker availability update for ${draft.date}`);
+                }
+                // General Slot-filling evaluation (never guess missing data)
+                else {
+                    spokenResponse = evaluateWorkerDraft(session, text, actionsPerformed);
+                }
+            }
+
+            // C.5b Worker Profile & Details Inquiry ("What are my details?", "What is my profile?")
+            else if (/\b(what are my details|what is my details|what are my detail|what is my detail|what is my profile|check my details|check my profile|my details|my profile|who am i|show my details|show my profile)\b/i.test(lowerCleaned)) {
+                detectedIntent = 'get_worker_profile';
+                session.callerRole = 'worker';
+                const worker = DB.getWorkerByPhone(session.callerPhone);
+                if (!worker) {
+                    spokenResponse = `I don't have a registered profile for this phone number yet. Would you like to register as a worker?`;
+                } else {
+                    const schedule = DB.getWorkerSchedule(session.callerPhone);
+                    const latestSlot = (schedule && schedule.availabilitySlots && schedule.availabilitySlots.length > 0) ? schedule.availabilitySlots[0] : null;
+                    const tradeNoun = getTradePersonNoun(worker.trade).replace(/^(an?)\s+/i, '');
+                    const article = /^[aeiou]/i.test(tradeNoun) ? 'an' : 'a';
+                    if (latestSlot) {
+                        spokenResponse = `You're ${worker.name}, ${article} ${tradeNoun}. You're available ${latestSlot.date_str.toLowerCase()} from ${latestSlot.start_time} to ${latestSlot.end_time}.`;
+                    } else {
+                        spokenResponse = `You're ${worker.name}, registered as ${article} ${tradeNoun}. You don't have any active availability slots set.`;
+                    }
+                }
+                actionsPerformed.push(`Queried real worker profile from database`);
             }
 
             // C.5 Worker Schedule Inquiry ("What jobs do I have today?")
