@@ -4,6 +4,8 @@
    ========================================================================== */
 
 const crypto = require('node:crypto');
+const DB = require('../backend/database');
+const { aiAgent } = require('../backend/ai_agent');
 
 // In-memory / serverless runtime state store for Vercel
 const runtimeState = {
@@ -248,46 +250,17 @@ module.exports = async (req, res) => {
         }
 
         try {
-            let aiAgent = null;
-            try {
-                aiAgent = require('../backend/ai_agent').aiAgent;
-            } catch (loadErr) {
-                console.warn('[Vercel AI Agent Load Warning]', loadErr.message);
-            }
-
-            let aiTurn = null;
-            if (aiAgent && typeof aiAgent.processCallTurn === 'function') {
-                aiTurn = await aiAgent.processCallTurn({
-                    sessionId: body.sessionId || callerPhone,
-                    callerPhone,
-                    callerRole,
-                    callerName,
-                    city: callerCity,
-                    speechText
-                });
-            } else {
-                // Inline conversational response if module cannot be dynamically imported
-                aiTurn = {
-                    spokenResponse: callerRole === 'worker'
-                        ? `Hello ${callerName}! I am ready to assist with your worker schedule, bookings, and earnings. How can I help you today?`
-                        : `Hello ${callerName}! Welcome to GigSync. What service or specialist do you need today in ${callerCity}?`,
-                    toolExecuted: null,
-                    toolResult: null,
-                    detectedIntent: 'conversation',
-                    extractedEntities: {},
-                    actionsPerformed: ['Vercel serverless gateway response'],
-                    shouldEndCall: false,
-                    context: {
-                        currentService: null,
-                        currentLocation: callerCity,
-                        pendingIntent: null,
-                        workersFound: 0
-                    }
-                };
-            }
+            const aiTurn = await aiAgent.processCallTurn({
+                sessionId: body.sessionId || callerPhone,
+                callerPhone,
+                callerRole,
+                callerName,
+                city: callerCity,
+                speechText
+            });
 
             const logEntry = {
-                id: runtimeState.callLogs.length + 1,
+                id: (runtimeState.callLogs ? runtimeState.callLogs.length : 0) + 1,
                 caller_phone: callerPhone,
                 caller_role: callerRole,
                 transcript: speechText,
@@ -295,7 +268,7 @@ module.exports = async (req, res) => {
                 duration_seconds: 10,
                 timestamp: new Date().toISOString()
             };
-            runtimeState.callLogs.unshift(logEntry);
+            if (runtimeState.callLogs) runtimeState.callLogs.unshift(logEntry);
 
             return sendJSON(res, {
                 status: 'success',
@@ -304,26 +277,10 @@ module.exports = async (req, res) => {
             });
         } catch (err) {
             console.error('[Vercel AI Error]', err);
-            const fallbackResponse = callerRole === 'worker'
-                ? `Hello ${callerName}! I am ready to assist with your worker schedule, bookings, and earnings. How can I help you today?`
-                : `Hello ${callerName}! Welcome to GigSync. What service or specialist do you need today in ${callerCity}?`;
-
             return sendJSON(res, {
-                status: 'success',
-                spokenResponse: fallbackResponse,
-                toolExecuted: null,
-                toolResult: null,
-                detectedIntent: 'conversation',
-                extractedEntities: {},
-                actionsPerformed: ['Resilient conversational response'],
-                shouldEndCall: false,
-                context: {
-                    currentService: null,
-                    currentLocation: callerCity,
-                    pendingIntent: null,
-                    workersFound: 0
-                }
-            });
+                status: 'error',
+                message: err.message || 'AI Voice Agent processing error'
+            }, 500);
         }
     }
 

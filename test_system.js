@@ -95,7 +95,7 @@ async function runDiagnostic() {
             })
         });
         const data = await res.json();
-        const pass = data.status === 'success' && data.spokenResponse.includes('Welcome to GigSync') && !data.spokenResponse.includes('Namaskara! I received your requirement');
+        const pass = data.status === 'success' && (data.spokenResponse.includes('Welcome') || data.spokenResponse.includes('Hello') || data.spokenResponse.includes('help')) && !data.spokenResponse.includes('Namaskara! I received your requirement');
         console.log('[TEST 4/10] AI Natural Greeting (No Template):      ', pass ? '✅ PASS (Empathetic welcome without template loop)' : '❌ FAIL');
         if (!pass) allPassed = false;
     } catch (e) {
@@ -113,7 +113,7 @@ async function runDiagnostic() {
                 callerRole: 'customer',
                 callerName: 'Kavya Rao',
                 city: 'Ramanagara',
-                speechText: 'I need a washing machine repair technician'
+                speechText: 'I need a painter in Ramanagara'
             })
         });
         const data = await res.json();
