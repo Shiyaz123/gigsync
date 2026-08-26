@@ -1479,12 +1479,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let terminalSpeechRec = null;
     let terminalAudioAnimId = null;
 
-    // Conversational VAD & Turn State Variables (Exact 2-Second Natural Gap)
+    // Conversational VAD & Turn State Variables (5-Second Silence Detection Window)
     let isAiSpeaking = false;
     let turnSilenceTimer = null;
     let currentTurnTranscript = '';
     let currentInterimTranscript = '';
-    const TURN_SILENCE_TIMEOUT_MS = 2000; // Exact 2.0 seconds silence window
+    const TURN_SILENCE_TIMEOUT_MS = 5000; // 5.0 seconds silence window per specification
 
     function setVoiceAgentState(stateKey, labelText) {
         const badge = document.getElementById('vaLiveStateBadge');
@@ -2017,14 +2017,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     modalInput.value = liveTextCaptured;
                 }
 
-                // 2-second silence auto-send timer
+                // 5-second silence auto-send timer
                 if (liveTextCaptured) {
                     clearTimeout(modalSilenceTimer);
                     modalSilenceTimer = setTimeout(() => {
                         if (state.isAiModalRecording) {
                             stopAiModalListening(true);
                         }
-                    }, 2000);
+                    }, 5000);
                 }
             };
 
@@ -2035,7 +2035,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (state.isAiModalRecording) {
                             stopAiModalListening(true);
                         }
-                    }, 2000);
+                    }, 5000);
                 }
             };
 
@@ -2062,7 +2062,7 @@ document.addEventListener('DOMContentLoaded', () => {
             state.isAiModalRecording = true;
             aiModalBigMicBtn?.classList.add('recording');
             aiModalWaveBars?.classList.remove('hidden');
-            if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🔴 Listening... (Will automatically reply 2s after you stop speaking)';
+            if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🔴 Listening... (Will automatically reply 5s after you stop speaking)';
             if (aiLiveStreamTranscript) aiLiveStreamTranscript.classList.remove('hidden');
             if (aiLiveStreamText) aiLiveStreamText.textContent = 'Listening to your voice... Speak now';
 

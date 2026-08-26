@@ -1,0 +1,24 @@
+{
+  "name": "gigsync",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shiyaz123/gigsync.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Shiyaz123/gigsync/issues"
+  },
+  "homepage": "https://github.com/Shiyaz123/gigsync#readme",
+  "dependencies": {
+    "@google/genai": "^2.19.0"
+  }
+}

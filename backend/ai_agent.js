@@ -1,8 +1,31 @@
 /* ==========================================================================
    GigSync — Context-Aware & Database-First AI Voice Agent Engine
-   Zero Dummy Data · Multi-Turn Conversation Memory · Verified SQLite Tools
+   Unified Google Gemini API Brain · Verified Real Database Tools
    ========================================================================== */
 
+const fs = require('node:fs');
+const path = require('node:path');
+
+// Auto-load .env if present (strictly server-side, never exposed to client)
+const envPath = path.join(__dirname, '..', '.env');
+if (fs.existsSync(envPath)) {
+    try {
+        const envContent = fs.readFileSync(envPath, 'utf8');
+        for (const line of envContent.split('\n')) {
+            const trimmed = line.trim();
+            if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+                const [k, ...v] = trimmed.split('=');
+                const key = k.trim();
+                const val = v.join('=').trim().replace(/^["']|["']$/g, '');
+                if (!process.env[key]) {
+                    process.env[key] = val;
+                }
+            }
+        }
+    } catch(e){}
+}
+
+const { GoogleGenAI } = require('@google/genai');
 const DB = require('./database');
 
 // 1. Definition of Real Database Tools (No Assumptions, No Fabricated Records)
@@ -213,10 +236,281 @@ const AI_TOOLS = {
             'AC & Fridge Tech',
             'Washing Machine & Appliance Repair',
             'Painting',
-            'Home Cleaning'
+            'Home Cleaning',
+            'Masonry & Construction',
+            'Tailoring & Alterations',
+            'Welding & Metalwork',
+            'Driver Services',
+            'TV & Electronics Repair',
+            'Water Purifier & RO Service'
         ];
     }
 };
+
+// ======================================================================
+// 1.1 GEMINI FUNCTION DECLARATIONS (OFFICIAL GOOGLE GENAI SCHEMA)
+// ======================================================================
+const GEMINI_TOOLS_DECLARATIONS = [
+    {
+        name: 'findWorkers',
+        description: 'Find real registered and available trade workers from the GigSync database for a requested trade and city.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                service: { type: 'STRING', description: 'Trade or service category, e.g. Electrical, Plumbing, Carpentry, Mechanics, Home Cleaning, Painting, Masonry & Construction, Tailoring & Alterations, Welding & Metalwork, Driver Services, TV & Electronics Repair, Water Purifier & RO Service, Washing Machine Repair, Refrigerator Repair, AC & Appliances' },
+                city: { type: 'STRING', description: 'City/town name in Karnataka, e.g. Ramanagara, Kanakapura, Channapatna, Bengaluru, Mysuru, Bidadi, Magadi' }
+            },
+            required: ['service']
+        }
+    },
+    {
+        name: 'checkWorkerAvailability',
+        description: 'Check real-time availability and schedule conflicts for a specific worker by name or ID.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerName: { type: 'STRING', description: 'Name of the worker' },
+                workerId: { type: 'STRING', description: 'Worker ID' },
+                date: { type: 'STRING', description: 'Date to check e.g. Today, Tomorrow' },
+                time: { type: 'STRING', description: 'Time to check e.g. 09:00 AM, 04:00 PM' }
+            }
+        }
+    },
+    {
+        name: 'createJob',
+        description: 'Create a real job request or dispatch a booking to a registered worker in the database.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                service: { type: 'STRING', description: 'The service required e.g. Electrical, Plumbing, Washing Machine Repair' },
+                problemDescription: { type: 'STRING', description: 'Brief description of the customer issue' },
+                city: { type: 'STRING', description: 'Service city' },
+                location: { type: 'STRING', description: 'Neighborhood or address' },
+                requestedDate: { type: 'STRING', description: 'Requested service date' },
+                requestedTime: { type: 'STRING', description: 'Requested time' },
+                budget: { type: 'STRING', description: 'Budget or fee' },
+                workerId: { type: 'STRING', description: 'ID of worker if booking a specific worker' },
+                workerName: { type: 'STRING', description: 'Name of worker if booking a specific worker' },
+                workerPhone: { type: 'STRING', description: 'Phone of worker if booking a specific worker' }
+            },
+            required: ['service', 'city']
+        }
+    },
+    {
+        name: 'getCustomerBookings',
+        description: 'Retrieve real active bookings and jobs for the customer.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                customerPhone: { type: 'STRING', description: 'Customer phone number' }
+            }
+        }
+    },
+    {
+        name: 'getWorkerBookings',
+        description: 'Retrieve assigned gigs and bookings for the authenticated worker.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Worker phone number' },
+                date: { type: 'STRING', description: 'Optional date filter' }
+            }
+        }
+    },
+    {
+        name: 'getWorkerEarnings',
+        description: 'Calculate real total earnings and completed gigs for the authenticated worker.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Worker phone number' }
+            }
+        }
+    },
+    {
+        name: 'updateWorkerAvailability',
+        description: 'Set or update the working schedule and duty status for a worker.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Worker phone number' },
+                date: { type: 'STRING', description: 'Date to update' },
+                startTime: { type: 'STRING', description: 'Start time e.g. 09:00 AM' },
+                endTime: { type: 'STRING', description: 'End time e.g. 06:00 PM' },
+                isAvailable: { type: 'BOOLEAN', description: 'True if on duty, false if off duty' }
+            }
+        }
+    },
+    {
+        name: 'getWorkerAvailability',
+        description: 'Check a worker schedule for a given date.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Worker phone number' },
+                date: { type: 'STRING', description: 'Date to check' }
+            }
+        }
+    },
+    {
+        name: 'cancelJob',
+        description: 'Cancel an active job or booking in the database.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                jobId: { type: 'STRING', description: 'The Job ID to cancel' },
+                customerPhone: { type: 'STRING', description: 'Customer phone for verification' }
+            },
+            required: ['jobId']
+        }
+    },
+    {
+        name: 'getServices',
+        description: 'List available trade services supported by GigSync.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {}
+        }
+    }
+];
+
+// ======================================================================
+// 1.2 UNIFIED GEMINI CONVERSATIONAL BRAIN
+// ======================================================================
+class GeminiConversationalBrain {
+    constructor() {
+        this.apiKey = process.env.GEMINI_API_KEY || '';
+        this.client = this.apiKey ? new GoogleGenAI({ apiKey: this.apiKey }) : null;
+    }
+
+    getClient() {
+        if (!this.client && process.env.GEMINI_API_KEY) {
+            this.apiKey = process.env.GEMINI_API_KEY;
+            this.client = new GoogleGenAI({ apiKey: this.apiKey });
+        }
+        return this.client;
+    }
+
+    async processTurn({ session, text }) {
+        const client = this.getClient();
+        if (!client) return null;
+
+        const systemInstruction = `You are GigSync AI, the official voice assistant and conversational intelligence for GigSync — a hyperlocal marketplace serving Tier-2 and Tier-3 cities in Karnataka, India (including Ramanagara, Kanakapura, Channapatna, Bengaluru, Mysuru, Bidadi, Magadi, etc.).
+
+AUTHENTICATION CONTEXT:
+- Caller Name: ${session.callerName || 'User'}
+- Caller Phone: ${session.callerPhone || '9876543210'}
+- Caller Role: ${session.callerRole || 'customer'}
+- Service City: ${session.city || 'Ramanagara'}
+
+CRITICAL RULES:
+1. SOURCE OF TRUTH: You MUST use the provided tools to query real data for any question about workers, jobs, bookings, schedules, or earnings. NEVER answer from general assumptions or invent worker names, phone numbers, ratings, or prices.
+2. ZERO FABRICATION: If a tool returns 0 matching workers or no bookings, state that honestly (e.g. "I couldn't find any registered electricians available in Ramanagara today.") and offer to post an open job request.
+3. NO FAKE CONFIRMATIONS: NEVER claim a booking or job has been confirmed unless the 'createJob' or 'updateJob' tool has executed successfully and returned a job record.
+4. ROLE AUTHORIZATION: If caller is a 'customer' and asks for worker earnings or worker schedules, explain politely that earnings are only accessible from registered worker accounts.
+5. LANGUAGE: Automatically detect and respond in the language used by the user (English, Kannada ಕನ್ನಡ, or Hindi). If caller speaks Kannada, reply in Kannada. If English, reply in English.
+6. CONVERSATION FLOW:
+   - If caller asks "who is available?" or "worker available", ask which service/trade they need if not specified.
+   - If caller says "thank you", "that's all", "bye", acknowledge warmly and say goodbye.
+   - Keep answers concise, clear, and natural for voice synthesis and audio playback.`;
+
+        try {
+            // Format history for Gemini API
+            const contents = [];
+            for (const h of session.history.slice(-8)) {
+                contents.push({
+                    role: h.role === 'assistant' ? 'model' : 'user',
+                    parts: [{ text: h.text }]
+                });
+            }
+            if (contents.length === 0 || contents[contents.length - 1].parts[0].text !== text) {
+                contents.push({
+                    role: 'user',
+                    parts: [{ text }]
+                });
+            }
+
+            const actionsPerformed = [];
+            let toolExecuted = null;
+            let toolResult = null;
+            let shouldEndCall = false;
+
+            // Gemini Function Calling Loop (up to 4 tool turns)
+            for (let step = 0; step < 4; step++) {
+                const response = await client.models.generateContent({
+                    model: 'gemini-2.5-flash',
+                    contents,
+                    config: {
+                        systemInstruction,
+                        tools: [{ functionDeclarations: GEMINI_TOOLS_DECLARATIONS }]
+                    }
+                });
+
+                const candidate = response.candidates && response.candidates[0];
+                if (!candidate || !candidate.content) break;
+
+                const parts = candidate.content.parts || [];
+                const functionCallPart = parts.find(p => p.functionCall);
+
+                if (functionCallPart && functionCallPart.functionCall) {
+                    const call = functionCallPart.functionCall;
+                    toolExecuted = call.name;
+                    const args = call.args || {};
+
+                    // Default contextual arguments
+                    if (!args.city) args.city = session.city;
+                    if (!args.customerPhone) args.customerPhone = session.callerPhone;
+                    if (!args.workerPhone) args.workerPhone = session.callerPhone;
+                    if (!args.customerName) args.customerName = session.callerName;
+
+                    // Execute tool from AI_TOOLS
+                    if (typeof AI_TOOLS[call.name] === 'function') {
+                        toolResult = AI_TOOLS[call.name](args);
+                        actionsPerformed.push(`Gemini tool called: ${call.name}`);
+                    } else {
+                        toolResult = { status: 'error', message: `Unknown tool ${call.name}` };
+                    }
+
+                    // Append assistant function call and tool result to contents
+                    contents.push(candidate.content);
+                    contents.push({
+                        role: 'tool',
+                        parts: [{
+                            functionResponse: {
+                                name: call.name,
+                                response: { output: toolResult }
+                            }
+                        }]
+                    });
+                } else {
+                    // Final text response generated
+                    const spokenText = parts.map(p => p.text || '').join(' ').trim();
+
+                    // Check for natural call closure
+                    if (/goodbye|have a great day|have a good day|take care|bye|ಧನ್ಯವಾದ|ಶುಭ ದಿನ/i.test(spokenText) &&
+                        /\b(thank you|bye|goodbye|thats all|that's all|nothing else|end call)\b/i.test(text.toLowerCase())) {
+                        shouldEndCall = true;
+                    }
+
+                    return {
+                        spokenResponse: spokenText,
+                        toolExecuted,
+                        toolResult,
+                        actionsPerformed,
+                        shouldEndCall
+                    };
+                }
+            }
+        } catch (err) {
+            console.warn('[Gemini Engine] Fallback to deterministic rules engine:', err.message);
+            return null;
+        }
+
+        return null;
+    }
+}
+
+const geminiBrain = new GeminiConversationalBrain();
 
 // 2. Multi-Turn Session & Memory Manager
 class ConversationSessionManager {
@@ -518,29 +812,77 @@ class ContextAwareVoiceAgent {
         }
 
         // ======================================================================
-        // B. CONVERSATIONAL CLOSINGS & GRATITUDE
+        // A.1 GEMINI API CLOUD BRAIN (PRIMARY WHEN GEMINI_API_KEY IS AVAILABLE)
         // ======================================================================
-        else if (/\b(thank you|thanks|thanks a lot|thank you so much|thank you for your help|dhanyavada|dhanyavadagalu|dhanyavadam|shukriya|bahut shukriya)\b/i.test(lowerCleaned) &&
-                 /\b(bye|goodbye|okay bye|ok bye|tata|see you|good night|that's all|thats all|that's it|thats it|nothing else|no nothing|nothing more|no that's all|no thats all|no thanks|no thank you)\b/i.test(lowerCleaned)) {
-            spokenResponse = `You're welcome! I'm glad I could help. Have a great day!`;
-            actionsPerformed.push(`Completed conversation with closing goodbye`);
-            session.context.pendingIntent = null;
-            shouldEndCall = true;
-        } else if (/\b(bye|goodbye|okay bye|ok bye|tata|see you|good night|that's all|thats all|that's it|thats it|nothing else|no nothing|nothing more|no that's all|no thats all|no thanks|no thank you)\b/i.test(lowerCleaned) && lowerCleaned.split(/\s+/).length <= 4) {
-            spokenResponse = `Goodbye! Thank you for calling GigSync. Have a wonderful day!`;
-            actionsPerformed.push(`Caller ended conversation`);
-            session.context.pendingIntent = null;
-            shouldEndCall = true;
-        } else if (/\b(thank you|thanks|thanks a lot|thank you so much|thank you for your help|dhanyavada|dhanyavadagalu|dhanyavadam|shukriya|bahut shukriya)\b/i.test(lowerCleaned) && lowerCleaned.split(/\s+/).length <= 5) {
-            spokenResponse = `You're welcome! I'm glad I could help. You can end the call whenever you're ready, or let me know if you need anything else.`;
-            actionsPerformed.push(`Acknowledged gratitude`);
-            session.context.pendingIntent = null;
+        if (!spokenResponse && (process.env.GEMINI_API_KEY || geminiBrain.getClient())) {
+            try {
+                const geminiTurn = await geminiBrain.processTurn({ session, text });
+                if (geminiTurn && geminiTurn.spokenResponse) {
+                    spokenResponse = geminiTurn.spokenResponse;
+                    toolExecuted = geminiTurn.toolExecuted;
+                    toolResult = geminiTurn.toolResult;
+                    shouldEndCall = geminiTurn.shouldEndCall;
+                    if (Array.isArray(geminiTurn.actionsPerformed)) {
+                        actionsPerformed.push(...geminiTurn.actionsPerformed);
+                    }
+
+                    // Add assistant turn to session memory
+                    sessionManager.addTurn(session, 'assistant', spokenResponse);
+
+                    // Record real call log in SQLite DB
+                    DB.logCall({
+                        callerPhone: session.callerPhone,
+                        callerRole: session.callerRole,
+                        transcript: text,
+                        intentDetected: toolExecuted || session.context.pendingIntent || 'gemini_turn',
+                        actionsTaken: actionsPerformed.join('; '),
+                        durationSeconds: 10
+                    });
+
+                    return {
+                        spokenResponse,
+                        toolExecuted,
+                        toolResult,
+                        actionsPerformed,
+                        shouldEndCall,
+                        context: {
+                            currentService: session.context.currentService,
+                            currentLocation: session.city,
+                            pendingIntent: session.context.pendingIntent,
+                            workersFound: session.context.lastFoundWorkers ? session.context.lastFoundWorkers.length : 0
+                        }
+                    };
+                }
+            } catch (geminiErr) {
+                console.warn('[Gemini Voice Agent] Fallback to deterministic rules engine:', geminiErr.message);
+            }
         }
 
         // ======================================================================
-        // C. MULTI-TURN CONFIRMATIONS & AFFIRMATIONS ("yes", "do it", "cancel it")
+        // DETERMINISTIC RULES & DATABASE ENGINE (FALLBACK / OFFLINE)
         // ======================================================================
-        else if (session.context.pendingIntent === 'CONFIRM_POST_JOB' && (isAffirmative || isNegative)) {
+        if (!spokenResponse) {
+            if (/\b(thank you|thanks|thanks a lot|thank you so much|thank you for your help|dhanyavada|dhanyavadagalu|dhanyavadam|shukriya|bahut shukriya)\b/i.test(lowerCleaned) &&
+                /\b(bye|goodbye|okay bye|ok bye|tata|see you|good night|that's all|thats all|that's it|thats it|nothing else|no nothing|nothing more|no that's all|no thats all|no thanks|no thank you)\b/i.test(lowerCleaned)) {
+                spokenResponse = `You're welcome! I'm glad I could help. Have a great day!`;
+                actionsPerformed.push(`Completed conversation with closing goodbye`);
+                session.context.pendingIntent = null;
+                shouldEndCall = true;
+            } else if (/\b(bye|goodbye|okay bye|ok bye|tata|see you|good night|that's all|thats all|that's it|thats it|nothing else|no nothing|nothing more|no that's all|no thats all|no thanks|no thank you)\b/i.test(lowerCleaned) && lowerCleaned.split(/\s+/).length <= 4) {
+                spokenResponse = `Goodbye! Thank you for calling GigSync. Have a wonderful day!`;
+                actionsPerformed.push(`Caller ended conversation`);
+                session.context.pendingIntent = null;
+                shouldEndCall = true;
+            } else if (/\b(thank you|thanks|thanks a lot|thank you so much|thank you for your help|dhanyavada|dhanyavadagalu|dhanyavadam|shukriya|bahut shukriya)\b/i.test(lowerCleaned) && lowerCleaned.split(/\s+/).length <= 5) {
+                spokenResponse = `You're welcome! I'm glad I could help. You can end the call whenever you're ready, or let me know if you need anything else.`;
+                actionsPerformed.push(`Acknowledged gratitude`);
+                session.context.pendingIntent = null;
+            }
+
+            // ======================================================================
+            // C. MULTI-TURN CONFIRMATIONS & AFFIRMATIONS ("yes", "do it", "cancel it")
+            // ======================================================================
+            else if (session.context.pendingIntent === 'CONFIRM_POST_JOB' && (isAffirmative || isNegative)) {
             if (isAffirmative && session.context.pendingJobData) {
                 const jobData = session.context.pendingJobData;
                 toolExecuted = 'createJob';
@@ -1005,6 +1347,7 @@ class ContextAwareVoiceAgent {
                 actionsPerformed.push(`Conversational guidance (step ${session.context.fallbackStep})`);
             }
         }
+        }
 
         // Add assistant turn to session memory
         sessionManager.addTurn(session, 'assistant', spokenResponse);
@@ -1040,6 +1383,9 @@ const aiAgent = new ContextAwareVoiceAgent();
 
 module.exports = {
     aiAgent,
+    geminiBrain,
+    GEMINI_TOOLS_DECLARATIONS,
     AI_TOOLS,
     sessionManager
 };
+
