@@ -414,11 +414,11 @@ CRITICAL RULES:
    - If caller says "thank you", "that's all", "bye", acknowledge warmly and say goodbye.
    - Keep answers concise, clear, and natural for voice synthesis and audio playback.
 7. WORKER INTENT vs CUSTOMER INTENT (CRITICAL):
-   - Statements like "I am an electrician", "I work as a plumber", "My name is Rajesh I am an electrician", "I am available from 9 to 5", "My availability is 10 to 6", "I am available tomorrow", "I'm free from 10 to 6" are WORKER INTENTS.
-   - For these statements, NEVER call 'findWorkers' (which is only for customers searching for workers).
-   - If the worker provides availability hours or dates, call 'updateWorkerAvailability'.
-   - If 'updateWorkerAvailability' reports the worker is not registered in the database, politely inform the caller: "Thanks [Name]. I understand you're a [Trade] available [Time]. To save your schedule and receive customer job requests on GigSync, please register your worker profile with your phone number."
-   - Only call 'findWorkers' when a customer is asking to FIND or HIRE a worker (e.g. "I need an electrician", "Can you find a plumber?", "Is there an electrician available?").`;
+   - Statements like "Hello, my name is Rajesh. I am an electrician. I wanted to work from 11 to 5 o'clock tomorrow.", "Naanu electrician, naale 11 inda 5 varege available iddini.", "I am an electrician and I want to work tomorrow from 11 to 5", "My name is Rajesh I am an electrician", "I am available from 9 to 5", "My availability is 10 to 6" are WORKER INTENTS.
+   - For worker availability statements, NEVER call 'findWorkers' (which is strictly for customers searching for workers).
+   - Acknowledge their role and time window: "Hi [Name]! Got it. You’re [an electrician] and you’re available [tomorrow] from [11 AM to 5 PM]. Would you like me to add this to your schedule?"
+   - When the worker confirms ("yes", "do it", "add it"), call 'updateWorkerAvailability' and respond: "Done! Your availability has been updated for [tomorrow] from [11 AM to 5 PM]."
+   - Only call 'findWorkers' when a CUSTOMER is asking to FIND or HIRE a worker (e.g. "I need an electrician tomorrow", "Nanage electrician beku", "Can you find a plumber?", "Is there an electrician available today?").`;
 
         try {
             // Format history for Gemini API
@@ -444,7 +444,7 @@ CRITICAL RULES:
             // Gemini Function Calling Loop (up to 4 tool turns)
             for (let step = 0; step < 4; step++) {
                 const response = await client.models.generateContent({
-                    model: 'gemini-2.5-flash',
+                    model: 'gemini-3.6-flash',
                     contents,
                     config: {
                         systemInstruction,
@@ -778,13 +778,48 @@ function getTradePersonNoun(tradeCategory) {
     return map[tradeCategory] || `a ${tradeCategory || 'specialist'}`;
 }
 
+// Helper to extract start and end time range from natural utterances
+function extractTimeRange(text) {
+    if (!text) return { startTime: '09:00 AM', endTime: '05:00 PM', startDisplay: '9 AM', endDisplay: '5 PM' };
+    const lower = text.toLowerCase();
+
+    // Match variations: "11 to 5", "11 to 5 o'clock", "11 am till 5 pm", "11 inda 5 varege", "from 11:00 to 17:00", etc.
+    const rangeMatch = text.match(/(\d{1,2}(?::\d{2})?)\s*(?:am|pm)?\s*(?:to|till|until|inda|inda\s*te|\-)\s*(\d{1,2}(?::\d{2})?)\s*(?:am|pm|o'clock|varege)?/i);
+
+    if (rangeMatch) {
+        let sStr = rangeMatch[1];
+        let eStr = rangeMatch[2];
+
+        let sVal = parseInt(sStr);
+        let eVal = parseInt(eStr);
+
+        let sAmPm = (sVal >= 7 && sVal <= 11) ? 'AM' : ((sVal === 12 || (sVal >= 1 && sVal <= 6)) ? 'PM' : 'AM');
+        let eAmPm = (eVal >= 1 && eVal <= 11) ? 'PM' : ((eVal === 12) ? 'PM' : 'AM');
+        if (sVal === 12) sAmPm = 'PM';
+
+        if (lower.includes(sStr + ' am') || lower.includes(sStr + 'am')) sAmPm = 'AM';
+        if (lower.includes(sStr + ' pm') || lower.includes(sStr + 'pm')) sAmPm = 'PM';
+        if (lower.includes(eStr + ' am') || lower.includes(eStr + 'am')) eAmPm = 'AM';
+        if (lower.includes(eStr + ' pm') || lower.includes(eStr + 'pm')) eAmPm = 'PM';
+
+        const startTime = `${sVal < 10 ? '0' + sVal : sVal}:00 ${sAmPm}`;
+        const endTime = `${eVal < 10 ? '0' + eVal : eVal}:00 ${eAmPm}`;
+        const startDisplay = `${sVal} ${sAmPm}`;
+        const endDisplay = `${eVal} ${eAmPm}`;
+
+        return { startTime, endTime, startDisplay, endDisplay };
+    }
+
+    return { startTime: '09:00 AM', endTime: '05:00 PM', startDisplay: '9 AM', endDisplay: '5 PM' };
+}
+
 // Helper to extract caller's stated name (e.g. "My name is Rajesh", "This is Rajesh")
 function extractCallerName(text) {
     if (!text) return null;
-    const match = text.match(/\b(?:my name is|name is|i am|i'm|this is|call me)\s+([A-Za-z]+)\b/i);
+    const match = text.match(/\b(?:my name is|name is|i am|i'm|this is|call me|hesaru|ಹೆಸರು)\s+([A-Za-z]+)\b/i);
     if (match) {
         const candidate = match[1].trim();
-        const nonNames = ['a', 'an', 'the', 'electrician', 'plumber', 'carpenter', 'mechanic', 'available', 'free', 'not', 'looking', 'here', 'calling', 'user', 'there', 'from', 'in', 'on', 'at', 'today', 'tomorrow'];
+        const nonNames = ['a', 'an', 'the', 'electrician', 'plumber', 'carpenter', 'mechanic', 'available', 'free', 'not', 'looking', 'here', 'calling', 'user', 'there', 'from', 'in', 'on', 'at', 'today', 'tomorrow', 'naale', 'ivathu'];
         if (!nonNames.includes(candidate.toLowerCase()) && candidate.length >= 2) {
             return candidate.charAt(0).toUpperCase() + candidate.slice(1).toLowerCase();
         }
@@ -797,14 +832,24 @@ function isWorkerIntent(text, currentRole = 'customer') {
     if (!text) return false;
     const lower = text.toLowerCase();
 
-    // Direct worker self-identification statements
+    // Customer explicit requests in Kannada / English (e.g. "nanage electrician beku", "i need an electrician")
+    if (/\b(?:nanage|ನನಗೆ)\b/i.test(lower) && /\b(?:beku|ಬೇಕಾಗಿದೆ|ಬೇಕು)\b/i.test(lower)) {
+        return false;
+    }
+    if (/\b(?:i need|need|looking for|want to hire|can you find|send me|book me|beku|ಬೇಕು)\b/i.test(lower)) {
+        return false;
+    }
+
+    // Direct worker self-identification & availability statements in English / Kannada / Kanglish
     const selfIdPatterns = [
-        /\b(?:i am|i'm|myself|i work as)\s+(?:an?|a registered|a skilled)?\s*(?:electrician|plumber|carpenter|mechanic|painter|technician|mason|tailor|welder|driver|specialist)\b/i,
-        /\b(?:my name is|name is|this is)\s+[a-z]+\s+(?:and\s+)?(?:i am|i'm|i work as)\s+(?:an?|a)?\s*(?:electrician|plumber|carpenter|mechanic|painter|technician|mason|tailor|welder|driver)\b/i,
-        /\b(?:i am|i'm|myself)\s+(?:available|free|on duty|off duty)\s+(?:from|for|today|tomorrow|now|between|till|after|\d)\b/i,
-        /\b(?:my availability|my schedule|my working hours|my shift)\s+(?:is|for|from|to)\b/i,
-        /\b(?:set|update|change|mark)\s+my\s+(?:availability|schedule|timing|shift|hours)\b/i,
-        /\b(?:i can work|i will be available|i am not available|i won't be available|i will work|add me as available)\b/i
+        /\b(?:i am|i'm|myself|i work as|naanu|ನಾನು|naan)\s+(?:an?|a registered|a skilled)?\s*(?:electrician|plumber|carpenter|mechanic|painter|technician|mason|tailor|welder|driver|specialist|ಎಲೆಕ್ಟ್ರಿಷಿಯನ್|ಪ್ಲಂಬರ್|ಕಾರ್ಪೆಂಟರ್|ಮೆಕ್ಯಾನಿಕ್)\b/i,
+        /\b(?:my name is|name is|this is|hesaru|ಹೆಸರು)\s+[a-z]+\s+(?:and\s+)?(?:i am|i'm|i work as|naanu)\s+(?:an?|a)?\s*(?:electrician|plumber|carpenter|mechanic|painter|technician|mason|tailor|welder|driver)\b/i,
+        /\b(?:i am|i'm|myself|iddini|ಇದ್ದೇನೆ)\s+(?:available|free|on duty|off duty|labhyaviddini|ಲಭ್ಯ)\s+(?:from|for|today|tomorrow|naale|ivathu|now|between|till|after|\d)\b/i,
+        /\b(?:wanted to work|want to work|ready to work|kelasa madalu|kelasa madbeku|i wanted to work|i want to work)\b/i,
+        /\b(?:my availability|my schedule|my working hours|my shift|nanna availability|nanna schedule)\s+(?:is|for|from|to|inda)\b/i,
+        /\b(?:set|update|change|mark|add)\s+(?:my\s+)?(?:availability|schedule|timing|shift|hours)\b/i,
+        /\b(?:i can work|i will be available|i am not available|i won't be available|i will work|add me as available)\b/i,
+        /\b(?:inda|ರಿಂದ)\s+\d{1,2}\s*(?:to|till|varege|ವರೆಗೆ)\s+\d{1,2}\s*(?:available|iddini|ಇದ್ದೇನೆ)\b/i
     ];
 
     for (const pat of selfIdPatterns) {
@@ -813,9 +858,8 @@ function isWorkerIntent(text, currentRole = 'customer') {
 
     // Contextual follow-up if caller is already identified as a worker
     if (currentRole === 'worker') {
-        if (/\b(?:available|free|from \d|to \d|\d to \d|tomorrow too|saturday too|sunday too|off duty|on duty|leave)\b/i.test(lower)) {
-            // Ensure not an explicit customer command like 'find worker' or 'book worker'
-            if (!/\b(?:find|search|need|look for|book|hire|get me|send me)\b/i.test(lower)) {
+        if (/\b(?:available|free|from \d|to \d|\d to \d|tomorrow too|saturday too|sunday too|off duty|on duty|leave|varege|inda)\b/i.test(lower)) {
+            if (!/\b(?:find|search|need|look for|book|hire|get me|send me|beku|ಬೇಕು)\b/i.test(lower)) {
                 return true;
             }
         }
@@ -1022,6 +1066,31 @@ class ContextAwareVoiceAgent {
             }
         }
 
+        else if (session.context.pendingIntent === 'CONFIRM_UPDATE_AVAILABILITY' && (isAffirmative || isNegative)) {
+            if (isAffirmative && session.context.pendingAvailabilityData) {
+                const avail = session.context.pendingAvailabilityData;
+                toolExecuted = 'updateWorkerAvailability';
+                toolResult = AI_TOOLS.updateWorkerAvailability({
+                    workerPhone: session.callerPhone,
+                    trade: avail.trade || 'Specialist',
+                    date: avail.date,
+                    startTime: avail.startTime,
+                    endTime: avail.endTime,
+                    isAvailable: avail.isAvailable
+                });
+                actionsPerformed.push(`Updated ${avail.date} availability (${avail.startTime} – ${avail.endTime}) in database`);
+
+                spokenResponse = `Done! Your availability has been updated for ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
+                session.context.pendingIntent = null;
+                session.context.pendingAvailabilityData = null;
+                session.context.lastActionCompleted = 'AVAILABILITY_UPDATED';
+            } else if (isNegative) {
+                spokenResponse = `No problem, I haven't added this to your schedule. Let me know if you need anything else.`;
+                session.context.pendingIntent = null;
+                session.context.pendingAvailabilityData = null;
+            }
+        }
+
         // Follow-up after completed action when user says "No" / "Nothing else"
         else if (session.context.lastActionCompleted && isShortNegation) {
             spokenResponse = `You're welcome! Have a great day.`;
@@ -1168,6 +1237,7 @@ class ContextAwareVoiceAgent {
         }
 
         // 1. Worker Self-Identification & Availability Updates (e.g. "My name is Rajesh I am an electrician I am available from 9 to 5 today")
+        // 1. Worker Self-Identification & Availability Updates (e.g. "Hello my name is Rajesh I am an electrician I wanted to work from 11 to 5 o'clock tomorrow")
         else if (isWorkerIntent(text, session.callerRole)) {
             session.callerRole = 'worker';
             const detectedName = extractCallerName(text);
@@ -1176,44 +1246,52 @@ class ContextAwareVoiceAgent {
             }
 
             const detectedTrade = extractTradeAndService(text) || session.context.currentService;
-            const { date, time } = extractDateTimeEntities(text);
-            const targetDate = date || 'Today';
-
-            let startTime = '09:00 AM';
-            let endTime = '05:00 PM';
-            const rangeMatch = text.match(/(\d{1,2})\s*(?:to|inda|inda\s*te|\-)\s*(\d{1,2})/i);
-            if (rangeMatch) {
-                const s = parseInt(rangeMatch[1]);
-                const e = parseInt(rangeMatch[2]);
-                startTime = `${s < 10 ? '0' + s : s}:00 ${s >= 8 && s <= 11 ? 'AM' : 'PM'}`;
-                endTime = `${e < 10 ? '0' + e : e}:00 ${e >= 1 && e <= 11 ? 'PM' : 'PM'}`;
-            }
+            const { date } = extractDateTimeEntities(text);
+            const targetDate = date || 'Tomorrow';
+            const range = extractTimeRange(text);
 
             const isAvail = !lowerCleaned.includes('not available') && !lowerCleaned.includes('unavailable') && !lowerCleaned.includes('off') && !lowerCleaned.includes('leave');
-            const hasAvailabilityClause = /\b(available|free|duty|from \d|to \d|\d to \d|timing|hours|schedule)\b/i.test(lowerCleaned);
+            const hasAvailabilityClause = /\b(available|free|duty|from \d|to \d|\d to \d|timing|hours|schedule|varege|inda|o'clock|wanted to work|want to work|ready to work)\b/i.test(lowerCleaned);
 
             // Check if caller is registered in workers table
             const worker = DB.getWorkerByPhone(session.callerPhone);
-            const tradeNoun = getTradePersonNoun(detectedTrade);
+            const tradeNoun = getTradePersonNoun(detectedTrade || (worker ? worker.trade : 'Specialist'));
+
+            // Check if caller explicitly gave an immediate imperative command (e.g. "Set my availability for tomorrow from 9 to 6", "Update my schedule 9 to 5")
+            const isDirectImperative = /\b(?:set my|update my|change my|mark my|mark me)\s+(?:availability|schedule|duty)\b/i.test(lowerCleaned);
 
             if (hasAvailabilityClause) {
-                toolExecuted = 'updateWorkerAvailability';
-                toolResult = AI_TOOLS.updateWorkerAvailability({
-                    workerPhone: session.callerPhone,
-                    trade: detectedTrade || (worker ? worker.trade : 'Specialist'),
-                    date: targetDate,
-                    startTime,
-                    endTime,
-                    isAvailable: isAvail
-                });
-                actionsPerformed.push(`Updated ${targetDate} availability (${startTime} – ${endTime}) in database`);
+                if (isDirectImperative) {
+                    toolExecuted = 'updateWorkerAvailability';
+                    toolResult = AI_TOOLS.updateWorkerAvailability({
+                        workerPhone: session.callerPhone,
+                        trade: detectedTrade || (worker ? worker.trade : 'Specialist'),
+                        date: targetDate,
+                        startTime: range.startTime,
+                        endTime: range.endTime,
+                        isAvailable: isAvail
+                    });
+                    actionsPerformed.push(`Updated ${targetDate} availability (${range.startTime} – ${range.endTime}) in database`);
 
-                if (worker) {
                     spokenResponse = isAvail
-                        ? `Thanks, ${session.callerName || worker.name}. I understand you're ${tradeNoun} and you're available ${targetDate.toLowerCase()} from ${startTime} to ${endTime}. Your availability has been updated in the database.`
-                        : `Thanks, ${session.callerName || worker.name}. You have been marked OFF-DUTY for ${targetDate.toLowerCase()} in the database.`;
+                        ? `Done! Your availability has been updated for ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}.`
+                        : `Done! You have been marked OFF-DUTY for ${targetDate.toLowerCase()}.`;
                 } else {
-                    spokenResponse = `Thanks, ${session.callerName || 'there'}. I understand you're ${tradeNoun} and you're available ${targetDate.toLowerCase()} from ${startTime} to ${endTime}. To save your schedule and receive customer job requests on GigSync, please register your worker profile with your phone number.`;
+                    // Conversational availability statement -> confirm before writing
+                    session.context.pendingAvailabilityData = {
+                        workerName: session.callerName || (worker ? worker.name : 'Rajesh'),
+                        trade: detectedTrade || (worker ? worker.trade : 'Specialist'),
+                        date: targetDate,
+                        startTime: range.startTime,
+                        endTime: range.endTime,
+                        startDisplay: range.startDisplay,
+                        endDisplay: range.endDisplay,
+                        isAvailable: isAvail
+                    };
+                    session.context.pendingIntent = 'CONFIRM_UPDATE_AVAILABILITY';
+                    actionsPerformed.push(`Prepared schedule update for ${targetDate} (${range.startDisplay} to ${range.endDisplay})`);
+
+                    spokenResponse = `Hi ${session.callerName || (worker ? worker.name : 'there')}! Got it. You’re ${tradeNoun} and you’re available ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}. Would you like me to add this to your schedule?`;
                 }
             } else {
                 if (worker) {
