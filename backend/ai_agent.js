@@ -412,7 +412,13 @@ CRITICAL RULES:
 6. CONVERSATION FLOW:
    - If caller asks "who is available?" or "worker available", ask which service/trade they need if not specified.
    - If caller says "thank you", "that's all", "bye", acknowledge warmly and say goodbye.
-   - Keep answers concise, clear, and natural for voice synthesis and audio playback.`;
+   - Keep answers concise, clear, and natural for voice synthesis and audio playback.
+7. WORKER INTENT vs CUSTOMER INTENT (CRITICAL):
+   - Statements like "I am an electrician", "I work as a plumber", "My name is Rajesh I am an electrician", "I am available from 9 to 5", "My availability is 10 to 6", "I am available tomorrow", "I'm free from 10 to 6" are WORKER INTENTS.
+   - For these statements, NEVER call 'findWorkers' (which is only for customers searching for workers).
+   - If the worker provides availability hours or dates, call 'updateWorkerAvailability'.
+   - If 'updateWorkerAvailability' reports the worker is not registered in the database, politely inform the caller: "Thanks [Name]. I understand you're a [Trade] available [Time]. To save your schedule and receive customer job requests on GigSync, please register your worker profile with your phone number."
+   - Only call 'findWorkers' when a customer is asking to FIND or HIRE a worker (e.g. "I need an electrician", "Can you find a plumber?", "Is there an electrician available?").`;
 
         try {
             // Format history for Gemini API
@@ -545,9 +551,13 @@ class ConversationSessionManager {
         const session = this.sessions.get(key);
         session.lastActivity = Date.now();
         if (defaultData.callerPhone) session.callerPhone = defaultData.callerPhone.replace(/\D/g, '');
-        if (defaultData.city) session.city = defaultData.city;
-        if (defaultData.callerRole) session.callerRole = defaultData.callerRole;
-        if (defaultData.callerName) session.callerName = defaultData.callerName;
+        if (defaultData.city && !session.city) session.city = defaultData.city;
+        if (defaultData.callerRole && (!session.callerRole || defaultData.callerRole !== 'customer')) {
+            session.callerRole = defaultData.callerRole;
+        }
+        if (defaultData.callerName && (!session.callerName || defaultData.callerName !== 'User')) {
+            session.callerName = defaultData.callerName;
+        }
         return session;
     }
 
@@ -746,6 +756,73 @@ function extractDateTimeEntities(text) {
     };
 }
 
+// Helper to convert trade category to natural specialist noun (e.g. Electrical -> an electrician)
+function getTradePersonNoun(tradeCategory) {
+    const map = {
+        'Electrical': 'an electrician',
+        'Plumbing': 'a plumber',
+        'Carpentry': 'a carpenter',
+        'Mechanics': 'a mechanic',
+        'Painting': 'a painter',
+        'Masonry & Construction': 'a mason',
+        'Tailoring & Alterations': 'a tailor',
+        'Welding & Metalwork': 'a welder',
+        'Driver Services': 'a driver',
+        'TV & Electronics Repair': 'a TV repair specialist',
+        'Water Purifier & RO Service': 'a water purifier technician',
+        'Home Cleaning': 'a cleaning specialist',
+        'Washing Machine Repair': 'a washing machine technician',
+        'Refrigerator Repair': 'a refrigerator technician',
+        'AC & Appliances': 'an AC technician'
+    };
+    return map[tradeCategory] || `a ${tradeCategory || 'specialist'}`;
+}
+
+// Helper to extract caller's stated name (e.g. "My name is Rajesh", "This is Rajesh")
+function extractCallerName(text) {
+    if (!text) return null;
+    const match = text.match(/\b(?:my name is|name is|i am|i'm|this is|call me)\s+([A-Za-z]+)\b/i);
+    if (match) {
+        const candidate = match[1].trim();
+        const nonNames = ['a', 'an', 'the', 'electrician', 'plumber', 'carpenter', 'mechanic', 'available', 'free', 'not', 'looking', 'here', 'calling', 'user', 'there', 'from', 'in', 'on', 'at', 'today', 'tomorrow'];
+        if (!nonNames.includes(candidate.toLowerCase()) && candidate.length >= 2) {
+            return candidate.charAt(0).toUpperCase() + candidate.slice(1).toLowerCase();
+        }
+    }
+    return null;
+}
+
+// Helper to identify whether caller is self-identifying as a worker or providing worker availability
+function isWorkerIntent(text, currentRole = 'customer') {
+    if (!text) return false;
+    const lower = text.toLowerCase();
+
+    // Direct worker self-identification statements
+    const selfIdPatterns = [
+        /\b(?:i am|i'm|myself|i work as)\s+(?:an?|a registered|a skilled)?\s*(?:electrician|plumber|carpenter|mechanic|painter|technician|mason|tailor|welder|driver|specialist)\b/i,
+        /\b(?:my name is|name is|this is)\s+[a-z]+\s+(?:and\s+)?(?:i am|i'm|i work as)\s+(?:an?|a)?\s*(?:electrician|plumber|carpenter|mechanic|painter|technician|mason|tailor|welder|driver)\b/i,
+        /\b(?:i am|i'm|myself)\s+(?:available|free|on duty|off duty)\s+(?:from|for|today|tomorrow|now|between|till|after|\d)\b/i,
+        /\b(?:my availability|my schedule|my working hours|my shift)\s+(?:is|for|from|to)\b/i,
+        /\b(?:set|update|change|mark)\s+my\s+(?:availability|schedule|timing|shift|hours)\b/i,
+        /\b(?:i can work|i will be available|i am not available|i won't be available|i will work|add me as available)\b/i
+    ];
+
+    for (const pat of selfIdPatterns) {
+        if (pat.test(lower)) return true;
+    }
+
+    // Contextual follow-up if caller is already identified as a worker
+    if (currentRole === 'worker') {
+        if (/\b(?:available|free|from \d|to \d|\d to \d|tomorrow too|saturday too|sunday too|off duty|on duty|leave)\b/i.test(lower)) {
+            // Ensure not an explicit customer command like 'find worker' or 'book worker'
+            if (!/\b(?:find|search|need|look for|book|hire|get me|send me)\b/i.test(lower)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
 
 // 5. Intelligent Multi-Turn Conversational Processor
 class ContextAwareVoiceAgent {
@@ -1085,43 +1162,70 @@ class ContextAwareVoiceAgent {
         // ======================================================================
         // L. WORKER INTENTS & AUTHORIZATION ENFORCEMENT
         // ======================================================================
-        else if (session.callerRole === 'customer' && (lowerCleaned.includes('how much did i earn') || lowerCleaned.includes('my worker earnings') || lowerCleaned.includes('my earnings as a worker'))) {
+        else if (session.callerRole === 'customer' && !isWorkerIntent(text, 'customer') && (lowerCleaned.includes('how much did i earn') || lowerCleaned.includes('my worker earnings') || lowerCleaned.includes('my earnings as a worker'))) {
             spokenResponse = `You are currently logged in as a customer. Worker earnings, job history, and schedule settings are only accessible from registered worker accounts.`;
             actionsPerformed.push(`Enforced worker authorization constraint on customer caller`);
         }
 
-        // Worker: Update Availability / Set Schedule
-        else if (session.callerRole === 'worker' && (lowerCleaned.includes('set') || lowerCleaned.includes('update') || lowerCleaned.includes('mark') || lowerCleaned.includes('change') || lowerCleaned.includes('from') || lowerCleaned.includes('off') || lowerCleaned.includes('leave')) && (lowerCleaned.includes('availability') || lowerCleaned.includes('available') || lowerCleaned.includes('duty') || lowerCleaned.includes('schedule') || lowerCleaned.includes('free'))) {
+        // 1. Worker Self-Identification & Availability Updates (e.g. "My name is Rajesh I am an electrician I am available from 9 to 5 today")
+        else if (isWorkerIntent(text, session.callerRole)) {
+            session.callerRole = 'worker';
+            const detectedName = extractCallerName(text);
+            if (detectedName && (!session.callerName || session.callerName === 'User')) {
+                session.callerName = detectedName;
+            }
+
+            const detectedTrade = extractTradeAndService(text) || session.context.currentService;
             const { date, time } = extractDateTimeEntities(text);
-            const targetDate = date || 'Tomorrow';
+            const targetDate = date || 'Today';
 
             let startTime = '09:00 AM';
-            let endTime = '06:00 PM';
+            let endTime = '05:00 PM';
             const rangeMatch = text.match(/(\d{1,2})\s*(?:to|inda|inda\s*te|\-)\s*(\d{1,2})/i);
             if (rangeMatch) {
                 const s = parseInt(rangeMatch[1]);
                 const e = parseInt(rangeMatch[2]);
-                startTime = `${s < 10 ? '0' + s : s}:00 AM`;
-                endTime = `${e < 10 ? '0' + e : e}:00 PM`;
+                startTime = `${s < 10 ? '0' + s : s}:00 ${s >= 8 && s <= 11 ? 'AM' : 'PM'}`;
+                endTime = `${e < 10 ? '0' + e : e}:00 ${e >= 1 && e <= 11 ? 'PM' : 'PM'}`;
             }
 
             const isAvail = !lowerCleaned.includes('not available') && !lowerCleaned.includes('unavailable') && !lowerCleaned.includes('off') && !lowerCleaned.includes('leave');
+            const hasAvailabilityClause = /\b(available|free|duty|from \d|to \d|\d to \d|timing|hours|schedule)\b/i.test(lowerCleaned);
 
-            toolExecuted = 'updateWorkerAvailability';
-            toolResult = AI_TOOLS.updateWorkerAvailability({
-                workerPhone: session.callerPhone,
-                date: targetDate,
-                startTime,
-                endTime,
-                isAvailable: isAvail
-            });
-            actionsPerformed.push(`Updated ${targetDate} availability: ${startTime} – ${endTime} in database`);
-            spokenResponse = isAvail
-                ? `Done. Your availability for ${targetDate} from ${startTime} to ${endTime} has been updated in the database.`
-                : `Done. You have been marked OFF-DUTY for ${targetDate}.`;
+            // Check if caller is registered in workers table
+            const worker = DB.getWorkerByPhone(session.callerPhone);
+            const tradeNoun = getTradePersonNoun(detectedTrade);
+
+            if (hasAvailabilityClause) {
+                toolExecuted = 'updateWorkerAvailability';
+                toolResult = AI_TOOLS.updateWorkerAvailability({
+                    workerPhone: session.callerPhone,
+                    trade: detectedTrade || (worker ? worker.trade : 'Specialist'),
+                    date: targetDate,
+                    startTime,
+                    endTime,
+                    isAvailable: isAvail
+                });
+                actionsPerformed.push(`Updated ${targetDate} availability (${startTime} – ${endTime}) in database`);
+
+                if (worker) {
+                    spokenResponse = isAvail
+                        ? `Thanks, ${session.callerName || worker.name}. I understand you're ${tradeNoun} and you're available ${targetDate.toLowerCase()} from ${startTime} to ${endTime}. Your availability has been updated in the database.`
+                        : `Thanks, ${session.callerName || worker.name}. You have been marked OFF-DUTY for ${targetDate.toLowerCase()} in the database.`;
+                } else {
+                    spokenResponse = `Thanks, ${session.callerName || 'there'}. I understand you're ${tradeNoun} and you're available ${targetDate.toLowerCase()} from ${startTime} to ${endTime}. To save your schedule and receive customer job requests on GigSync, please register your worker profile with your phone number.`;
+                }
+            } else {
+                if (worker) {
+                    spokenResponse = `Hello ${session.callerName || worker.name}! I recognize you as a registered ${worker.trade} in ${session.city}. Would you like to update your working hours, check your schedule, or view incoming jobs?`;
+                } else {
+                    spokenResponse = `Hello ${session.callerName || 'there'}! I understand you work as ${tradeNoun}. To start receiving customer job requests and manage your availability on GigSync, please register your worker profile with your phone number.`;
+                }
+                actionsPerformed.push(`Recognized worker self-identification`);
+            }
         }
 
-        // Worker: Check Availability / Schedule Inquiry
+        // 2. Worker Schedule / Availability Inquiry
         else if (session.callerRole === 'worker' && (lowerCleaned.includes('my availability') || lowerCleaned.includes('am i available') || lowerCleaned.includes('my schedule') || lowerCleaned.includes('what is my schedule') || lowerCleaned.includes('check my schedule') || lowerCleaned.includes('ನನ್ನ ಶೆಡ್ಯೂಲ್'))) {
             const { date } = extractDateTimeEntities(text);
             const targetDate = date || 'Tomorrow';
@@ -1134,7 +1238,7 @@ class ContextAwareVoiceAgent {
             } else if (toolResult.status === 'success') {
                 spokenResponse = `You are currently marked ${toolResult.isAvailableNow ? 'ON-DUTY and Available' : 'OFF-DUTY'} today. No custom slot is set for ${targetDate}. Would you like to set one?`;
             } else {
-                spokenResponse = `I couldn't find your worker profile in the database. Please make sure your worker account is registered.`;
+                spokenResponse = `I couldn't find your worker profile in the database. Please make sure your worker account is registered with your phone number.`;
             }
         }
 
