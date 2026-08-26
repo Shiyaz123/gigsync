@@ -303,8 +303,25 @@ initDatabase();
 const DB = {
     // ---------------- AUTH & USER OPERATIONS ----------------
     createUser({ name, phone, email, role, password, city = 'Ramanagara', area = 'Town' }) {
-        const cleanPhone = phone.replace(/\D/g, '');
+        const cleanPhone = (phone || '').replace(/\D/g, '');
         const pHash = hashPassword(password);
+
+        if (!db) {
+            const userId = memoryStore.users.length + 1;
+            const user = { id: userId, name, phone: cleanPhone, email: email || null, role, password_hash: pHash, city, area, created_at: new Date().toISOString() };
+            memoryStore.users.push(user);
+            if (role === 'worker') {
+                const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'WK';
+                const worker = { id: memoryStore.workers.length + 1, user_id: userId, name, phone: cleanPhone, trade: 'General Specialist', service: 'general', initials, city, area, service_areas: `${city}, Nearby Areas`, rating: 5.0, km: 1.5, jobs_completed: 0, price: 300, is_available: 1, is_verified: 1, skills: '', tools: 'Standard tool kit', experience_years: 2, about: '' };
+                memoryStore.workers.push(worker);
+                FirebaseSync.syncWorker(worker).catch(e => console.warn('[Firebase Sync Error]:', e));
+            } else {
+                const cust = { id: memoryStore.customers.length + 1, user_id: userId, name, phone: cleanPhone, email: email || null, city, area, created_at: new Date().toISOString() };
+                memoryStore.customers.push(cust);
+                FirebaseSync.syncCustomer(cust).catch(e => console.warn('[Firebase Sync Error]:', e));
+            }
+            return user;
+        }
 
         const stmt = db.prepare(`
             INSERT INTO users (name, phone, email, role, password_hash, city, area)
@@ -336,17 +353,26 @@ const DB = {
     },
 
     getUserByPhone(phone) {
-        const cleanPhone = phone.replace(/\D/g, '');
+        const cleanPhone = (phone || '').replace(/\D/g, '');
+        if (!db) {
+            return memoryStore.users.find(u => u.phone === cleanPhone) || null;
+        }
         const user = db.prepare('SELECT * FROM users WHERE phone = ?').get(cleanPhone);
         return user || null;
     },
 
     getUserById(id) {
+        if (!db) {
+            return memoryStore.users.find(u => u.id === Number(id)) || null;
+        }
         const user = db.prepare('SELECT id, name, phone, email, role, city, area, created_at FROM users WHERE id = ?').get(id);
         return user || null;
     },
 
     getCustomerById(id) {
+        if (!db) {
+            return memoryStore.customers.find(c => c.id === Number(id)) || null;
+        }
         return db.prepare('SELECT * FROM customers WHERE id = ?').get(id) || null;
     },
 
@@ -356,9 +382,21 @@ const DB = {
             customer = this.getCustomerById(phoneOrId);
         } else {
             const clean = String(phoneOrId).replace(/\D/g, '');
-            customer = db.prepare('SELECT * FROM customers WHERE phone = ?').get(clean);
+            if (!db) {
+                customer = memoryStore.customers.find(c => c.phone === clean);
+            } else {
+                customer = db.prepare('SELECT * FROM customers WHERE phone = ?').get(clean);
+            }
         }
         if (!customer) return null;
+
+        if (!db) {
+            Object.assign(customer, updates);
+            const user = memoryStore.users.find(u => u.phone === customer.phone || u.id === customer.user_id);
+            if (user) Object.assign(user, updates);
+            FirebaseSync.syncCustomer(customer).catch(e => console.warn('[Firebase Sync Error]:', e));
+            return customer;
+        }
 
         const fields = [];
         const params = [];
@@ -387,7 +425,29 @@ const DB = {
     },
 
     authenticateUser(phone, password) {
-        const cleanPhone = phone.replace(/\D/g, '');
+        const cleanPhone = (phone || '').replace(/\D/g, '');
+        if (!db) {
+            const user = memoryStore.users.find(u => u.phone === cleanPhone);
+            if (!user) return null;
+            if (!verifyPassword(password, user.password_hash)) return null;
+            const token = crypto.randomBytes(24).toString('hex');
+            memoryStore.sessions[token] = user;
+            const extraProfile = user.role === 'worker' ? memoryStore.workers.find(w => w.user_id === user.id || w.phone === cleanPhone) : memoryStore.customers.find(c => c.user_id === user.id || c.phone === cleanPhone);
+            return {
+                token,
+                user: {
+                    id: user.id,
+                    name: user.name,
+                    phone: user.phone,
+                    email: user.email,
+                    role: user.role,
+                    city: user.city,
+                    area: user.area,
+                    profile: extraProfile
+                }
+            };
+        }
+
         const user = db.prepare('SELECT * FROM users WHERE phone = ?').get(cleanPhone);
         if (!user) return null;
         if (!verifyPassword(password, user.password_hash)) return null;
@@ -420,6 +480,11 @@ const DB = {
 
     getSession(token) {
         if (!token) return null;
+        if (!db) {
+            const user = memoryStore.sessions[token];
+            if (!user) return null;
+            return { token, user_id: user.id, phone: user.phone, role: user.role, name: user.name, email: user.email, city: user.city, area: user.area };
+        }
         const session = db.prepare(`
             SELECT s.token, s.user_id, s.phone, s.role, u.name, u.email, u.city, u.area
             FROM sessions s
@@ -431,11 +496,38 @@ const DB = {
 
     deleteSession(token) {
         if (!token) return;
+        if (!db) {
+            delete memoryStore.sessions[token];
+            return;
+        }
         db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
     },
 
     // ---------------- WORKER OPERATIONS ----------------
     getAllWorkers(filters = {}) {
+        if (!db) {
+            let workers = [...memoryStore.workers];
+            if (filters.service && filters.service !== 'all') {
+                const sLower = filters.service.toLowerCase();
+                workers = workers.filter(w => (w.trade && w.trade.toLowerCase().includes(sLower)) || (w.service && w.service.toLowerCase().includes(sLower)));
+            }
+            if (filters.city && filters.city !== 'all') {
+                workers = workers.filter(w => w.city && w.city.toLowerCase() === filters.city.toLowerCase());
+            }
+            if (filters.isAvailable !== undefined) {
+                workers = workers.filter(w => Boolean(w.is_available) === Boolean(filters.isAvailable));
+            }
+            return workers.map(w => {
+                const slots = (memoryStore.availability[w.phone] || memoryStore.availability[String(w.id)] || []);
+                const latestSlot = slots.length > 0 ? slots[0] : null;
+                return {
+                    ...w,
+                    latest_availability: latestSlot || null,
+                    availability_hours: latestSlot ? `${latestSlot.start_time} – ${latestSlot.end_time} (${latestSlot.date_str})` : 'Available'
+                };
+            });
+        }
+
         let query = 'SELECT * FROM workers WHERE 1=1';
         const params = [];
 
@@ -499,6 +591,12 @@ const DB = {
     deleteTestWorkerByPhone(phone) {
         if (!phone) return;
         const clean = String(phone).replace(/\D/g, '');
+        if (!db) {
+            memoryStore.workers = memoryStore.workers.filter(w => w.phone !== clean);
+            delete memoryStore.availability[clean];
+            memoryStore.users = memoryStore.users.filter(u => u.phone !== clean);
+            return;
+        }
         const worker = this.getWorkerByPhone(clean);
         if (worker) {
             db.prepare('DELETE FROM worker_availability WHERE worker_id = ? OR worker_phone = ?').run(worker.id, clean);
@@ -513,6 +611,7 @@ const DB = {
     },
 
     getWorkerById(id) {
+        if (!db) return memoryStore.workers.find(w => w.id === Number(id)) || null;
         return db.prepare('SELECT * FROM workers WHERE id = ?').get(id) || null;
     },
 
@@ -520,16 +619,52 @@ const DB = {
         if (!phone) return null;
         const clean = String(phone).replace(/\D/g, '');
         const last10 = clean.slice(-10);
+        if (!db) {
+            return memoryStore.workers.find(w => w.phone === clean || w.phone === phone || (w.phone && w.phone.endsWith(last10))) || null;
+        }
         return db.prepare('SELECT * FROM workers WHERE phone = ? OR phone = ? OR phone LIKE ?').get(phone, clean, `%${last10}`) || null;
     },
 
     getWorkerByUserId(userId) {
+        if (!db) return memoryStore.workers.find(w => w.user_id === Number(userId)) || null;
         return db.prepare('SELECT * FROM workers WHERE user_id = ?').get(userId) || null;
     },
 
     createWorker(data) {
         const initials = (data.name || 'WK').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
         const cleanPhone = (data.phone || '').replace(/\D/g, '');
+
+        if (!db) {
+            const existing = this.getWorkerByPhone(cleanPhone);
+            if (existing) {
+                return this.updateWorkerProfile(existing.id, data);
+            }
+            const created = {
+                id: memoryStore.workers.length + 1,
+                user_id: data.user_id || null,
+                name: data.name || 'Worker',
+                phone: cleanPhone,
+                trade: data.trade || 'Skilled Specialist',
+                service: (data.service || data.trade || 'general').toLowerCase(),
+                skills: data.skills || '',
+                tools: data.tools || 'Standard tool kit',
+                rating: data.rating || 5.0,
+                km: data.km || 1.5,
+                jobs_completed: data.jobs_completed || 0,
+                experience_years: data.experience_years || 2,
+                price: data.price || 300,
+                is_available: data.is_available !== undefined ? (data.is_available ? 1 : 0) : 1,
+                is_verified: data.is_verified !== undefined ? (data.is_verified ? 1 : 0) : 1,
+                initials,
+                city: data.city || 'Ramanagara',
+                area: data.area || 'Town',
+                service_areas: data.service_areas || `${data.city || 'Ramanagara'}, Nearby Areas`,
+                about: data.about || `${data.trade} specialist serving Karnataka`
+            };
+            memoryStore.workers.push(created);
+            FirebaseSync.syncWorker(created).catch(e => console.warn('[Firebase Sync Error]:', e));
+            return created;
+        }
 
         try {
             const stmt = db.prepare(`
@@ -648,6 +783,19 @@ const DB = {
     },
 
     updateWorkerProfile(id, updates = {}) {
+        if (!db) {
+            const worker = memoryStore.workers.find(w => w.id === Number(id));
+            if (!worker) return null;
+            Object.assign(worker, updates);
+            if (updates.trade) worker.service = updates.trade.toLowerCase();
+            if (updates.name) {
+                const user = memoryStore.users.find(u => u.phone === worker.phone || u.id === worker.user_id);
+                if (user) user.name = updates.name;
+            }
+            FirebaseSync.syncWorker(worker).catch(e => console.warn('[Firebase Sync Error]:', e));
+            return worker;
+        }
+
         const fields = [];
         const params = [];
 
@@ -690,6 +838,11 @@ const DB = {
         }
 
         if (!worker) return null;
+        if (!db) {
+            worker.is_available = isAvailable ? 1 : 0;
+            FirebaseSync.syncWorker(worker).catch(e => console.warn('[Firebase Sync Error]:', e));
+            return worker;
+        }
         db.prepare('UPDATE workers SET is_available = ? WHERE id = ?').run(isAvailable ? 1 : 0, worker.id);
         const updated = this.getWorkerById(worker.id);
         FirebaseSync.syncWorker(updated).catch(e => console.warn('[Firebase Sync Error]:', e));
@@ -705,6 +858,37 @@ const DB = {
         const phone = worker ? worker.phone : (workerPhone || '').replace(/\D/g, '');
         const wTrade = worker ? worker.trade : trade || 'Skilled Specialist';
         const wId = worker ? worker.id : null;
+
+        if (!db) {
+            const slot = {
+                id: Date.now(),
+                worker_id: wId,
+                worker_phone: phone,
+                trade: wTrade,
+                date_str: dateStr,
+                start_time: startTime,
+                end_time: endTime,
+                is_available: isAvailable ? 1 : 0,
+                notes
+            };
+            if (!memoryStore.availability[phone]) memoryStore.availability[phone] = [];
+            memoryStore.availability[phone].unshift(slot);
+            if (worker) worker.is_available = isAvailable ? 1 : 0;
+            return {
+                success: true,
+                persisted: true,
+                slotId: slot.id,
+                workerId: wId,
+                workerPhone: phone,
+                workerName: worker ? worker.name : null,
+                trade: wTrade,
+                date: dateStr,
+                startTime,
+                endTime,
+                hours: `${startTime} – ${endTime}`,
+                isAvailable: Boolean(isAvailable)
+            };
+        }
 
         const stmt = db.prepare(`
             INSERT INTO worker_availability (worker_id, worker_phone, trade, date_str, start_time, end_time, is_available, notes)
@@ -753,6 +937,17 @@ const DB = {
         const phone = worker ? worker.phone : String(workerIdOrPhone).replace(/\D/g, '');
         const wId = worker ? worker.id : null;
 
+        if (!db) {
+            const slots = memoryStore.availability[phone] || [];
+            const activeBookings = memoryStore.jobs.filter(j => (j.worker_phone === phone || (wId && j.worker_id === wId)) && ['Accepted', 'On the Way', 'In Progress', 'Requested'].includes(j.status));
+            return {
+                worker,
+                isAvailableNow: worker ? Boolean(worker.is_available) : true,
+                availabilitySlots: slots,
+                activeBookings
+            };
+        }
+
         const availabilitySlots = db.prepare(`
             SELECT * FROM worker_availability
             WHERE worker_phone = ? OR (worker_id IS NOT NULL AND worker_id = ?)
@@ -782,6 +977,10 @@ const DB = {
     },
 
     checkScheduleConflict(workerId, requestedDate, requestedTime) {
+        if (!db) {
+            const conflict = memoryStore.jobs.find(j => j.worker_id === workerId && j.requested_date === requestedDate && j.requested_time === requestedTime && ['Accepted', 'On the Way', 'In Progress'].includes(j.status));
+            return Boolean(conflict);
+        }
         const conflict = db.prepare(`
             SELECT * FROM jobs
             WHERE worker_id = ?
@@ -797,6 +996,33 @@ const DB = {
     createJob(jobData) {
         const jobId = jobData.id || generateJobId();
         const priceNum = parseInt(String(jobData.budget || '350').replace(/\D/g, ''), 10) || 350;
+
+        if (!db) {
+            const job = {
+                id: jobId,
+                customer_id: jobData.customer_id || null,
+                customer_phone: (jobData.customer_phone || '').replace(/\D/g, '') || '9876543210',
+                customer_name: jobData.customer_name || 'Customer',
+                worker_id: jobData.worker_id || null,
+                worker_phone: jobData.worker_phone ? String(jobData.worker_phone).replace(/\D/g, '') : null,
+                worker_name: jobData.worker_name || 'Finding nearby specialists...',
+                service: jobData.service || 'Specialist Visit',
+                problem_description: jobData.problem_description || '',
+                location: jobData.location || 'Town Area',
+                city: jobData.city || 'Ramanagara',
+                requested_date: jobData.requested_date || 'Today',
+                requested_time: jobData.requested_time || 'Immediate',
+                budget: jobData.budget || `₹${priceNum}`,
+                final_price: priceNum,
+                status: jobData.status || (jobData.worker_id ? 'Assigned' : 'Requested'),
+                payment_status: 'Pending',
+                payment_method: jobData.payment_method || 'Cash',
+                created_at: new Date().toISOString()
+            };
+            memoryStore.jobs.unshift(job);
+            FirebaseSync.syncJob(job).catch(e => console.warn('[Firebase Sync Error]:', e));
+            return job;
+        }
 
         const stmt = db.prepare(`
             INSERT INTO jobs (
@@ -835,10 +1061,18 @@ const DB = {
     },
 
     getJobById(id) {
+        if (!db) return memoryStore.jobs.find(j => j.id === id || String(j.id) === String(id)) || null;
         return db.prepare('SELECT * FROM jobs WHERE id = ?').get(id) || null;
     },
 
     getAllJobs(filters = {}) {
+        if (!db) {
+            let jobs = [...memoryStore.jobs];
+            if (filters.status) jobs = jobs.filter(j => j.status === filters.status);
+            if (filters.city) jobs = jobs.filter(j => j.city && j.city.toLowerCase() === filters.city.toLowerCase());
+            return jobs;
+        }
+
         let query = 'SELECT * FROM jobs WHERE 1=1';
         const params = [];
 
@@ -856,6 +1090,10 @@ const DB = {
     },
 
     getJobsByCustomer(customerPhoneOrId) {
+        if (!db) {
+            const clean = (customerPhoneOrId || '').replace(/\D/g, '');
+            return memoryStore.jobs.filter(j => j.customer_phone === clean || j.customer_id === customerPhoneOrId);
+        }
         if (typeof customerPhoneOrId === 'number') {
             return db.prepare('SELECT * FROM jobs WHERE customer_id = ? ORDER BY created_at DESC').all(customerPhoneOrId);
         }
@@ -864,6 +1102,10 @@ const DB = {
     },
 
     getJobsByWorker(workerIdOrPhone) {
+        if (!db) {
+            const clean = (workerIdOrPhone || '').replace(/\D/g, '');
+            return memoryStore.jobs.filter(j => j.worker_phone === clean || String(j.worker_id) === String(workerIdOrPhone));
+        }
         if (typeof workerIdOrPhone === 'number' || (!isNaN(Number(workerIdOrPhone)) && workerIdOrPhone !== null && workerIdOrPhone !== '')) {
             return db.prepare('SELECT * FROM jobs WHERE worker_id = ? ORDER BY created_at DESC').all(Number(workerIdOrPhone));
         }
@@ -872,6 +1114,10 @@ const DB = {
     },
 
     getAvailableJobsForWorker(trade, city = 'Ramanagara') {
+        if (!db) {
+            const tLower = (trade || '').toLowerCase();
+            return memoryStore.jobs.filter(j => j.status === 'Requested' && ((j.service && j.service.toLowerCase().includes(tLower)) || (j.problem_description && j.problem_description.toLowerCase().includes(tLower))));
+        }
         return db.prepare(`
             SELECT * FROM jobs
             WHERE status = 'Requested'
@@ -884,6 +1130,25 @@ const DB = {
     updateJobStatus(jobId, status, workerId = null, workerName = null, workerPhone = null) {
         const job = this.getJobById(jobId);
         if (!job) return null;
+
+        if (!db) {
+            job.status = status;
+            if (workerId) {
+                job.worker_id = workerId;
+                job.worker_name = workerName || 'Worker';
+                job.worker_phone = workerPhone || '';
+            }
+            if (status === 'Completed') {
+                job.completed_at = new Date().toISOString();
+                job.payment_status = 'Paid';
+                if (job.worker_id) {
+                    const w = this.getWorkerById(job.worker_id);
+                    if (w) w.jobs_completed = (w.jobs_completed || 0) + 1;
+                }
+            }
+            FirebaseSync.syncJob(job).catch(e => console.warn('[Firebase Sync Error]:', e));
+            return job;
+        }
 
         const fields = ['status = ?'];
         const params = [status];
@@ -910,6 +1175,13 @@ const DB = {
     submitJobReview(jobId, rating, review) {
         const job = this.getJobById(jobId);
         if (!job) return null;
+
+        if (!db) {
+            job.rating = rating;
+            job.review = review;
+            FirebaseSync.syncJob(job).catch(e => console.warn('[Firebase Sync Error]:', e));
+            return job;
+        }
 
         db.prepare('UPDATE jobs SET rating = ?, review = ? WHERE id = ?').run(rating, review, jobId);
 
@@ -941,6 +1213,19 @@ const DB = {
 
         const wId = worker ? worker.id : (typeof workerIdOrPhone === 'number' ? workerIdOrPhone : -1);
         const phone = worker ? worker.phone : String(workerIdOrPhone).replace(/\D/g, '');
+
+        if (!db) {
+            const completedJobs = memoryStore.jobs.filter(j => (j.worker_phone === phone || (wId && j.worker_id === wId)) && j.status === 'Completed');
+            const total = completedJobs.reduce((sum, j) => sum + (j.final_price || 300), 0);
+            return {
+                today: total,
+                thisMonth: total,
+                totalEarnings: total,
+                totalCompletedJobs: completedJobs.length,
+                pendingEarnings: 0,
+                completedJobs
+            };
+        }
 
         const totalRow = db.prepare(`
             SELECT COALESCE(SUM(COALESCE(final_price, CAST(REPLACE(REPLACE(budget, '₹', ''), ' ', '') AS INTEGER), 300)), 0) as total, COUNT(*) as count
@@ -983,9 +1268,27 @@ const DB = {
         };
     },
 
+    getWorkerEarningsSummary(workerIdOrPhone) {
+        return this.getWorkerEarnings(workerIdOrPhone);
+    },
+
     // ---------------- CALL LOGS (TELEPHONY / VOICE) ----------------
     logCall({ callerPhone, callerRole = 'customer', transcript, intentDetected, actionsTaken, durationSeconds = 15 }) {
         const clean = (callerPhone || 'anonymous').replace(/\D/g, '') || 'anonymous';
+        if (!db) {
+            const entry = {
+                id: memoryStore.callLogs.length + 1,
+                caller_phone: clean,
+                caller_role: callerRole,
+                transcript,
+                intent_detected: intentDetected || 'general_query',
+                actions_taken: actionsTaken || 'none',
+                duration_seconds: durationSeconds,
+                timestamp: new Date().toISOString()
+            };
+            memoryStore.callLogs.unshift(entry);
+            return entry;
+        }
         const stmt = db.prepare(`
             INSERT INTO call_logs (caller_phone, caller_role, transcript, intent_detected, actions_taken, duration_seconds)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -995,6 +1298,7 @@ const DB = {
     },
 
     getAllCallLogs() {
+        if (!db) return [...memoryStore.callLogs];
         return db.prepare('SELECT * FROM call_logs ORDER BY timestamp DESC LIMIT 50').all();
     },
 
