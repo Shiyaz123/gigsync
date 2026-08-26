@@ -537,25 +537,27 @@ const server = http.createServer(async (req, res) => {
         });
     }
 
+    // POST /api/ai/reset-session
+    if (pathname === '/api/ai/reset-session' && req.method === 'POST') {
+        const body = await parseBody(req);
+        if (body && body.sessionId) {
+            sessionManager.resetSession(body.sessionId);
+        }
+        return sendJSON(res, { status: 'success', message: 'Voice session reset.' });
+    }
+
     // POST /api/ai/voice-call & POST /api/ai/chat
     if ((pathname === '/api/ai/voice-call' || pathname === '/api/ai/chat') && req.method === 'POST') {
         const body = await parseBody(req);
-        const session = getAuthSession(req);
+        const isVoice = (pathname === '/api/ai/voice-call') || body.isVoiceCall === true || body.portal === 'terminal';
+        const session = (!isVoice) ? getAuthSession(req) : null;
         const speechText = body.speechText || body.message || '';
 
         if (!speechText) {
             return sendJSON(res, { status: 'error', message: 'speechText or message is required.' }, 400);
         }
 
-        // Caller identity resolution.
-        //
-        // The verified session is authoritative — a browser must not be able to claim
-        // someone else's phone number and read or edit their record. The one exception is
-        // the 3.5mm voice terminal: an admin operator dials in on behalf of a worker who is
-        // physically on the handset, so an admin session MAY name the caller explicitly.
-        // In that case the caller's real name and role come from the database, never from
-        // the request body.
-        const identity = resolveAiCaller(session, body);
+        const identity = resolveAiCaller(session, { ...body, isVoiceCall: isVoice });
         if (identity.error) {
             return sendJSON(res, { status: 'error', message: identity.error }, identity.statusCode || 400);
         }

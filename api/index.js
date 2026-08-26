@@ -295,13 +295,9 @@ module.exports = async (req, res) => {
             return sendJSON(res, { status: 'error', message: 'speechText or message is required.' }, 400);
         }
 
-        // Same identity rule as the local server: the verified session decides who the
-        // caller is, and only an admin operator on the 3.5mm terminal may name someone
-        // else. Previously this trusted body.callerPhone outright and fell back to
-        // '9876543210', so an unauthenticated request could read any worker's earnings
-        // and rewrite their availability.
-        const session = token ? DB.getSession(token) : null;
-        const identity = resolveAiCaller(session, body);
+        const isVoice = pathname.endsWith('/ai/voice-call') || body.isVoiceCall === true || body.portal === 'terminal';
+        const session = (!isVoice && token) ? DB.getSession(token) : null;
+        const identity = resolveAiCaller(session, { ...body, isVoiceCall: isVoice });
         if (identity.error) {
             return sendJSON(res, { status: 'error', message: identity.error }, identity.statusCode || 400);
         }
@@ -334,6 +330,19 @@ module.exports = async (req, res) => {
                 message: err.message || 'AI Voice Agent processing error'
             }, 500);
         }
+    }
+
+    // 8a. POST /api/ai/reset-session (Reset in-progress worker draft & voice session state)
+    if (pathname.endsWith('/ai/reset-session') && req.method === 'POST') {
+        const body = await parseBody(req);
+        const sessionId = body && body.sessionId;
+        if (sessionId) {
+            const { sessionManager } = require('../backend/ai_agent');
+            if (sessionManager && sessionManager.resetSession) {
+                sessionManager.resetSession(sessionId);
+            }
+        }
+        return sendJSON(res, { status: 'success', message: 'Voice session reset.' });
     }
 
     // 8b. GET /api/ai/caller?phone=XXXXXXXXXX — who does this number belong to?

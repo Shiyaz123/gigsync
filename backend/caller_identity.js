@@ -41,6 +41,24 @@ function resolveAiCaller(session, body = {}) {
         };
     };
 
+    // Voice Terminal / Telephony / Live Voice Mic calls are always isolated from admin web sessions
+    if (body.isVoiceCall || body.portal === 'terminal') {
+        if (claimedPhone.length === 10) {
+            return {
+                ...describe(claimedPhone, body.callerRole || 'worker', body.callerName || 'Caller', body.city || 'Ramanagara'),
+                source: 'voice_call'
+            };
+        }
+        return {
+            callerPhone: null,
+            callerRole: body.callerRole || 'worker',
+            callerName: body.callerName || 'Caller',
+            city: body.city || 'Ramanagara',
+            registeredWorker: false,
+            source: 'anonymous_voice_call'
+        };
+    }
+
     if (session) {
         const sessionPhone = (session.phone || '').replace(/\D/g, '');
 

@@ -1113,59 +1113,53 @@ class GeminiConversationalBrain {
         const tomorrow = new Date(now.getTime() + 86400000);
 
         const hasVerifiedPhone = session.callerPhone && /^[6-9]\d{9}$/.test(session.callerPhone);
+        const draftState = session.workerDraft || (session.context && session.context.workerDraft) || {
+            name: null,
+            phone: hasVerifiedPhone ? session.callerPhone : null,
+            occupation: null,
+            availabilityDate: null,
+            startTime: null,
+            endTime: null
+        };
+
         const identityBlock = `CALLER IDENTITY:
-- Phone: ${hasVerifiedPhone ? session.callerPhone : '(unknown - if registering or updating schedule, you MUST ask for their 10-digit mobile number)'}
+- Phone: ${hasVerifiedPhone ? session.callerPhone : (draftState.phone || '(unknown - ask for 10-digit mobile number)')}
 - Role: ${isWorkerCall ? 'worker' : 'customer'}
 - Registered GigSync worker account: ${isVerifiedWorker
     ? `YES — id ${workerRecord.id}, name "${workerRecord.name}", profession "${workerRecord.trade}", city ${workerRecord.city}`
     : 'NO — unregistered / new caller'}
 - City: ${session.city || 'Ramanagara'}
-- Right now it is ${dayNames[now.getDay()]}, ${now.toDateString()}. "Today" = ${dayNames[now.getDay()]}, "Tomorrow" = ${dayNames[tomorrow.getDay()]}.`;
+- Right now it is ${dayNames[now.getDay()]}, ${now.toDateString()}. "Today" = ${dayNames[now.getDay()]}, "Tomorrow" = ${dayNames[tomorrow.getDay()]}.
 
-        const workerBrief = `YOU ARE A GENERAL GIGSYNC WORKER ASSISTANT — NOT A MENU OF COMMANDS.
-The worker may ask anything about GigSync: their profile, availability, working hours, bookings,
-job requests, customers, locations, schedule, this week's workload, earnings, payments, ratings,
-reviews, completed jobs, cancellations, or the services they offer. Understand the intent behind
-whatever wording they use. The examples below are examples only — generalise to questions nobody
-listed. Never reply with a generic capability menu just because the exact phrasing is new to you.
+CURRENT WORKER DRAFT STATE:
+${JSON.stringify(draftState, null, 2)}`;
 
-FOR EVERY WORKER MESSAGE, FOLLOW THIS PROCEDURE:
-1. Work out what the worker is actually asking or asking you to do.
-2. Decide whether answering needs real GigSync data.
-3. If it needs data, CALL THE TOOL that holds it. Never answer a data question from memory.
-4. Answer using only what the tool returned.
-5. If they want something changed, confirm the change in one short sentence first.
-6. Then call the tool that performs the change.
-7. Check the tool's 'persisted' / 'storedStatus' / 'firebase' fields to see what really happened.
-8. Tell the worker what actually happened — including when it failed.
+        const workerBrief = `YOU ARE THE GIGSYNC WORKER VOICE AGENT — A NATURAL CONVERSATIONAL ASSISTANT.
+Your job is to onboard workers, answer their questions using real tools, and manage their availability.
 
-WHICH TOOL TO REACH FOR (map intent, not keywords):
-- Who am I / what do you have on me / my rate / my trade / my area  -> getWorkerProfile
-- Am I available today / my hours / availability for a day           -> getWorkerAvailability
-- Has anyone booked me / did anyone request me / how many jobs this
-  week / has a customer cancelled / anything tomorrow                -> getWorkerBookings
-- Next job / next customer / where do I need to go / what time       -> getWorkerNextJob
-- Today's plan / anything I need to do / how busy am I               -> getWorkerDayBriefing
-- Jobs today or on a given day                                       -> getWorkerSchedule
-- Earnings / income / payment / how much have I made / pending money -> getWorkerEarnings
-- Completed jobs / how was my last job / rating / review             -> getWorkerJobHistory
-- Are there jobs available / any new requests / is anyone looking    -> getAvailableJobRequests
-- How does GigSync work / payment questions / platform policy        -> getGigSyncInformation
-- Change/set my working hours, "I don't want to work tomorrow"       -> updateWorkerAvailability
-- Change my profession, name, price, city or area                    -> updateWorkerProfileField
-- Register me / I am new / first-time signup                         -> registerWorkerProfile
-- Job finished / I'm done                                            -> completeJob
-- On my way / arrived / started / can't take it / cancel             -> updateJobStatusByWorker
+SLOT-FILLING & ONBOARDING SEQUENCE:
+1. NEVER invent names or assume caller identity from previous sessions or web dashboard tokens.
+2. If the user provides or corrects their name (e.g. "I am Asad", "My name is Rajesh"), immediately recognize Name = "Asad".
+3. Required fields to onboard a new worker:
+   - Name
+   - Phone (10 digits starting with 6-9)
+   - Occupation / Trade (e.g. Electrician, Plumber, Carpenter, Mechanic, Painter, Mason, Tailor, Welder)
+   - Availability Date (e.g. Tomorrow, Today, or a weekday)
+   - Working Hours (Start Time & End Time, e.g. 9 AM to 5 PM)
+4. Extract all entities present in the user's message.
+5. If fields are missing in Current Worker Draft, ask for the next missing field in strict natural order:
+   Name -> Phone -> Occupation -> Date -> Working Hours.
+   - If only Occupation was given ("I am electrician"): "Sure! What is your name?"
+   - If Name was given ("I am Asad"): "Thank you, Asad. What is your 10-digit mobile number?"
+   - If Phone was given ("7012280695"): "What type of work do you do?" (or ask for availability if trade is already known)
+   - If Trade is known: "What day and hours are you available? For example, tomorrow 9 AM to 5 PM."
+6. When all 5 fields are present, summarize and ask for confirmation before saving:
+   "Got it. You are [Name], a/an [Occupation], available [Date] from [StartTime] to [EndTime]. Shall I save these details?"
+7. Only after the caller confirms (e.g. "Yes", "Save it", "Please save"), call registerWorkerProfile and updateWorkerAvailability with confirmed: true.
 
-SLOT-FILLING & REGISTRATION RULES (DO NOT GUESS MISSING DATA):
-- A complete worker registration requires: (1) Full Name, (2) 10-digit Phone number, (3) Specific Trade/Profession, (4) Availability date (e.g. Today, Tomorrow), (5) Shift start and end times (e.g. 9 AM to 5 PM).
-- If the caller's Name is missing: ASK FOR IT: "Sure. What is your name?"
-- If the caller's Profession/Trade is missing: ASK FOR IT: "What type of work do you do?"
-- If the caller's 10-digit Phone number is missing or unknown: YOU MUST ASK: "Thank you, [Name]. What is your 10-digit mobile number?"
-- If the caller's Working hours are missing: ASK FOR IT: "What hours are you available?"
-- NEVER invent, assume, or default a worker's phone or name. NEVER attempt to register without a valid 10-digit phone number.
-- When all 5 details are present, read back and ask confirmation: "Got it. You are [Name], an [Trade], and you are available [Tomorrow] from [9 AM] to [5 PM]. Would you like me to register you as a GigSync worker?"
-- Only call registerWorkerProfile and updateWorkerAvailability with confirmed:true AFTER the caller confirms with "Yes".
+FOR RETURNING REGISTERED WORKERS:
+- Answer questions on schedule (getWorkerSchedule), bookings (getWorkerBookings), next job (getWorkerNextJob), earnings (getWorkerEarnings), completed jobs (getWorkerJobHistory), and available job requests (getAvailableJobRequests).
+- Update availability (updateWorkerAvailability) with confirmation before saving.
 
 HONESTY RULES (these outrank sounding helpful):
 - Never invent a name, hour, date, customer, amount, rating or job. If it is not in a tool result,
@@ -1361,13 +1355,24 @@ class ConversationSessionManager {
     getSession(sessionId, defaultData = {}) {
         const key = sessionId || defaultData.callerPhone || 'default_session';
         if (!this.sessions.has(key)) {
+            const cleanPhone = (defaultData.callerPhone && /^[6-9]\d{9}$/.test(defaultData.callerPhone.replace(/\D/g, '')))
+                ? defaultData.callerPhone.replace(/\D/g, '')
+                : null;
             this.sessions.set(key, {
                 sessionId: key,
-                callerPhone: defaultData.callerPhone || '9876543210',
-                callerRole: defaultData.callerRole || 'customer',
-                callerName: defaultData.callerName || 'User',
+                callerPhone: cleanPhone,
+                callerRole: defaultData.callerRole || 'worker',
+                callerName: defaultData.callerName && defaultData.callerName !== 'User' ? defaultData.callerName : 'Caller',
                 city: defaultData.city || 'Ramanagara',
                 history: [],
+                workerDraft: {
+                    name: null,
+                    phone: cleanPhone,
+                    occupation: null,
+                    availabilityDate: null,
+                    startTime: null,
+                    endTime: null
+                },
                 context: {
                     pendingIntent: null,
                     currentService: null,
@@ -1376,7 +1381,18 @@ class ConversationSessionManager {
                     currentTime: null,
                     lastFoundWorkers: [],
                     lastSelectedWorker: null,
-                    pendingJobData: null
+                    pendingJobData: null,
+                    workerDraft: {
+                        name: null,
+                        phone: cleanPhone,
+                        trade: null,
+                        date: null,
+                        startTime: null,
+                        endTime: null,
+                        startDisplay: null,
+                        endDisplay: null,
+                        hasAvailability: false
+                    }
                 },
                 lastActivity: Date.now()
             });
@@ -1384,15 +1400,23 @@ class ConversationSessionManager {
 
         const session = this.sessions.get(key);
         session.lastActivity = Date.now();
-        if (defaultData.callerPhone) session.callerPhone = defaultData.callerPhone.replace(/\D/g, '');
+        if (defaultData.callerPhone && /^[6-9]\d{9}$/.test(defaultData.callerPhone.replace(/\D/g, ''))) {
+            session.callerPhone = defaultData.callerPhone.replace(/\D/g, '');
+            if (!session.workerDraft.phone) session.workerDraft.phone = session.callerPhone;
+        }
         if (defaultData.city && !session.city) session.city = defaultData.city;
-        if (defaultData.callerRole && (!session.callerRole || defaultData.callerRole !== 'customer')) {
+        if (defaultData.callerRole && (!session.callerRole || defaultData.callerRole === 'customer')) {
             session.callerRole = defaultData.callerRole;
         }
-        if (defaultData.callerName && (!session.callerName || defaultData.callerName !== 'User')) {
+        if (defaultData.callerName && defaultData.callerName !== 'User' && (!session.callerName || session.callerName === 'Caller')) {
             session.callerName = defaultData.callerName;
         }
         return session;
+    }
+
+    resetSession(sessionId) {
+        if (!sessionId) return;
+        this.sessions.delete(sessionId);
     }
 
     addTurn(session, role, text) {
@@ -1774,19 +1798,22 @@ function isWorkerIntent(text, currentRole = 'customer') {
 
 // Helper for slot-filling worker registration and availability without guessing
 function evaluateWorkerDraft(session, text, actionsPerformed) {
-    session.context.workerDraft = session.context.workerDraft || {
+    session.workerDraft = session.workerDraft || {
         name: null,
         phone: (session.callerPhone && /^[6-9]\d{9}$/.test(session.callerPhone)) ? session.callerPhone : null,
-        trade: null,
-        date: null,
+        occupation: null,
+        availabilityDate: null,
         startTime: null,
-        endTime: null,
-        startDisplay: null,
-        endDisplay: null,
-        hasAvailability: false
+        endTime: null
     };
 
+    session.context.workerDraft = session.context.workerDraft || { ...session.workerDraft };
     const draft = session.context.workerDraft;
+
+    // Synchronize draft fields
+    if (session.workerDraft.name && !draft.name) draft.name = session.workerDraft.name;
+    if (session.workerDraft.phone && !draft.phone) draft.phone = session.workerDraft.phone;
+    if (session.workerDraft.occupation && !draft.trade) draft.trade = session.workerDraft.occupation;
 
     if (!draft.phone && session.callerPhone && /^[6-9]\d{9}$/.test(session.callerPhone)) {
         draft.phone = session.callerPhone;
@@ -1798,28 +1825,32 @@ function evaluateWorkerDraft(session, text, actionsPerformed) {
         if (!draft.trade) draft.trade = existingWorker.trade;
     }
 
+    // Sequence 1: Name
     if (!draft.name) {
         session.context.pendingIntent = 'AWAITING_WORKER_NAME';
         actionsPerformed.push('Prompted worker for missing name');
         return `Sure. What is your name?`;
     }
 
-    if (!draft.trade) {
-        session.context.pendingIntent = 'AWAITING_WORKER_TRADE';
-        actionsPerformed.push('Prompted worker for missing trade');
-        return draft.name ? `Hello ${draft.name}. What type of work do you do?` : `What type of work do you do?`;
-    }
-
+    // Sequence 2: Phone Number (10 digits)
     if (!draft.phone || !/^[6-9]\d{9}$/.test(draft.phone)) {
         session.context.pendingIntent = 'AWAITING_WORKER_PHONE';
         actionsPerformed.push('Prompted worker for missing phone');
         return draft.name ? `Thank you, ${draft.name}. What is your 10-digit mobile number?` : `What is your 10-digit mobile number?`;
     }
 
+    // Sequence 3: Profession / Trade
+    if (!draft.trade) {
+        session.context.pendingIntent = 'AWAITING_WORKER_TRADE';
+        actionsPerformed.push('Prompted worker for missing trade');
+        return draft.name ? `Hello ${draft.name}. What type of work do you do?` : `What type of work do you do?`;
+    }
+
+    // Sequence 4: Availability Date and Working Hours
     if (!draft.hasAvailability) {
         session.context.pendingIntent = 'AWAITING_WORKER_AVAILABILITY';
         actionsPerformed.push('Prompted worker for missing availability');
-        return `What hours are you available?`;
+        return `What day and hours are you available? For example, tomorrow 9 AM to 5 PM.`;
     }
 
     // All 5 fields present!
@@ -1832,20 +1863,20 @@ function evaluateWorkerDraft(session, text, actionsPerformed) {
         phone: draft.phone,
         trade: draft.trade,
         tradeNoun: tradeNoun,
-        date: draft.date,
-        startTime: draft.startTime,
-        endTime: draft.endTime,
-        startDisplay: draft.startDisplay,
-        endDisplay: draft.endDisplay,
+        date: draft.date || 'Tomorrow',
+        startTime: draft.startTime || '09:00 AM',
+        endTime: draft.endTime || '05:00 PM',
+        startDisplay: draft.startDisplay || '9 AM',
+        endDisplay: draft.endDisplay || '5 PM',
         isAvailable: true,
         updateType: (!existingWorker ? 'REGISTRATION_AND_AVAILABILITY' : 'MULTIPLE_DETAILS')
     };
     actionsPerformed.push(`Prepared complete worker details for confirmation`);
 
     if (!existingWorker) {
-        return `Got it. You are ${draft.name}, ${article} ${tradeNoun}, and you are available ${draft.date.toLowerCase()} from ${draft.startDisplay} to ${draft.endDisplay}. Would you like me to register you as a GigSync worker?`;
+        return `Got it. You are ${draft.name}, ${article} ${tradeNoun}, and you are available ${(draft.date || 'tomorrow').toLowerCase()} from ${draft.startDisplay || '9 AM'} to ${draft.endDisplay || '5 PM'}. Would you like me to register you as a GigSync worker?`;
     } else {
-        return `Got it. You are ${draft.name}, ${article} ${tradeNoun}, available ${draft.date.toLowerCase()} from ${draft.startDisplay} to ${draft.endDisplay}. Shall I save these details?`;
+        return `Got it. You are ${draft.name}, ${article} ${tradeNoun}, available ${(draft.date || 'tomorrow').toLowerCase()} from ${draft.startDisplay || '9 AM'} to ${draft.endDisplay || '5 PM'}. Shall I save these details?`;
     }
 }
 
@@ -1903,7 +1934,65 @@ class ContextAwareVoiceAgent {
         let aiBrainError = null;
         const actionsPerformed = [];
 
-        actionsPerformed.push(`Identified ${session.callerRole} (${session.callerName})`);
+        // Continuous entity extraction to maintain live worker draft throughout multi-turn session
+        session.workerDraft = session.workerDraft || {
+            name: null,
+            phone: (session.callerPhone && /^[6-9]\d{9}$/.test(session.callerPhone)) ? session.callerPhone : null,
+            occupation: null,
+            availabilityDate: null,
+            startTime: null,
+            endTime: null
+        };
+        session.context.workerDraft = session.context.workerDraft || { ...session.workerDraft };
+
+        const extractedName = extractCallerName(text);
+        if (extractedName) {
+            session.workerDraft.name = extractedName;
+            session.context.workerDraft.name = extractedName;
+            session.callerName = extractedName;
+        }
+
+        const extractedPhone = extractPhoneNumber(text);
+        if (extractedPhone) {
+            session.workerDraft.phone = extractedPhone;
+            session.context.workerDraft.phone = extractedPhone;
+            session.callerPhone = extractedPhone;
+        }
+
+        const extractedTrade = extractTradeAndService(text);
+        if (extractedTrade) {
+            session.workerDraft.occupation = extractedTrade;
+            session.workerDraft.trade = extractedTrade;
+            session.context.workerDraft.trade = extractedTrade;
+            session.context.workerDraft.occupation = extractedTrade;
+        }
+
+        const hasTimeOrDate = text.match(/\d/) || /morning|evening|afternoon|today|tomorrow|naale/i.test(text);
+        if (hasTimeOrDate) {
+            const { date } = extractDateTimeEntities(text);
+            const range = extractTimeRange(text);
+            if (date) {
+                session.workerDraft.availabilityDate = date;
+                session.context.workerDraft.date = date;
+            }
+            if (range && range.startTime) {
+                session.workerDraft.startTime = range.startTime;
+                session.workerDraft.endTime = range.endTime;
+                session.workerDraft.startDisplay = range.startDisplay;
+                session.workerDraft.endDisplay = range.endDisplay;
+                session.context.workerDraft.startTime = range.startTime;
+                session.context.workerDraft.endTime = range.endTime;
+                session.context.workerDraft.startDisplay = range.startDisplay;
+                session.context.workerDraft.endDisplay = range.endDisplay;
+                session.context.workerDraft.hasAvailability = true;
+            }
+        }
+
+        if (session.callerName && session.callerName !== 'Caller' && session.callerName !== 'User' && session.callerName !== 'Master Platform Administrator') {
+            actionsPerformed.push(`Identified caller (${session.callerName})`);
+        } else {
+            actionsPerformed.push(`Voice processing pipeline initialized`);
+        }
 
         // Helper to deduplicate repeated speech strings from noisy STT
         function cleanUtterance(str) {
@@ -2223,22 +2312,19 @@ class ContextAwareVoiceAgent {
             }
 
             // C.2 Conversational Greetings & Goodbyes
-            else if (/\b(thank you|thanks|thanks a lot|thank you so much|thank you for your help|dhanyavada|dhanyavadagalu|dhanyavadam|shukriya|bahut shukriya)\b/i.test(lowerCleaned) &&
-                /\b(bye|goodbye|okay bye|ok bye|tata|see you|good night|that's all|thats all|that's it|thats it|nothing else|no nothing|nothing more|no that's all|no thats all|no thanks|no thank you)\b/i.test(lowerCleaned)) {
-                spokenResponse = `You're welcome! I'm glad I could help. Have a great day!`;
-                actionsPerformed.push(`Completed conversation with closing goodbye`);
+            else if (/\b(thank you|thanks|thanks a lot|thank you so much|thank you for your help|dhanyavada|dhanyavadagalu|dhanyavadam|shukriya|bahut shukriya)\b/i.test(lowerCleaned)) {
+                spokenResponse = `You're welcome! I'm glad I could help. Feel free to call back anytime, or let me know if you need anything else!`;
+                actionsPerformed.push(`Acknowledged gratitude and closed wrap-up`);
                 session.context.pendingIntent = null;
-                shouldEndCall = true;
-            } else if (/\b(bye|goodbye|okay bye|ok bye|tata|see you|good night|that's all|thats all|that's it|thats it|nothing else|no nothing|nothing more|no that's all|no thats all|no thanks|no thank you)\b/i.test(lowerCleaned) && lowerCleaned.split(/\s+/).length <= 4) {
+                if (/\b(bye|goodbye|that's all|thats all|that is all|that's it|thats it|nothing else|nothing more)\b/i.test(lowerCleaned)) {
+                    shouldEndCall = true;
+                }
+            } else if (/\b(bye|goodbye|okay bye|ok bye|tata|see you|good night|that's all|thats all|that is all|that's it|thats it|nothing else|no nothing|nothing more|no that's all|no thats all|no thanks|no thank you)\b/i.test(lowerCleaned)) {
                 spokenResponse = `Goodbye! Thank you for calling GigSync. Have a wonderful day!`;
                 actionsPerformed.push(`Caller ended conversation`);
                 session.context.pendingIntent = null;
                 shouldEndCall = true;
-            } else if (/\b(thank you|thanks|thanks a lot|thank you so much|thank you for your help|dhanyavada|dhanyavadagalu|dhanyavadam|shukriya|bahut shukriya)\b/i.test(lowerCleaned) && lowerCleaned.split(/\s+/).length <= 5) {
-                spokenResponse = `You're welcome! I'm glad I could help. You can end the call whenever you're ready, or let me know if you need anything else.`;
-                actionsPerformed.push(`Acknowledged gratitude`);
-                session.context.pendingIntent = null;
-            } else if (/\b(hello|hi|hey|namaskara|namaste|vanakkam|good morning|good afternoon|good evening)\b/i.test(lowerCleaned) && lowerCleaned.split(/\s+/).length <= 3) {
+            } else if (/\b(hello|hi|hey|namaskara|namaste|vanakkam|good morning|good afternoon|good evening)\b/i.test(lowerCleaned) && lowerCleaned.split(/\s+/).length <= 4) {
                 spokenResponse = `Hello! How can I help you today?`;
                 actionsPerformed.push(`Natural greeting response`);
             }

@@ -1904,6 +1904,33 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Terminal Clear Transcript & Reset Voice Session
+    document.getElementById('clearTranscriptBtn')?.addEventListener('click', async () => {
+        const box = document.getElementById('terminalTranscriptBox');
+        if (box) {
+            box.innerHTML = `<div class="transcript-idle" id="transcriptIdleMsg"><i class="fa-solid fa-microphone-slash"></i><p>Waiting for voice input...</p></div>`;
+        }
+        const actionsBox = document.getElementById('terminalAiActionsBox');
+        if (actionsBox) {
+            actionsBox.innerHTML = `<div class="action-idle"><p>No actions performed yet.</p></div>`;
+        }
+        const oldSessionId = state.sessionId;
+        state.sessionId = 'voice_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+        state.lastProcessedTurn = '';
+        state.lastProcessedTurnTime = 0;
+        
+        renderTerminalCallerStatus({ phone: null, name: 'Caller', registeredWorker: false });
+        
+        try {
+            await apiFetch('/api/ai/reset-session', {
+                method: 'POST',
+                body: JSON.stringify({ sessionId: oldSessionId })
+            });
+        } catch (e) {}
+        
+        toast('🧹 Voice session reset. Ready for new caller.');
+    });
+
     // Terminal Input Bar Handlers
     document.getElementById('terminalSendBtn')?.addEventListener('click', () => {
         const input = document.getElementById('terminalTextInput');
