@@ -276,6 +276,28 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, { status: 'success', message: 'Profile updated successfully.', worker: updated });
     }
 
+    // PATCH /api/customers/me/profile
+    if (pathname === '/api/customers/me/profile' && req.method === 'PATCH') {
+        const session = getAuthSession(req);
+        if (!session) {
+            return sendJSON(res, { status: 'error', message: 'Authentication required.' }, 401);
+        }
+
+        const body = await parseBody(req);
+        const customer = DB.updateCustomerProfile(session.phone, {
+            name: body.name,
+            city: body.city,
+            area: body.area,
+            email: body.email
+        });
+
+        // updateCustomerProfile already handles users table update internally
+
+        return sendJSON(res, { status: 'success', message: 'Profile updated.', customer });
+    }
+
+
+
     /* ----------------------------------------------------------------------
        3. JOBS & BOOKINGS REST API
        ---------------------------------------------------------------------- */

@@ -973,6 +973,68 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('viewAllCustBookingsLink')?.addEventListener('click', () => switchCustomerView('bookings'));
 
+    /* ======================================================================
+       CUSTOMER PROFILE MODAL (GAP 2 FIX)
+       ====================================================================== */
+
+    const customerProfileModal = document.getElementById('customerProfileModal');
+
+    function openCustomerProfileModal() {
+        userDropdownMenu?.classList.add('hidden');
+        // Pre-fill with current user data
+        if (state.user) {
+            document.getElementById('custProfileName') && (document.getElementById('custProfileName').value = state.user.name || '');
+            document.getElementById('custProfilePhone') && (document.getElementById('custProfilePhone').value = state.user.phone || '');
+            const citySelect = document.getElementById('custProfileCity');
+            if (citySelect) {
+                const city = state.user.city || state.city;
+                const opt = Array.from(citySelect.options).find(o => o.value === city);
+                if (opt) citySelect.value = city;
+            }
+            const areaInput = document.getElementById('custProfileArea');
+            if (areaInput) areaInput.value = state.user.area || state.user.profile?.area || '';
+        }
+        customerProfileModal?.classList.remove('hidden');
+    }
+
+    document.getElementById('custProfileBtn')?.addEventListener('click', openCustomerProfileModal);
+    document.getElementById('closeCustomerProfileModalBtn')?.addEventListener('click', () => customerProfileModal?.classList.add('hidden'));
+
+    document.getElementById('customerProfileForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('custProfileName')?.value.trim();
+        const city = document.getElementById('custProfileCity')?.value;
+        const area = document.getElementById('custProfileArea')?.value.trim() || 'Town';
+
+        // Update local state immediately
+        if (state.user) {
+            state.user.name = name || state.user.name;
+            state.user.city = city || state.user.city;
+            state.user.area = area;
+        }
+
+        // Update city display
+        if (city) updateActiveCity(city);
+
+        // Update display elements
+        document.getElementById('userInitials') && (document.getElementById('userInitials').textContent = (name || '').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'KR');
+        document.getElementById('userDisplayName') && (document.getElementById('userDisplayName').textContent = name || '');
+        document.getElementById('dropdownUserName') && (document.getElementById('dropdownUserName').textContent = name || '');
+
+        // Save to backend if authenticated
+        if (state.token && state.token !== 'guest_cust_token' && state.token !== 'local_vault_token') {
+            await apiFetch('/api/customers/me/profile', {
+                method: 'PATCH',
+                body: JSON.stringify({ name, city, area })
+            }).catch(() => {});
+        }
+
+        customerProfileModal?.classList.add('hidden');
+        toast(`✅ Profile updated: ${name}`);
+    });
+
+
+
     // Load Customer My Bookings View
     async function loadCustomerBookings(filter = 'all') {
         const res = await apiFetch('/api/jobs');
@@ -1052,12 +1114,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (label) label.textContent = workerIsActive ? 'ACTIVE' : 'INACTIVE';
         toast(workerIsActive ? '🟢 You are now marked ACTIVE for new jobs.' : '⚪ You are now marked INACTIVE.');
 
-        if (state.user) {
-            await apiFetch(`/api/workers/${state.user.id || 1}/availability`, {
-                method: 'POST',
-                body: JSON.stringify({ isAvailable: workerIsActive })
-            });
-        }
+        // Use correct authenticated worker endpoint
+        await apiFetch('/api/workers/me/availability', {
+            method: 'PATCH',
+            body: JSON.stringify({ is_available: workerIsActive })
+        });
     });
 
     // Worker Availability Edit Modal
@@ -1094,18 +1155,59 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('workerInitials') && (document.getElementById('workerInitials').textContent = initials);
             document.getElementById('workerDisplayName') && (document.getElementById('workerDisplayName').textContent = state.user.name);
             document.getElementById('wDropdownName') && (document.getElementById('wDropdownName').textContent = state.user.name);
-            if (state.user.profile?.trade) {
-                document.getElementById('workerTradeHeading') && (document.getElementById('workerTradeHeading').textContent = `⚡ ${state.user.profile.trade}`);
-                document.getElementById('wDropdownTrade') && (document.getElementById('wDropdownTrade').textContent = state.user.profile.trade);
+
+            // GAP 1 FIX: Resolve trade from multiple possible sources
+            const workerTrade = state.user.profile?.trade || state.user.trade || 'Specialist';
+            const tradeIcons = {
+                'Electrician': '⚡', 'Master Electrician': '⚡',
+                'Plumber': '🔧', 'Plumbing Specialist': '🔧',
+                'Carpenter': '🔨', 'General Carpenter': '🔨',
+                'Mechanic': '🏍️', 'Two-Wheeler Mechanic': '🏍️',
+                'AC': '❄️', 'AC & Fridge Tech': '❄️',
+                'Painter': '🎨', 'Appliance': '🔌', 'Appliance Repair Tech': '🔌',
+                'Tailor': '🧵', 'Cleaner': '🧹', 'Home Cleaner': '🧹'
+            };
+            const tradeIcon = Object.keys(tradeIcons).find(k => workerTrade.includes(k)) ? tradeIcons[Object.keys(tradeIcons).find(k => workerTrade.includes(k))] : '🔧';
+            document.getElementById('workerTradeHeading') && (document.getElementById('workerTradeHeading').textContent = `${tradeIcon} ${workerTrade}`);
+            document.getElementById('wDropdownTrade') && (document.getElementById('wDropdownTrade').textContent = workerTrade);
+        }
+
+        // Fetch real worker profile if available (for real trade + availability)
+        let workerProfile = null;
+        if (state.user && state.token && state.token !== 'guest_worker_token' && state.token !== 'instant_session_token') {
+            const meRes = await apiFetch('/api/auth/me');
+            if (meRes.ok && meRes.data.user) {
+                state.user = { ...state.user, ...meRes.data.user };
+                const trade = state.user.profile?.trade;
+                if (trade) {
+                    const tradeIcon = Object.keys({ '⚡': ['Electrician'], '🔧': ['Plumb', 'Plumber'], '🔨': ['Carpenter'], '🏍️': ['Mechanic'], '❄️': ['AC', 'Fridge'], '🎨': ['Paint'], '🔌': ['Appliance'], '🧵': ['Tailor'], '🧹': ['Clean'] }).find(k => Object.values({}).some(v => v.some(s => trade.includes(s)))) || '🔧';
+                    document.getElementById('workerTradeHeading') && (document.getElementById('workerTradeHeading').textContent = `🔧 ${trade}`);
+                    document.getElementById('wDropdownTrade') && (document.getElementById('wDropdownTrade').textContent = trade);
+                }
+                workerProfile = state.user.profile;
             }
         }
 
         const res = await apiFetch('/api/jobs');
-        const jobs = (res.ok && res.data.jobs) ? res.data.jobs : [];
-        state.jobs = jobs;
+        const allJobs = (res.ok && res.data.jobs) ? res.data.jobs : [];
+        // Filter jobs relevant to this worker
+        const workerPhone = state.user?.phone;
+        const jobs = allJobs.filter(j => !workerPhone || j.worker_phone === workerPhone || j.worker_phone === null && j.status === 'Requested');
+        state.jobs = allJobs;
 
-        // Current In-Progress Job
-        const currentJob = jobs.find(j => j.status === 'In Progress' || j.status === 'On the Way');
+        // Availability Display — show slot or 'On Duty' from duty toggle state
+        const availBadge = document.getElementById('workerAvailBadge');
+        const todayHoursLabel = document.getElementById('workerTodayHoursLabel');
+        if (availBadge) {
+            availBadge.textContent = workerIsActive ? '🟢 Available' : '⚪ Off Duty';
+            availBadge.className = `avail-badge ${workerIsActive ? 'available' : 'unavailable'}`;
+        }
+
+        // Current In-Progress Job (worker's own)
+        const currentJob = allJobs.find(j =>
+            (j.status === 'In Progress' || j.status === 'On the Way') &&
+            (!workerPhone || j.worker_phone === workerPhone)
+        );
         const currentContainer = document.getElementById('workerCurrentBookingContainer');
         if (currentContainer) {
             if (!currentJob) {
@@ -1133,14 +1235,55 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // Upcoming Jobs
-        const upcoming = jobs.filter(j => j.status === 'Requested' || j.status === 'Confirmed');
+        // GAP 3: Available Job Opportunities — unassigned Requested jobs in worker's city/trade
+        const workerCity = state.user?.city || state.city;
+        const workerTrade2 = (state.user?.profile?.trade || state.user?.trade || '').toLowerCase();
+        const opportunities = allJobs.filter(j =>
+            j.status === 'Requested' &&
+            !j.worker_phone &&
+            (!workerCity || j.city === workerCity || j.city === state.city)
+        );
+
+        // Show opportunities in the Upcoming Bookings section (with Accept/Decline)
         const upcomingList = document.getElementById('workerUpcomingBookingsList');
         if (upcomingList) {
-            if (upcoming.length === 0) {
-                upcomingList.innerHTML = `<div class="empty-placeholder"><p>No upcoming bookings scheduled.</p></div>`;
-            } else {
-                upcomingList.innerHTML = upcoming.map(j => `
+            // Worker's own confirmed bookings
+            const myUpcoming = allJobs.filter(j =>
+                (j.status === 'Confirmed') &&
+                workerPhone && j.worker_phone === workerPhone
+            );
+
+            let html = '';
+
+            if (opportunities.length > 0) {
+                html += `<div class="section-subtext" style="padding:8px 0 6px;font-size:12px;color:var(--gs-primary);font-weight:600;letter-spacing:.5px">📢 AVAILABLE JOB REQUESTS IN YOUR AREA</div>`;
+                html += opportunities.map(j => `
+                    <div class="booking-card" style="border-left:3px solid var(--gs-primary);">
+                        <div class="booking-info">
+                            <h4 class="booking-service-title">${j.service} <span style="font-size:11px;font-weight:500;color:var(--gs-muted)">Job #${j.id}</span></h4>
+                            <p style="font-size:12.5px;color:var(--gs-text-secondary);margin:2px 0 5px">${j.problem_description}</p>
+                            <div class="booking-meta-row">
+                                <span><i class="fa-solid fa-clock"></i> ${j.requested_date} • ${j.requested_time}</span>
+                                <span><i class="fa-solid fa-location-dot"></i> ${j.location || j.city}</span>
+                                <span><i class="fa-solid fa-indian-rupee-sign"></i> ${j.budget || '₹300'}</span>
+                            </div>
+                        </div>
+                        <div class="booking-actions-col" style="gap:6px;">
+                            <button type="button" class="btn btn-primary btn-sm" onclick="window._workerAcceptJob('${j.id}')">
+                                <i class="fa-solid fa-check"></i> Accept
+                            </button>
+                            <button type="button" class="btn btn-outline btn-sm" onclick="window._workerDeclineJob('${j.id}')">
+                                <i class="fa-solid fa-xmark"></i> Decline
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            if (myUpcoming.length > 0) {
+                if (html) html += `<div style="height:8px"></div>`;
+                html += `<div class="section-subtext" style="padding:8px 0 6px;font-size:12px;color:var(--gs-text-secondary);font-weight:600;letter-spacing:.5px">MY CONFIRMED BOOKINGS</div>`;
+                html += myUpcoming.map(j => `
                     <div class="booking-card">
                         <div class="booking-info">
                             <h4 class="booking-service-title">${j.service}</h4>
@@ -1151,14 +1294,20 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
                         </div>
                         <div class="booking-actions-col">
-                            <span class="status-pill requested">${j.status}</span>
+                            <span class="status-pill confirmed">Confirmed</span>
                             <button type="button" class="btn btn-primary btn-sm" onclick="window._workerUpdateJobStatus('${j.id}', 'In Progress')">
-                                Accept &amp; Start
+                                Start Job
                             </button>
                         </div>
                     </div>
                 `).join('');
             }
+
+            if (!html) {
+                html = `<div class="empty-placeholder"><p>No job requests in your area right now.</p></div>`;
+            }
+
+            upcomingList.innerHTML = html;
         }
     }
 
@@ -1168,9 +1317,33 @@ document.addEventListener('DOMContentLoaded', () => {
             body: JSON.stringify({ status })
         });
         if (res.ok) {
-            toast(`Job #${id} status updated to ${status}`);
+            toast(`Job #${id} → ${status}`);
             loadWorkerDashboardData();
+            if (state.workerView === 'bookings') loadWorkerBookings();
+            if (state.workerView === 'earnings') loadWorkerEarnings();
+        } else {
+            toast('Failed to update job status.');
         }
+    };
+
+    window._workerAcceptJob = async function(id) {
+        const res = await apiFetch(`/api/jobs/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'Confirmed' })
+        });
+        if (res.ok) {
+            toast(`✅ Job #${id} accepted! It's now in your bookings.`);
+            loadWorkerDashboardData();
+        } else {
+            toast('Failed to accept job.');
+        }
+    };
+
+    window._workerDeclineJob = async function(id) {
+        // Decline just removes from view for this worker — don't change status
+        toast(`Job #${id} declined. It remains available for other workers.`);
+        // Just refresh to reflect latest state
+        loadWorkerDashboardData();
     };
 
     // Load Worker Bookings View
@@ -1218,37 +1391,76 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Load Worker Job History & Earnings View
+    // GAP 5: Load Worker Job History & Earnings — uses real per-worker earnings API
     async function loadWorkerEarnings() {
-        const res = await apiFetch('/api/jobs');
-        const jobs = (res.ok && res.data.jobs) ? res.data.jobs : [];
-        const completed = jobs.filter(j => j.status === 'Completed');
+        // Determine worker profile ID for real earnings lookup
+        const workerId = state.user?.profile?.id || state.user?.id;
+        let earningsData = null;
 
-        let total = 0;
-        completed.forEach(j => {
-            const val = parseInt((j.budget || '300').replace(/[^0-9]/g, '')) || 300;
-            total += val;
-        });
+        if (workerId && state.token && state.token !== 'guest_worker_token') {
+            const eRes = await apiFetch(`/api/workers/${workerId}/earnings`);
+            if (eRes.ok && eRes.data.earnings) {
+                earningsData = eRes.data.earnings;
+            }
+        }
 
-        document.getElementById('metricCompletedJobs') && (document.getElementById('metricCompletedJobs').textContent = completed.length);
-        document.getElementById('metricTotalEarnings') && (document.getElementById('metricTotalEarnings').textContent = `₹${total}`);
-        document.getElementById('metricMonthEarnings') && (document.getElementById('metricMonthEarnings').textContent = `₹${total}`);
-        document.getElementById('metricPendingEarnings') && (document.getElementById('metricPendingEarnings').textContent = '₹0');
+        if (earningsData) {
+            document.getElementById('metricCompletedJobs') && (document.getElementById('metricCompletedJobs').textContent = earningsData.totalCompletedJobs || 0);
+            document.getElementById('metricTotalEarnings') && (document.getElementById('metricTotalEarnings').textContent = `₹${earningsData.totalEarnings || 0}`);
+            document.getElementById('metricMonthEarnings') && (document.getElementById('metricMonthEarnings').textContent = `₹${earningsData.thisMonth || 0}`);
+            document.getElementById('metricPendingEarnings') && (document.getElementById('metricPendingEarnings').textContent = `₹${earningsData.pendingEarnings || 0}`);
 
-        const tableBody = document.getElementById('workerEarningsTableBody');
-        if (tableBody) {
-            if (completed.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--gs-muted);padding:24px">No completed gigs recorded yet.</td></tr>`;
-            } else {
-                tableBody.innerHTML = completed.map(j => `
-                    <tr>
-                        <td><strong>${j.service}</strong></td>
-                        <td>${j.customer_name || 'Customer'}</td>
-                        <td><strong>${j.budget || '₹300'}</strong></td>
-                        <td>${j.requested_date || 'Today'}</td>
-                        <td><span class="status-pill completed">Completed</span></td>
-                    </tr>
-                `).join('');
+            const tableBody = document.getElementById('workerEarningsTableBody');
+            if (tableBody) {
+                const completedJobs = earningsData.completedJobs || [];
+                if (completedJobs.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--gs-muted);padding:24px">No completed gigs recorded yet.</td></tr>`;
+                } else {
+                    tableBody.innerHTML = completedJobs.map(j => {
+                        const amt = j.final_price ? `₹${j.final_price}` : (j.budget || '₹300');
+                        const date = j.completed_at ? new Date(j.completed_at).toLocaleDateString('en-IN') : (j.requested_date || 'Today');
+                        return `
+                            <tr>
+                                <td><strong>${j.service}</strong></td>
+                                <td>${j.customer_name || 'Customer'}</td>
+                                <td><strong>${amt}</strong></td>
+                                <td>${date}</td>
+                                <td><span class="status-pill completed">Paid ${j.payment_method || 'Cash'}</span></td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+            }
+        } else {
+            // Fallback: compute from job list filtered by this worker
+            const res = await apiFetch('/api/jobs');
+            const allJobs = (res.ok && res.data.jobs) ? res.data.jobs : [];
+            const workerPhone = state.user?.phone;
+            const completed = allJobs.filter(j => j.status === 'Completed' && (!workerPhone || j.worker_phone === workerPhone));
+
+            let total = 0;
+            completed.forEach(j => { total += parseInt((j.budget || '300').replace(/[^0-9]/g, '')) || 300; });
+
+            document.getElementById('metricCompletedJobs') && (document.getElementById('metricCompletedJobs').textContent = completed.length);
+            document.getElementById('metricTotalEarnings') && (document.getElementById('metricTotalEarnings').textContent = `₹${total}`);
+            document.getElementById('metricMonthEarnings') && (document.getElementById('metricMonthEarnings').textContent = `₹${total}`);
+            document.getElementById('metricPendingEarnings') && (document.getElementById('metricPendingEarnings').textContent = '₹0');
+
+            const tableBody = document.getElementById('workerEarningsTableBody');
+            if (tableBody) {
+                if (completed.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--gs-muted);padding:24px">No completed gigs recorded yet.</td></tr>`;
+                } else {
+                    tableBody.innerHTML = completed.map(j => `
+                        <tr>
+                            <td><strong>${j.service}</strong></td>
+                            <td>${j.customer_name || 'Customer'}</td>
+                            <td><strong>${j.budget || '₹300'}</strong></td>
+                            <td>${j.requested_date || 'Today'}</td>
+                            <td><span class="status-pill completed">Completed</span></td>
+                        </tr>
+                    `).join('');
+                }
             }
         }
     }
@@ -1756,97 +1968,112 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let modalSilenceTimer = null;
 
-    async function startAiModalListening() {
+    function startAiModalListening() {
         accumulatedAiSpeech = '';
         clearTimeout(modalSilenceTimer);
         modalSilenceTimer = null;
 
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-            try {
-                aiAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            } catch (err) {
-                toast('Please allow microphone access in your browser.');
-                return;
-            }
+        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRec) {
+            toast('Voice recognition is not supported in this browser. Please type your request below.');
+            return;
+        }
+        if (speechRecNetworkBlocked) {
+            toast('Voice server is busy. Please type your message below.');
+            return;
         }
 
-        state.isAiModalRecording = true;
-        aiModalBigMicBtn?.classList.add('recording');
-        aiModalWaveBars?.classList.remove('hidden');
-        if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🔴 Listening... (Will automatically reply 2s after you stop speaking)';
-        if (aiLiveStreamTranscript) aiLiveStreamTranscript.classList.remove('hidden');
-        if (aiLiveStreamText) aiLiveStreamText.textContent = 'Listening to your voice... Speak now';
+        // IMPORTANT: SpeechRecognition.start() MUST be called synchronously inside
+        // the click handler on desktop Chrome — any await before this call breaks
+        // the browser's user-gesture context and the mic never activates.
+        try {
+            if (aiSpeechRecognizer) {
+                try { aiSpeechRecognizer.abort(); } catch(e){}
+            }
 
-        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (SpeechRec && !speechRecNetworkBlocked) {
-            try {
-                if (aiSpeechRecognizer) {
-                    try { aiSpeechRecognizer.abort(); } catch(e){}
+            aiSpeechRecognizer = new SpeechRec();
+            aiSpeechRecognizer.continuous = true;
+            aiSpeechRecognizer.interimResults = true;
+            aiSpeechRecognizer.lang = 'en-IN';
+
+            aiSpeechRecognizer.onresult = (event) => {
+                let interim = '';
+                let final = '';
+                for (let i = 0; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        final += event.results[i][0].transcript + ' ';
+                    } else {
+                        interim += event.results[i][0].transcript;
+                    }
+                }
+                const liveTextCaptured = (final + interim).trim();
+                accumulatedAiSpeech = liveTextCaptured;
+
+                if (aiLiveStreamText && liveTextCaptured) {
+                    aiLiveStreamText.textContent = `"${liveTextCaptured}"`;
+                }
+                const modalInput = document.getElementById('aiModalTextInput');
+                if (modalInput && liveTextCaptured) {
+                    modalInput.value = liveTextCaptured;
                 }
 
-                aiSpeechRecognizer = new SpeechRec();
-                aiSpeechRecognizer.continuous = true;
-                aiSpeechRecognizer.interimResults = true;
-                aiSpeechRecognizer.lang = 'en-IN';
-
-                aiSpeechRecognizer.onresult = (event) => {
-                    let interim = '';
-                    let final = '';
-                    for (let i = 0; i < event.results.length; ++i) {
-                        if (event.results[i].isFinal) {
-                            final += event.results[i][0].transcript + ' ';
-                        } else {
-                            interim += event.results[i][0].transcript;
+                // 2-second silence auto-send timer
+                if (liveTextCaptured) {
+                    clearTimeout(modalSilenceTimer);
+                    modalSilenceTimer = setTimeout(() => {
+                        if (state.isAiModalRecording) {
+                            stopAiModalListening(true);
                         }
-                    }
-                    const liveTextCaptured = (final + interim).trim();
-                    accumulatedAiSpeech = liveTextCaptured;
+                    }, 2000);
+                }
+            };
 
-                    if (aiLiveStreamText && liveTextCaptured) {
-                        aiLiveStreamText.textContent = `"${liveTextCaptured}"`;
-                    }
-                    const modalInput = document.getElementById('aiModalTextInput');
-                    if (modalInput && liveTextCaptured) {
-                        modalInput.value = liveTextCaptured;
-                    }
+            aiSpeechRecognizer.onspeechend = () => {
+                if (accumulatedAiSpeech) {
+                    clearTimeout(modalSilenceTimer);
+                    modalSilenceTimer = setTimeout(() => {
+                        if (state.isAiModalRecording) {
+                            stopAiModalListening(true);
+                        }
+                    }, 2000);
+                }
+            };
 
-                    // 2-second silence auto-send timer
-                    if (liveTextCaptured) {
-                        clearTimeout(modalSilenceTimer);
-                        modalSilenceTimer = setTimeout(() => {
-                            if (state.isAiModalRecording) {
-                                stopAiModalListening(true);
-                            }
-                        }, 2000);
-                    }
-                };
+            aiSpeechRecognizer.onerror = (err) => {
+                if (err.error === 'network') {
+                    speechRecNetworkBlocked = true;
+                    if (aiLiveStreamText) aiLiveStreamText.textContent = 'Voice server busy. You can type or click a prompt below:';
+                } else if (err.error === 'not-allowed' || err.error === 'permission-denied') {
+                    toast('Microphone permission denied. Please allow mic access in your browser settings, then refresh.');
+                    stopAiModalListening(false);
+                }
+            };
 
-                aiSpeechRecognizer.onspeechend = () => {
-                    if (accumulatedAiSpeech) {
-                        clearTimeout(modalSilenceTimer);
-                        modalSilenceTimer = setTimeout(() => {
-                            if (state.isAiModalRecording) {
-                                stopAiModalListening(true);
-                            }
-                        }, 2000);
-                    }
-                };
+            aiSpeechRecognizer.onend = () => {
+                if (state.isAiModalRecording && !speechRecNetworkBlocked) {
+                    try { aiSpeechRecognizer.start(); } catch(e){}
+                }
+            };
 
-                aiSpeechRecognizer.onerror = (err) => {
-                    if (err.error === 'network') {
-                        speechRecNetworkBlocked = true;
-                        if (aiLiveStreamText) aiLiveStreamText.textContent = 'Voice server busy. You can type or click a prompt below:';
-                    }
-                };
+            // ✅ Start recognition SYNCHRONOUSLY — preserves desktop user-gesture context
+            aiSpeechRecognizer.start();
 
-                aiSpeechRecognizer.onend = () => {
-                    if (state.isAiModalRecording && !speechRecNetworkBlocked) {
-                        try { aiSpeechRecognizer.start(); } catch(e){}
-                    }
-                };
+            // Update UI state AFTER start() succeeds
+            state.isAiModalRecording = true;
+            aiModalBigMicBtn?.classList.add('recording');
+            aiModalWaveBars?.classList.remove('hidden');
+            if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🔴 Listening... (Will automatically reply 2s after you stop speaking)';
+            if (aiLiveStreamTranscript) aiLiveStreamTranscript.classList.remove('hidden');
+            if (aiLiveStreamText) aiLiveStreamText.textContent = 'Listening to your voice... Speak now';
 
-                aiSpeechRecognizer.start();
-            } catch (e) {}
+            // Request getUserMedia AFTER start() — for audio level visualisation only, not required for STT
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => { aiAudioStream = stream; })
+                    .catch(() => {}); // Non-fatal — STT still works without this stream
+            }
+        } catch (e) {
+            toast('Unable to start voice recognition. Please try typing your request.');
         }
     }
 

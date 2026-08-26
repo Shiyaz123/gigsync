@@ -235,8 +235,15 @@ const DB = {
         if (fields.length > 0) {
             params.push(customer.id);
             db.prepare(`UPDATE customers SET ${fields.join(', ')} WHERE id = ?`).run(...params);
-            if (updates.city || updates.area) {
-                db.prepare(`UPDATE users SET city = ?, area = ? WHERE phone = ?`).run(updates.city || customer.city, updates.area || customer.area, customer.phone);
+            // Sync name, city, and area back to users table
+            const uFields = [];
+            const uParams = [];
+            if (updates.name) { uFields.push('name = ?'); uParams.push(updates.name); }
+            if (updates.city) { uFields.push('city = ?'); uParams.push(updates.city); }
+            if (updates.area) { uFields.push('area = ?'); uParams.push(updates.area); }
+            if (uFields.length > 0) {
+                uParams.push(customer.phone);
+                db.prepare(`UPDATE users SET ${uFields.join(', ')} WHERE phone = ?`).run(...uParams);
             }
         }
         const updated = this.getCustomerById(customer.id);
@@ -298,8 +305,29 @@ const DB = {
         const params = [];
 
         if (filters.service && filters.service !== 'all') {
-            query += ' AND (service LIKE ? OR trade LIKE ?)';
-            params.push(`%${filters.service}%`, `%${filters.service}%`);
+            // Normalize trade search keyword to root stem to match variations (e.g. Electrical -> Electric, Plumbing -> Plumb)
+            let sTerm = filters.service.trim();
+            const stems = {
+                'Electrical': 'Electric',
+                'Plumbing': 'Plumb',
+                'Carpentry': 'Carpent',
+                'Mechanics': 'Mechanic',
+                'Home Cleaning': 'Clean',
+                'Painting': 'Paint',
+                'Masonry & Construction': 'Mason',
+                'Tailoring & Alterations': 'Tailor',
+                'Welding & Metalwork': 'Weld',
+                'Driver Services': 'Driver',
+                'TV & Electronics Repair': 'TV',
+                'Water Purifier & RO Service': 'Water',
+                'Washing Machine Repair': 'Washing',
+                'Refrigerator Repair': 'Fridge',
+                'AC & Appliances': 'AC'
+            };
+            const stem = stems[sTerm] || sTerm;
+
+            query += ' AND (service LIKE ? OR trade LIKE ? OR service LIKE ? OR trade LIKE ?)';
+            params.push(`%${sTerm}%`, `%${sTerm}%`, `%${stem}%`, `%${stem}%`);
         }
         if (filters.city && filters.city !== 'all') {
             query += ' AND city = ?';

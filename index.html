@@ -194,6 +194,7 @@
                                 <span id="dropdownUserRole">Customer</span>
                             </div>
                             <hr class="divider">
+                            <button type="button" class="dropdown-item" id="custProfileBtn"><i class="fa-solid fa-user-circle"></i> My Profile</button>
                             <button type="button" class="dropdown-item" id="switchPortalBtn"><i class="fa-solid fa-hammer"></i> Switch to Worker</button>
                             <button type="button" class="dropdown-item" id="dropdownTerminalBtn"><i class="fa-solid fa-headset"></i> Voice Terminal</button>
                             <hr class="divider">
@@ -871,6 +872,52 @@
                     <i class="fa-solid fa-paper-plane"></i>
                 </button>
             </div>
+        </div>
+    </div>
+
+    <!-- 5. CUSTOMER MY PROFILE MODAL -->
+    <div id="customerProfileModal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-user-circle"></i> My Profile</h3>
+                <button type="button" class="modal-close-btn" id="closeCustomerProfileModalBtn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="customerProfileForm" class="modal-form">
+                <div class="form-field">
+                    <label class="field-label">Full Name</label>
+                    <input type="text" id="custProfileName" class="field-input" placeholder="Your full name">
+                </div>
+                <div class="form-field">
+                    <label class="field-label">Mobile Number</label>
+                    <input type="text" id="custProfilePhone" class="field-input" readonly style="background:var(--gs-bg-alt);cursor:not-allowed;opacity:.7">
+                    <small class="field-hint">Phone number cannot be changed</small>
+                </div>
+                <div class="form-row-2">
+                    <div class="form-field">
+                        <label class="field-label">City</label>
+                        <select id="custProfileCity" class="field-input">
+                            <option value="Ramanagara">Ramanagara</option>
+                            <option value="Chitradurga">Chitradurga</option>
+                            <option value="Mandya">Mandya</option>
+                            <option value="Hassan">Hassan</option>
+                            <option value="Tumakuru">Tumakuru</option>
+                            <option value="Shivamogga">Shivamogga</option>
+                            <option value="Davangere">Davangere</option>
+                            <option value="Belagavi">Belagavi</option>
+                            <option value="Hubballi">Hubballi</option>
+                            <option value="Kannur">Kannur</option>
+                            <option value="Kasaragod">Kasaragod</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label class="field-label">Area / Locality</label>
+                        <input type="text" id="custProfileArea" class="field-input" placeholder="e.g. Town, Main Road">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">
+                    <i class="fa-solid fa-check"></i> Save Profile
+                </button>
+            </form>
         </div>
     </div>
 
