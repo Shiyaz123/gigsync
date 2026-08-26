@@ -1038,7 +1038,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (liveStream || typeof EventSource === 'undefined') return;
 
         try {
-            liveStream = new EventSource(`${API_BASE}/api/events`);
+            liveStream = new EventSource('/api/events');
         } catch (err) {
             console.warn('[GigSync] Live updates unavailable:', err.message);
             return;
@@ -1822,14 +1822,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 };
 
                 terminalSpeechRec.onerror = (err) => {
-                    if (err.error !== 'no-speech') {
+                    if (err.error !== 'no-speech' && err.error !== 'aborted') {
                         console.warn('Terminal speech recognition error:', err.error);
+                    }
+                    if (state.voiceAgentActive && !isAiSpeaking) {
+                        setVoiceAgentState('listening', '🟢 LISTENING');
                     }
                 };
 
                 terminalSpeechRec.onend = () => {
                     if (state.voiceAgentActive && !isAiSpeaking) {
-                        try { terminalSpeechRec.start(); } catch(e){}
+                        setTimeout(() => {
+                            if (state.voiceAgentActive && !isAiSpeaking) {
+                                try { terminalSpeechRec.start(); } catch(e){}
+                            }
+                        }, 100);
                     }
                 };
 
@@ -2261,50 +2268,37 @@ document.addEventListener('DOMContentLoaded', () => {
         updateDiagnostic('diagStt', '🟢 Working (Transcribed)', 'ok');
         updateDiagnostic('diagAiResponse', '🟡 Generating...', 'working');
 
-        // Caller identity.
-        //
-        // On the 3.5mm terminal the operator states who is physically on the handset; that
-        // number is the only identity claim the server accepts from this client, and it
-        // only accepts it because the operator holds a verified admin session. Everywhere
-        // else the server takes the caller from the session and ignores what we send, so
-        // we deliberately do not invent a phone number here — a wrong number would read
-        // and edit the wrong worker's record.
+        // Caller identity (optional pre-identification by operator)
         const terminalCaller = state.portal === 'terminal'
             ? (document.getElementById('terminalCallerPhone')?.value || '').replace(/\D/g, '')
             : '';
-
-        if (state.portal === 'terminal' && terminalCaller.length !== 10) {
-            aiModalWaveBars?.classList.add('hidden');
-            updateDiagnostic('diagAiResponse', '🔴 No caller identified', 'err');
-            const warning = 'Enter the caller\'s 10-digit registered mobile number before starting the call.';
-            appendTerminalTranscript('GIGSYNC AI', warning);
-            appendAiDialogue('GIGSYNC AI', warning);
-            toast('⚠️ Identify the caller first (registered mobile number).');
-            return;
-        }
 
         const payload = {
             sessionId: state.sessionId,
             city: state.city,
             speechText
         };
-        if (terminalCaller) payload.callerPhone = terminalCaller;
+        if (terminalCaller && terminalCaller.length === 10) payload.callerPhone = terminalCaller;
         else if (state.user && state.user.phone) payload.callerPhone = state.user.phone;
 
-        const res = await apiFetch('/api/ai/voice-call', {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        });
+        let res;
+        try {
+            res = await apiFetch('/api/ai/voice-call', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+        } catch (err) {
+            res = { ok: false, data: { message: err.message } };
+        }
 
         aiModalWaveBars?.classList.add('hidden');
 
-        // Show who the server actually resolved the caller to, so the operator can see at
-        // a glance whether the AI is talking to the record they intended.
+        // Show who the server actually resolved the caller to
         if (res.ok && res.data && res.data.callerIdentity) {
             renderTerminalCallerStatus(res.data.callerIdentity);
         }
 
-        if (res.ok && res.data.spokenResponse) {
+        if (res.ok && res.data && res.data.spokenResponse) {
             if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🔊 Responding...';
             updateDiagnostic('diagAiResponse', '🟢 Generated', 'ok');
             appendAiDialogue('GIGSYNC AI', res.data.spokenResponse);
@@ -2331,12 +2325,14 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = 'Click microphone to speak';
             updateDiagnostic('diagAiResponse', '🔴 Failed', 'err');
-            // Report what actually went wrong. A refused identity and a dead AI service are
-            // very different problems, and "service unavailable" hid both.
             const reason = (res.data && res.data.message) || 'AI processing service unavailable.';
             appendTerminalTranscript('GIGSYNC AI', reason);
             appendAiDialogue('GIGSYNC AI', reason);
             toast(`⚠️ ${reason}`);
+        }
+
+        if (state.voiceAgentActive && !isAiSpeaking) {
+            setVoiceAgentState('listening', '🟢 LISTENING');
         }
     }
 
