@@ -30,68 +30,29 @@ const DB = require('./database');
 
 // 1. Definition of Real Database Tools (No Assumptions, No Fabricated Records)
 const AI_TOOLS = {
-    // 1. Find Real Registered Workers from Database
-    findWorkers({ service = 'all', city = 'Ramanagara' }) {
-        const workers = DB.getAllWorkers({
-            service: service === 'all' ? undefined : service,
-            city: city,
-            isAvailable: true
+    // 1. Register or Update Worker Profile in Verified Database & Firebase
+    registerWorkerProfile({ name, phone, trade = 'Skilled Specialist', city = 'Ramanagara', area = 'Town', tools = 'Standard tool kit', price = 300, experienceYears = 2 }) {
+        const cleanPhone = (phone || '').replace(/\D/g, '');
+        const worker = DB.registerWorkerProfile({
+            name,
+            phone: cleanPhone,
+            trade,
+            city,
+            area,
+            tools,
+            price: Number(price) || 300,
+            experienceYears: Number(experienceYears) || 2
         });
 
         return {
             status: 'success',
-            count: workers.length,
-            workers: workers.map(w => ({
-                id: w.id,
-                name: w.name,
-                phone: w.phone,
-                trade: w.trade,
-                service: w.service,
-                rating: w.rating,
-                distanceKm: w.km,
-                startingPrice: `₹${w.price}`,
-                isAvailable: Boolean(w.is_available),
-                tools: w.tools,
-                city: w.city,
-                area: w.area
-            }))
+            action: 'WORKER_REGISTERED',
+            worker
         };
     },
 
-    // 2. Check Specific Worker Availability
-    checkWorkerAvailability({ workerId, workerName, date = 'Today', time = 'Immediate' }) {
-        let worker = null;
-        if (workerId) {
-            worker = DB.getWorkerById(workerId);
-        } else if (workerName) {
-            const all = DB.getAllWorkers();
-            worker = all.find(w => w.name.toLowerCase().includes(workerName.toLowerCase()));
-        }
-
-        if (!worker) {
-            return {
-                status: 'error',
-                message: `Worker "${workerName || workerId}" was not found in the registered database.`
-            };
-        }
-
-        const schedule = DB.getWorkerSchedule(worker.id);
-        const hasConflict = DB.checkScheduleConflict(worker.id, date, time);
-
-        return {
-            status: 'success',
-            workerId: worker.id,
-            workerName: worker.name,
-            trade: worker.trade,
-            city: worker.city,
-            isAvailable: Boolean(worker.is_available) && !hasConflict,
-            hasConflict,
-            schedule: schedule ? schedule.availabilitySlots : []
-        };
-    },
-
-    // 3. Worker Availability Update
-    updateWorkerAvailability({ workerPhone, trade = 'Skilled Specialist', date = 'Tomorrow', startTime = '09:00 AM', endTime = '06:00 PM', isAvailable = true }) {
+    // 2. Worker Availability Update
+    updateWorkerAvailability({ workerPhone, trade = 'Skilled Specialist', date = 'Tomorrow', startTime = '09:00 AM', endTime = '05:00 PM', isAvailable = true }) {
         const cleanPhone = (workerPhone || '').replace(/\D/g, '');
         const worker = DB.getWorkerByPhone(cleanPhone);
 
@@ -120,50 +81,74 @@ const AI_TOOLS = {
         };
     },
 
-    // 4. Get Worker Availability
-    getWorkerAvailability({ workerPhone, date = 'Tomorrow' }) {
+    // 3. Get Worker Schedule & Bookings for Given Date
+    getWorkerSchedule({ workerPhone, date = 'Today' }) {
         const cleanPhone = (workerPhone || '').replace(/\D/g, '');
         const schedule = DB.getWorkerSchedule(cleanPhone);
-        if (!schedule) {
-            return { status: 'not_found', message: 'No registered worker profile found for this phone.' };
+        const allJobs = DB.getAllJobs().filter(j => (j.worker_phone && j.worker_phone.replace(/\D/g, '') === cleanPhone));
+        let activeJobs = allJobs.filter(j => ['Requested', 'Accepted', 'On the Way', 'In Progress', 'Confirmed'].includes(j.status));
+
+        if (date && date.toLowerCase() !== 'all') {
+            activeJobs = activeJobs.filter(j => j.requested_date && j.requested_date.toLowerCase() === date.toLowerCase());
         }
 
-        const matchingSlot = schedule.availabilitySlots.find(s => s.date_str.toLowerCase() === date.toLowerCase());
         return {
             status: 'success',
-            workerName: schedule.worker ? schedule.worker.name : 'Worker',
-            isAvailableNow: schedule.isAvailableNow,
-            slot: matchingSlot || null,
-            date
+            workerName: schedule?.worker?.name || 'Worker',
+            isAvailableNow: schedule?.isAvailableNow || false,
+            date,
+            count: activeJobs.length,
+            bookings: activeJobs,
+            availabilitySlots: schedule?.availabilitySlots || []
         };
     },
 
-    // 5. Get Customer Bookings
-    getCustomerBookings({ customerPhone }) {
-        const cleanPhone = (customerPhone || '').replace(/\D/g, '');
-        const jobs = DB.getAllJobs().filter(j => j.customer_phone && j.customer_phone.replace(/\D/g, '') === cleanPhone);
-        return {
-            status: 'success',
-            count: jobs.length,
-            bookings: jobs
-        };
-    },
-
-    // 6. Get Worker Bookings
-    getWorkerBookings({ workerPhone, date }) {
+    // 4. Get Next Upcoming Job for Worker
+    getWorkerNextJob({ workerPhone }) {
         const cleanPhone = (workerPhone || '').replace(/\D/g, '');
-        let jobs = DB.getAllJobs().filter(j => (j.worker_phone && j.worker_phone.replace(/\D/g, '') === cleanPhone));
-        if (date) {
-            jobs = jobs.filter(j => j.requested_date.toLowerCase() === date.toLowerCase());
+        const jobs = DB.getAllJobs().filter(j => 
+            (j.worker_phone && j.worker_phone.replace(/\D/g, '') === cleanPhone) &&
+            ['Requested', 'Accepted', 'On the Way', 'In Progress', 'Confirmed'].includes(j.status)
+        );
+
+        if (jobs.length === 0) {
+            return { status: 'none', message: 'No upcoming jobs scheduled.' };
         }
+
         return {
             status: 'success',
-            count: jobs.length,
-            bookings: jobs
+            job: jobs[0]
         };
     },
 
-    // 7. Get Worker Earnings
+    // 5. Update Job Status by Worker (Arrived, Completed, Cancelled)
+    updateJobStatusByWorker({ workerPhone, jobId, status = 'Completed' }) {
+        const cleanPhone = (workerPhone || '').replace(/\D/g, '');
+        const allJobs = DB.getAllJobs().filter(j => (j.worker_phone && j.worker_phone.replace(/\D/g, '') === cleanPhone));
+        
+        let targetJob = null;
+        if (jobId) {
+            targetJob = allJobs.find(j => String(j.id).toLowerCase() === String(jobId).toLowerCase());
+        }
+        if (!targetJob && allJobs.length > 0) {
+            targetJob = allJobs.find(j => ['Accepted', 'On the Way', 'In Progress', 'Confirmed'].includes(j.status)) || allJobs[0];
+        }
+
+        if (!targetJob) {
+            return { status: 'error', message: 'No active job found to update.' };
+        }
+
+        const updated = DB.updateJobStatus(targetJob.id, status);
+        return {
+            status: 'success',
+            action: 'JOB_STATUS_UPDATED',
+            jobId: targetJob.id,
+            newStatus: status,
+            job: updated
+        };
+    },
+
+    // 6. Get Worker Earnings
     getWorkerEarnings({ workerPhone }) {
         const cleanPhone = (workerPhone || '').replace(/\D/g, '');
         const earnings = DB.getWorkerEarnings(cleanPhone);
@@ -174,9 +159,36 @@ const AI_TOOLS = {
         };
     },
 
-    // 8. Create Job in Real Database
+    // 7. Find Real Registered Workers from Database (Customer Tool)
+    findWorkers({ service = 'all', city = 'Ramanagara' }) {
+        const workers = DB.getAllWorkers({
+            service: service === 'all' ? undefined : service,
+            city: city,
+            isAvailable: true
+        });
+
+        return {
+            status: 'success',
+            count: workers.length,
+            workers: workers.map(w => ({
+                id: w.id,
+                name: w.name,
+                phone: w.phone,
+                trade: w.trade,
+                service: w.service,
+                rating: w.rating,
+                distanceKm: w.km,
+                startingPrice: `₹${w.price}`,
+                isAvailable: Boolean(w.is_available),
+                tools: w.tools,
+                city: w.city,
+                area: w.area
+            }))
+        };
+    },
+
+    // 8. Create Job in Real Database (Customer Tool)
     createJob({ customerPhone = '9876543210', customerName = 'Customer', service, problemDescription, location = 'Town Area', city = 'Ramanagara', requestedDate = 'Today', requestedTime = 'Immediate', budget = '₹300', workerId = null, workerName = null, workerPhone = null }) {
-        // Check if there is an explicit or auto-matched worker
         let assignedWorker = null;
         if (workerId) {
             assignedWorker = DB.getWorkerById(workerId);
@@ -208,7 +220,18 @@ const AI_TOOLS = {
         };
     },
 
-    // 9. Cancel Job
+    // 9. Get Customer Bookings (Customer Tool)
+    getCustomerBookings({ customerPhone }) {
+        const cleanPhone = (customerPhone || '').replace(/\D/g, '');
+        const jobs = DB.getAllJobs().filter(j => j.customer_phone && j.customer_phone.replace(/\D/g, '') === cleanPhone);
+        return {
+            status: 'success',
+            count: jobs.length,
+            bookings: jobs
+        };
+    },
+
+    // 10. Cancel Job (Customer Tool)
     cancelJob({ jobId, customerPhone }) {
         const job = DB.getJobById(jobId);
         if (!job) {
@@ -226,7 +249,7 @@ const AI_TOOLS = {
         };
     },
 
-    // 10. List Supported Real Services
+    // 11. List Supported Services
     getServices() {
         return [
             'Electrical (Fan, wiring, switchboards)',
@@ -252,37 +275,98 @@ const AI_TOOLS = {
 // ======================================================================
 const GEMINI_TOOLS_DECLARATIONS = [
     {
+        name: 'registerWorkerProfile',
+        description: 'Register or update a worker profile and trade skills in the verified database and sync with Firebase.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                name: { type: 'STRING', description: 'Full name of the worker e.g. Rajesh' },
+                phone: { type: 'STRING', description: '10-digit mobile number e.g. 7012280695' },
+                trade: { type: 'STRING', description: 'Trade profession e.g. Electrical, Plumbing, Carpentry, Mechanics' },
+                city: { type: 'STRING', description: 'City/town in Karnataka e.g. Ramanagara' },
+                experienceYears: { type: 'NUMBER', description: 'Years of experience' }
+            },
+            required: ['name', 'phone', 'trade']
+        }
+    },
+    {
+        name: 'updateWorkerAvailability',
+        description: 'Set or update the working schedule, hours, or duty status for a worker on a given date.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Worker phone number' },
+                trade: { type: 'STRING', description: 'Trade e.g. Electrician' },
+                date: { type: 'STRING', description: 'Date e.g. Tomorrow, Sunday, Today' },
+                startTime: { type: 'STRING', description: 'Start time e.g. 09:00 AM, 10:00 AM' },
+                endTime: { type: 'STRING', description: 'End time e.g. 05:00 PM, 06:00 PM' },
+                isAvailable: { type: 'BOOLEAN', description: 'True if on duty/available, false if off duty/unavailable' }
+            }
+        }
+    },
+    {
+        name: 'getWorkerSchedule',
+        description: 'Check a worker schedule and active customer bookings for today, tomorrow, or a specific date.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Worker phone number' },
+                date: { type: 'STRING', description: 'Optional date to filter e.g. Today, Tomorrow' }
+            }
+        }
+    },
+    {
+        name: 'getWorkerNextJob',
+        description: 'Get the next upcoming job details (customer name, time, location, problem description) for the worker.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Worker phone number' }
+            }
+        }
+    },
+    {
+        name: 'updateJobStatusByWorker',
+        description: 'Update the job progress status by worker (e.g. Arrived / In Progress, Completed, Cancelled).',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Worker phone number' },
+                jobId: { type: 'STRING', description: 'Optional Job ID (e.g. GS-1048)' },
+                status: { type: 'STRING', description: 'New status: "In Progress" (Arrived), "Completed" (Job finished), "Cancelled" (Cannot take job)' }
+            },
+            required: ['status']
+        }
+    },
+    {
+        name: 'getWorkerEarnings',
+        description: 'Calculate real total earnings, this month earnings, and completed gigs for the worker.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Worker phone number' }
+            }
+        }
+    },
+    {
         name: 'findWorkers',
         description: 'Find real registered and available trade workers from the GigSync database for a requested trade and city.',
         parameters: {
             type: 'OBJECT',
             properties: {
-                service: { type: 'STRING', description: 'Trade or service category, e.g. Electrical, Plumbing, Carpentry, Mechanics, Home Cleaning, Painting, Masonry & Construction, Tailoring & Alterations, Welding & Metalwork, Driver Services, TV & Electronics Repair, Water Purifier & RO Service, Washing Machine Repair, Refrigerator Repair, AC & Appliances' },
-                city: { type: 'STRING', description: 'City/town name in Karnataka, e.g. Ramanagara, Kanakapura, Channapatna, Bengaluru, Mysuru, Bidadi, Magadi' }
+                service: { type: 'STRING', description: 'Trade or service category, e.g. Electrical, Plumbing, Carpentry, Mechanics, Painting' },
+                city: { type: 'STRING', description: 'City name e.g. Ramanagara' }
             },
             required: ['service']
         }
     },
     {
-        name: 'checkWorkerAvailability',
-        description: 'Check real-time availability and schedule conflicts for a specific worker by name or ID.',
-        parameters: {
-            type: 'OBJECT',
-            properties: {
-                workerName: { type: 'STRING', description: 'Name of the worker' },
-                workerId: { type: 'STRING', description: 'Worker ID' },
-                date: { type: 'STRING', description: 'Date to check e.g. Today, Tomorrow' },
-                time: { type: 'STRING', description: 'Time to check e.g. 09:00 AM, 04:00 PM' }
-            }
-        }
-    },
-    {
         name: 'createJob',
-        description: 'Create a real job request or dispatch a booking to a registered worker in the database.',
+        description: 'Create a real customer job request or dispatch a booking to a registered worker in the database.',
         parameters: {
             type: 'OBJECT',
             properties: {
-                service: { type: 'STRING', description: 'The service required e.g. Electrical, Plumbing, Washing Machine Repair' },
+                service: { type: 'STRING', description: 'The service required e.g. Electrical, Plumbing' },
                 problemDescription: { type: 'STRING', description: 'Brief description of the customer issue' },
                 city: { type: 'STRING', description: 'Service city' },
                 location: { type: 'STRING', description: 'Neighborhood or address' },
@@ -307,52 +391,6 @@ const GEMINI_TOOLS_DECLARATIONS = [
         }
     },
     {
-        name: 'getWorkerBookings',
-        description: 'Retrieve assigned gigs and bookings for the authenticated worker.',
-        parameters: {
-            type: 'OBJECT',
-            properties: {
-                workerPhone: { type: 'STRING', description: 'Worker phone number' },
-                date: { type: 'STRING', description: 'Optional date filter' }
-            }
-        }
-    },
-    {
-        name: 'getWorkerEarnings',
-        description: 'Calculate real total earnings and completed gigs for the authenticated worker.',
-        parameters: {
-            type: 'OBJECT',
-            properties: {
-                workerPhone: { type: 'STRING', description: 'Worker phone number' }
-            }
-        }
-    },
-    {
-        name: 'updateWorkerAvailability',
-        description: 'Set or update the working schedule and duty status for a worker.',
-        parameters: {
-            type: 'OBJECT',
-            properties: {
-                workerPhone: { type: 'STRING', description: 'Worker phone number' },
-                date: { type: 'STRING', description: 'Date to update' },
-                startTime: { type: 'STRING', description: 'Start time e.g. 09:00 AM' },
-                endTime: { type: 'STRING', description: 'End time e.g. 06:00 PM' },
-                isAvailable: { type: 'BOOLEAN', description: 'True if on duty, false if off duty' }
-            }
-        }
-    },
-    {
-        name: 'getWorkerAvailability',
-        description: 'Check a worker schedule for a given date.',
-        parameters: {
-            type: 'OBJECT',
-            properties: {
-                workerPhone: { type: 'STRING', description: 'Worker phone number' },
-                date: { type: 'STRING', description: 'Date to check' }
-            }
-        }
-    },
-    {
         name: 'cancelJob',
         description: 'Cancel an active job or booking in the database.',
         parameters: {
@@ -362,14 +400,6 @@ const GEMINI_TOOLS_DECLARATIONS = [
                 customerPhone: { type: 'STRING', description: 'Customer phone for verification' }
             },
             required: ['jobId']
-        }
-    },
-    {
-        name: 'getServices',
-        description: 'List available trade services supported by GigSync.',
-        parameters: {
-            type: 'OBJECT',
-            properties: {}
         }
     }
 ];
@@ -813,6 +843,16 @@ function extractTimeRange(text) {
     return { startTime: '09:00 AM', endTime: '05:00 PM', startDisplay: '9 AM', endDisplay: '5 PM' };
 }
 
+// Helper to extract 10-digit Indian phone number from utterance
+function extractPhoneNumber(text) {
+    if (!text) return null;
+    const match = text.match(/(?:\+91|91|0)?\s*([6-9]\d{4}\s*\d{5}|[6-9]\d{9})\b/);
+    if (match) {
+        return match[1].replace(/\s+/g, '');
+    }
+    return null;
+}
+
 // Helper to extract caller's stated name (e.g. "My name is Rajesh", "This is Rajesh")
 function extractCallerName(text) {
     if (!text) return null;
@@ -832,6 +872,11 @@ function isWorkerIntent(text, currentRole = 'customer') {
     if (!text) return false;
     const lower = text.toLowerCase();
 
+    // Inquiries asking about current availability or schedule are questions, not availability declarations
+    if (/\b(?:am i available|am i free|check my availability|my working hours|what are my hours|what jobs|who is my next|where is my next|how much did i earn)\b/i.test(lower)) {
+        return false;
+    }
+
     // Customer explicit requests in Kannada / English (e.g. "nanage electrician beku", "i need an electrician")
     if (/\b(?:nanage|ನನಗೆ)\b/i.test(lower) && /\b(?:beku|ಬೇಕಾಗಿದೆ|ಬೇಕು)\b/i.test(lower)) {
         return false;
@@ -849,6 +894,7 @@ function isWorkerIntent(text, currentRole = 'customer') {
         /\b(?:my availability|my schedule|my working hours|my shift|nanna availability|nanna schedule)\s+(?:is|for|from|to|inda)\b/i,
         /\b(?:set|update|change|mark|add)\s+(?:my\s+)?(?:availability|schedule|timing|shift|hours)\b/i,
         /\b(?:i can work|i will be available|i am not available|i won't be available|i will work|add me as available)\b/i,
+        /\b(?:not available on|make me unavailable|cancel my availability|cancel availability|not available)\b/i,
         /\b(?:inda|ರಿಂದ)\s+\d{1,2}\s*(?:to|till|varege|ವರೆಗೆ)\s+\d{1,2}\s*(?:available|iddini|ಇದ್ದೇನೆ)\b/i
     ];
 
@@ -859,7 +905,7 @@ function isWorkerIntent(text, currentRole = 'customer') {
     // Contextual follow-up if caller is already identified as a worker
     if (currentRole === 'worker') {
         if (/\b(?:available|free|from \d|to \d|\d to \d|tomorrow too|saturday too|sunday too|off duty|on duty|leave|varege|inda)\b/i.test(lower)) {
-            if (!/\b(?:find|search|need|look for|book|hire|get me|send me|beku|ಬೇಕು)\b/i.test(lower)) {
+            if (!/\b(?:find|search|need|look for|book|hire|get me|send me|beku|ಬೇಕು|am i|check)\b/i.test(lower)) {
                 return true;
             }
         }
@@ -904,7 +950,8 @@ class ContextAwareVoiceAgent {
         const cleanedInput = cleanUtterance(text);
         const lowerCleaned = cleanedInput.toLowerCase();
 
-        const isAffirmative = /\b(yes|yeah|yep|sure|ok|okay|confirm|post it|please post|post|go ahead|book him|book it|book|ha|haan|houdu|ಹೌದು|sari|ಸರಿ|do it)\b/i.test(lowerCleaned);
+        const isAffirmative = /\b(yes|yeah|yep|sure|ok|okay|confirm|post it|please post|post|go ahead|book him|book it|book|ha|haan|houdu|ಹೌದು|sari|ಸರಿ|do it|save it|save|please save|please add|add to worker|please add to worker|add it|add me|save this)\b/i.test(lowerCleaned) ||
+            /^(add|save|yes please|ha|sari|houdu)$/i.test(lowerCleaned.trim());
         const isNegative = /\b(no|nope|cancel|cancel it|don't|beda|ಬೇಡ|nahi)\b/i.test(lowerCleaned);
         const isShortNegation = /^(no|nope|no thanks|no thank you|nothing else|nothing more|nothing|thats all|that's all|beda|ಬೇಡ|nahi)\b/i.test(lowerCleaned);
 
@@ -934,86 +981,47 @@ class ContextAwareVoiceAgent {
             actionsPerformed.push(`Refused unauthorized admin command`);
         }
 
-        // Pre-classify worker intent and update session role
-        if (isWorkerIntent(text, session.callerRole)) {
-            detectedIntent = 'worker_availability';
-            session.callerRole = 'worker';
-            const detectedName = extractCallerName(text);
-            if (detectedName && (!session.callerName || session.callerName === 'User')) {
-                session.callerName = detectedName;
-            }
-
-            const detectedTrade = extractTradeAndService(text) || session.context.currentService;
-            const { date } = extractDateTimeEntities(text);
-            const targetDate = date || 'Tomorrow';
-            const range = extractTimeRange(text);
-
-            extractedEntities = {
-                intent: 'worker_availability',
-                name: session.callerName,
-                worker_type: detectedTrade || 'Electrician',
-                date: targetDate.toLowerCase(),
-                start_time: range.startTime,
-                end_time: range.endTime
-            };
-
-            const isAvail = !lowerCleaned.includes('not available') && !lowerCleaned.includes('unavailable') && !lowerCleaned.includes('off') && !lowerCleaned.includes('leave');
-            const hasAvailabilityClause = /\b(available|free|duty|from \d|to \d|\d to \d|timing|hours|schedule|varege|inda|o'clock|wanted to work|want to work|ready to work)\b/i.test(lowerCleaned);
-
-            const worker = DB.getWorkerByPhone(session.callerPhone);
-            const tradeNoun = getTradePersonNoun(detectedTrade || (worker ? worker.trade : 'Specialist'));
-
-            const isDirectImperative = /\b(?:set my|update my|change my|mark my|mark me)\s+(?:availability|schedule|duty)\b/i.test(lowerCleaned);
-
-            if (hasAvailabilityClause) {
-                if (isDirectImperative) {
-                    toolExecuted = 'updateWorkerAvailability';
-                    toolResult = AI_TOOLS.updateWorkerAvailability({
-                        workerPhone: session.callerPhone,
-                        trade: detectedTrade || (worker ? worker.trade : 'Specialist'),
-                        date: targetDate,
-                        startTime: range.startTime,
-                        endTime: range.endTime,
-                        isAvailable: isAvail
-                    });
-                    actionsPerformed.push(`Updated ${targetDate} availability (${range.startTime} – ${range.endTime}) in database`);
-                    spokenResponse = isAvail
-                        ? `Done! Your availability has been updated for ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}.`
-                        : `Done! You have been marked OFF-DUTY for ${targetDate.toLowerCase()}.`;
-                } else {
-                    session.context.pendingAvailabilityData = {
-                        workerName: session.callerName || (worker ? worker.name : 'Rajesh'),
-                        trade: detectedTrade || (worker ? worker.trade : 'Specialist'),
-                        date: targetDate,
-                        startTime: range.startTime,
-                        endTime: range.endTime,
-                        startDisplay: range.startDisplay,
-                        endDisplay: range.endDisplay,
-                        isAvailable: isAvail
-                    };
-                    session.context.pendingIntent = 'CONFIRM_UPDATE_AVAILABILITY';
-                    actionsPerformed.push(`Prepared schedule update for ${targetDate} (${range.startDisplay} to ${range.endDisplay})`);
-
-                    spokenResponse = `Hi ${session.callerName || (worker ? worker.name : 'there')}! Got it. You’re ${tradeNoun} and you’re available ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}. Would you like me to add this to your schedule?`;
-                }
-            } else {
-                if (worker) {
-                    spokenResponse = `Hello ${session.callerName || worker.name}! I recognize you as a registered ${worker.trade} in ${session.city}. Would you like to update your working hours, check your schedule, or view incoming jobs?`;
-                } else {
-                    spokenResponse = `Hello ${session.callerName || 'there'}! I understand you work as ${tradeNoun}. To start receiving customer job requests and manage your availability on GigSync, please register your worker profile with your phone number.`;
-                }
-                actionsPerformed.push(`Recognized worker self-identification`);
+        // ======================================================================
+        // B. PENDING MULTI-TURN CONFIRMATIONS (TOP PRIORITY)
+        // ======================================================================
+        else if (session.context.pendingIntent === 'CONFIRM_REGISTER_WORKER' && (isAffirmative || isNegative)) {
+            detectedIntent = 'confirm_register_worker';
+            if (isAffirmative && session.context.pendingWorkerData) {
+                const p = session.context.pendingWorkerData;
+                toolExecuted = 'registerWorkerProfile';
+                toolResult = AI_TOOLS.registerWorkerProfile({
+                    name: p.name,
+                    phone: p.phone,
+                    trade: p.trade,
+                    city: session.city
+                });
+                AI_TOOLS.updateWorkerAvailability({
+                    workerPhone: p.phone,
+                    trade: p.trade,
+                    date: p.date,
+                    startTime: p.startTime,
+                    endTime: p.endTime,
+                    isAvailable: true
+                });
+                actionsPerformed.push(`Registered worker ${p.name} (${p.trade}, ${p.phone}) and updated availability for ${p.date}`);
+                spokenResponse = `Done. You're registered and available ${p.date.toLowerCase()} from ${p.startDisplay} to ${p.endDisplay}.`;
+                session.context.pendingIntent = null;
+                session.context.pendingWorkerData = null;
+                session.context.lastActionCompleted = 'WORKER_REGISTERED';
+            } else if (isNegative) {
+                spokenResponse = `No problem, I haven't registered this profile. Let me know if you need anything else.`;
+                session.context.pendingIntent = null;
+                session.context.pendingWorkerData = null;
             }
         }
 
-        // Handle pending multi-turn confirmations before external model call
         else if (session.context.pendingIntent === 'CONFIRM_UPDATE_AVAILABILITY' && (isAffirmative || isNegative)) {
             detectedIntent = 'confirm_availability';
             if (isAffirmative && session.context.pendingAvailabilityData) {
                 const avail = session.context.pendingAvailabilityData;
                 toolExecuted = 'updateWorkerAvailability';
                 toolResult = AI_TOOLS.updateWorkerAvailability({
-                    workerPhone: session.callerPhone,
+                    workerPhone: avail.phone || session.callerPhone,
                     trade: avail.trade || 'Specialist',
                     date: avail.date,
                     startTime: avail.startTime,
@@ -1077,8 +1085,189 @@ class ContextAwareVoiceAgent {
                 session.context.pendingIntent = null;
                 session.context.lastActionCompleted = 'BOOKING_CONFIRMED';
             } else if (isNegative) {
-                spokenResponse = `Understood. Would you like me to search for another specialist or post an open job?`;
+                spokenResponse = `Understood. Would you like me to look for another specialist or post an open job?`;
                 session.context.pendingIntent = null;
+            }
+        }
+
+        // ======================================================================
+        // C. WORKER ACTIONS & COMMANDS (PHONE / 3.5MM HARDWARE VOICE AGENT)
+        // ======================================================================
+        // 1. Worker Schedule & Bookings Inquiry
+        else if (/\b(what jobs|what job|any jobs|do i have any jobs|do i have any bookings|my bookings|my schedule|check my schedule|show my jobs|what are my jobs|am i available|check my availability|my working hours)\b/i.test(lowerCleaned)) {
+            detectedIntent = 'get_worker_schedule';
+            session.callerRole = 'worker';
+            const { date } = extractDateTimeEntities(text);
+            const targetDate = date || 'Today';
+            toolExecuted = 'getWorkerSchedule';
+            toolResult = AI_TOOLS.getWorkerSchedule({ workerPhone: session.callerPhone, date: targetDate });
+            
+            const matchingSlot = (toolResult.availabilitySlots || []).find(s => s.date_str.toLowerCase() === targetDate.toLowerCase());
+            if (matchingSlot) {
+                spokenResponse = `Yes, you are marked available for ${targetDate.toLowerCase()} from ${matchingSlot.start_time} to ${matchingSlot.end_time}.`;
+            } else if (!toolResult.count || toolResult.count === 0) {
+                spokenResponse = `You don't have any jobs scheduled for ${targetDate.toLowerCase()}.`;
+            } else {
+                const first = toolResult.bookings[0];
+                spokenResponse = `You have ${toolResult.count} job(s) for ${targetDate.toLowerCase()}: ${first.service} for ${first.customer_name} at ${first.requested_time} in ${first.location}.`;
+            }
+            actionsPerformed.push(`Queried worker schedule (${toolResult.count || 0} jobs found)`);
+        }
+
+        // 2. Worker Next Customer / Next Job
+        else if (/\b(who is my next|where is my next|what time is my next|next customer|next job|next booking|show me my next)\b/i.test(lowerCleaned)) {
+            detectedIntent = 'get_worker_next_job';
+            session.callerRole = 'worker';
+            toolExecuted = 'getWorkerNextJob';
+            toolResult = AI_TOOLS.getWorkerNextJob({ workerPhone: session.callerPhone });
+            if (toolResult.status === 'none') {
+                spokenResponse = `You don't have any upcoming jobs scheduled right now.`;
+            } else {
+                spokenResponse = `Your next job is for ${toolResult.job.customer_name} at ${toolResult.job.location} at ${toolResult.job.requested_time} for ${toolResult.job.service}.`;
+            }
+            actionsPerformed.push(`Queried worker next job`);
+        }
+
+        // 3. Worker Earnings Inquiry
+        else if (/\b(how much did i earn|how much i earned|my earnings|show my earnings|show my completed jobs|worker earnings)\b/i.test(lowerCleaned)) {
+            detectedIntent = 'get_worker_earnings';
+            session.callerRole = 'worker';
+            toolExecuted = 'getWorkerEarnings';
+            toolResult = AI_TOOLS.getWorkerEarnings({ workerPhone: session.callerPhone });
+            const earned = toolResult.earnings.thisMonth || toolResult.earnings.totalEarnings || 0;
+            const completed = toolResult.earnings.totalCompletedJobs || 0;
+            spokenResponse = `You have earned ₹${earned} this month across ${completed} completed jobs.`;
+            actionsPerformed.push(`Calculated worker earnings (₹${earned})`);
+        }
+
+        // 4. Worker Job Progress Actions (Completed, Arrived, Cancelled)
+        else if (/\b(i completed the job|job completed|job is completed|i finished the job|completed the job)\b/i.test(lowerCleaned)) {
+            detectedIntent = 'update_job_status';
+            session.callerRole = 'worker';
+            toolExecuted = 'updateJobStatusByWorker';
+            toolResult = AI_TOOLS.updateJobStatusByWorker({ workerPhone: session.callerPhone, status: 'Completed' });
+            spokenResponse = toolResult.status === 'success'
+                ? `Great work! Job #${toolResult.jobId} has been marked completed.`
+                : `No active job was found to complete.`;
+            actionsPerformed.push(`Worker marked job completed`);
+        }
+        else if (/\b(i have arrived|i reached the location|reached location|i arrived)\b/i.test(lowerCleaned)) {
+            detectedIntent = 'update_job_status';
+            session.callerRole = 'worker';
+            toolExecuted = 'updateJobStatusByWorker';
+            toolResult = AI_TOOLS.updateJobStatusByWorker({ workerPhone: session.callerPhone, status: 'In Progress' });
+            spokenResponse = toolResult.status === 'success'
+                ? `Got it. Updated your status to arrived at the job location.`
+                : `No active booking found to update.`;
+            actionsPerformed.push(`Worker marked arrival`);
+        }
+        else if (/\b(cannot take this job|cannot take tomorrow|cancel this job|unassign me)\b/i.test(lowerCleaned)) {
+            detectedIntent = 'update_job_status';
+            session.callerRole = 'worker';
+            toolExecuted = 'updateJobStatusByWorker';
+            toolResult = AI_TOOLS.updateJobStatusByWorker({ workerPhone: session.callerPhone, status: 'Cancelled' });
+            spokenResponse = toolResult.status === 'success'
+                ? `Understood. I have unassigned you from the job.`
+                : `No active booking found to cancel.`;
+            actionsPerformed.push(`Worker cancelled assigned job`);
+        }
+
+        // 5. Worker Unavailable / Off-Duty
+        else if (/\b(not available on|make me unavailable|cancel my availability|cancel availability|not available)\b/i.test(lowerCleaned) && session.callerRole === 'worker') {
+            detectedIntent = 'set_worker_unavailable';
+            const { date } = extractDateTimeEntities(text);
+            const targetDate = date || 'Tomorrow';
+            toolExecuted = 'updateWorkerAvailability';
+            toolResult = AI_TOOLS.updateWorkerAvailability({ workerPhone: session.callerPhone, date: targetDate, isAvailable: false });
+            spokenResponse = `Done. You have been marked off-duty for ${targetDate.toLowerCase()}.`;
+            actionsPerformed.push(`Marked worker off-duty for ${targetDate}`);
+        }
+
+        // 6. Worker Self-Identification & Availability / Onboarding
+        else if (isWorkerIntent(text, session.callerRole)) {
+            detectedIntent = 'worker_availability';
+            session.callerRole = 'worker';
+            const spokenPhone = extractPhoneNumber(text);
+            if (spokenPhone) {
+                session.callerPhone = spokenPhone;
+            }
+
+            const detectedName = extractCallerName(text);
+            if (detectedName && (!session.callerName || session.callerName === 'User')) {
+                session.callerName = detectedName;
+            }
+
+            const detectedTrade = extractTradeAndService(text) || session.context.currentService;
+            const { date } = extractDateTimeEntities(text);
+            const targetDate = date || 'Tomorrow';
+            const range = extractTimeRange(text);
+
+            extractedEntities = {
+                intent: 'worker_availability',
+                name: session.callerName,
+                worker_type: detectedTrade || 'Electrician',
+                phone: session.callerPhone,
+                date: targetDate.toLowerCase(),
+                start_time: range.startTime,
+                end_time: range.endTime
+            };
+
+            const isAvail = !lowerCleaned.includes('not available') && !lowerCleaned.includes('unavailable') && !lowerCleaned.includes('off') && !lowerCleaned.includes('leave');
+            const hasAvailabilityClause = /\b(available|free|duty|from \d|to \d|\d to \d|timing|hours|schedule|varege|inda|o'clock|wanted to work|want to work|ready to work)\b/i.test(lowerCleaned);
+
+            const worker = DB.getWorkerByPhone(session.callerPhone);
+            const tradeNoun = getTradePersonNoun(detectedTrade || (worker ? worker.trade : 'Specialist'));
+
+            const isDirectImperative = /\b(?:set my|update my|change my|mark my|mark me)\s+(?:availability|schedule|duty)\b/i.test(lowerCleaned);
+            const isRegisteredWorkerDirectUpdate = worker && (isDirectImperative || /\b(?:i am available|i'm available|available from|free from)\b/i.test(lowerCleaned)) && !spokenPhone && !text.toLowerCase().includes('my name is');
+
+            if (hasAvailabilityClause) {
+                if (isRegisteredWorkerDirectUpdate || isDirectImperative) {
+                    toolExecuted = 'updateWorkerAvailability';
+                    toolResult = AI_TOOLS.updateWorkerAvailability({
+                        workerPhone: session.callerPhone,
+                        trade: detectedTrade || (worker ? worker.trade : 'Specialist'),
+                        date: targetDate,
+                        startTime: range.startTime,
+                        endTime: range.endTime,
+                        isAvailable: isAvail
+                    });
+                    actionsPerformed.push(`Updated ${targetDate} availability (${range.startTime} – ${range.endTime}) in database`);
+                    spokenResponse = isAvail
+                        ? `Done! Your availability has been updated for ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}.`
+                        : `Done! You have been marked OFF-DUTY for ${targetDate.toLowerCase()}.`;
+                } else {
+                    const workerData = {
+                        name: session.callerName || (worker ? worker.name : 'Rajesh'),
+                        trade: detectedTrade || (worker ? worker.trade : 'Electrician'),
+                        phone: session.callerPhone,
+                        date: targetDate,
+                        startTime: range.startTime,
+                        endTime: range.endTime,
+                        startDisplay: range.startDisplay,
+                        endDisplay: range.endDisplay,
+                        isAvailable: isAvail
+                    };
+
+                    if (!worker || spokenPhone) {
+                        session.context.pendingWorkerData = workerData;
+                        session.context.pendingIntent = 'CONFIRM_REGISTER_WORKER';
+                        actionsPerformed.push(`Prepared worker registration & schedule for ${workerData.name} (${workerData.phone})`);
+                    } else {
+                        session.context.pendingAvailabilityData = workerData;
+                        session.context.pendingIntent = 'CONFIRM_UPDATE_AVAILABILITY';
+                        actionsPerformed.push(`Prepared schedule update for ${targetDate} (${range.startDisplay} to ${range.endDisplay})`);
+                    }
+
+                    spokenResponse = `Got it. You're ${workerData.name}, ${tradeNoun}, and you're available ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}. Would you like me to save this?`;
+                }
+            } else {
+                if (worker) {
+                    spokenResponse = `Hello ${session.callerName || worker.name}! I recognize you as a registered ${worker.trade} in ${session.city}. Would you like to update your working hours, check your schedule, or view incoming jobs?`;
+                } else {
+                    spokenResponse = `Hello ${session.callerName || 'there'}! I understand you work as ${tradeNoun}. To save your profile and start receiving jobs, please state your phone number and working hours.`;
+                }
+                actionsPerformed.push(`Recognized worker self-identification`);
             }
         }
 

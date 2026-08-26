@@ -2139,7 +2139,7 @@ document.addEventListener('DOMContentLoaded', () => {
             body: JSON.stringify({
                 sessionId: state.sessionId,
                 callerPhone: state.user ? state.user.phone : '9876543210',
-                callerRole: state.portal === 'worker' ? 'worker' : 'customer',
+                callerRole: (state.portal === 'worker' || state.portal === 'terminal') ? 'worker' : 'customer',
                 callerName: state.user ? state.user.name : 'User',
                 city: state.city,
                 speechText

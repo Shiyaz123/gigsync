@@ -486,8 +486,10 @@ const DB = {
     },
 
     getWorkerByPhone(phone) {
-        const clean = phone.replace(/\D/g, '');
-        return db.prepare('SELECT * FROM workers WHERE phone = ?').get(clean) || null;
+        if (!phone) return null;
+        const clean = String(phone).replace(/\D/g, '');
+        const last10 = clean.slice(-10);
+        return db.prepare('SELECT * FROM workers WHERE phone = ? OR phone = ? OR phone LIKE ?').get(phone, clean, `%${last10}`) || null;
     },
 
     getWorkerByUserId(userId) {
@@ -498,36 +500,104 @@ const DB = {
         const initials = (data.name || 'WK').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
         const cleanPhone = (data.phone || '').replace(/\D/g, '');
 
-        const stmt = db.prepare(`
-            INSERT INTO workers (user_id, name, phone, trade, service, skills, tools, rating, km, jobs_completed, experience_years, price, is_available, is_verified, initials, city, area, service_areas, about)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
+        try {
+            const stmt = db.prepare(`
+                INSERT INTO workers (user_id, name, phone, trade, service, skills, tools, rating, km, jobs_completed, experience_years, price, is_available, is_verified, initials, city, area, service_areas, about)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
 
-        const res = stmt.run(
-            data.user_id || null,
-            data.name,
-            cleanPhone,
-            data.trade,
-            data.service || data.trade.toLowerCase(),
-            data.skills || '',
-            data.tools || 'Standard tool kit',
-            data.rating || 5.0,
-            data.km || 1.5,
-            data.jobs_completed || 0,
-            data.experience_years || 2,
-            data.price || 300,
-            data.is_available !== undefined ? (data.is_available ? 1 : 0) : 1,
-            data.is_verified !== undefined ? (data.is_verified ? 1 : 0) : 1,
-            initials,
-            data.city || 'Ramanagara',
-            data.area || 'Town',
-            data.service_areas || `${data.city || 'Ramanagara'}, Nearby Areas`,
-            data.about || ''
-        );
+            const res = stmt.run(
+                data.user_id || null,
+                data.name,
+                cleanPhone,
+                data.trade,
+                data.service || data.trade.toLowerCase(),
+                data.skills || '',
+                data.tools || 'Standard tool kit',
+                data.rating || 5.0,
+                data.km || 1.5,
+                data.jobs_completed || 0,
+                data.experience_years || 2,
+                data.price || 300,
+                data.is_available !== undefined ? (data.is_available ? 1 : 0) : 1,
+                data.is_verified !== undefined ? (data.is_verified ? 1 : 0) : 1,
+                initials,
+                data.city || 'Ramanagara',
+                data.area || 'Town',
+                data.service_areas || JSON.stringify(['Town Area', 'Market Circle', 'Bus Stand Area']),
+                data.about || `${data.trade} specialist serving Karnataka`
+            );
 
-        const created = this.getWorkerById(Number(res.lastInsertRowid));
-        FirebaseSync.syncWorker(created).catch(e => console.warn('[Firebase Sync Error]:', e));
-        return created;
+            const created = this.getWorkerById(res.lastInsertRowid);
+            FirebaseSync.syncWorker(created);
+            return created;
+        } catch (err) {
+            const existing = this.getWorkerByPhone(cleanPhone);
+            if (existing) {
+                return this.updateWorkerProfile(existing.id, {
+                    name: data.name || existing.name,
+                    trade: data.trade || existing.trade,
+                    city: data.city || existing.city,
+                    area: data.area || existing.area,
+                    tools: data.tools || existing.tools,
+                    price: data.price || existing.price
+                });
+            }
+            throw err;
+        }
+    },
+
+    registerWorkerProfile({ name, phone, trade, city = 'Ramanagara', area = 'Town', tools = 'Standard tool kit', price = 300, experienceYears = 2, skills = '' }) {
+        const cleanPhone = (phone || '').replace(/\D/g, '');
+        if (!cleanPhone) return null;
+
+        let existingWorker = this.getWorkerByPhone(cleanPhone);
+        if (existingWorker) {
+            return this.updateWorkerProfile(existingWorker.id, {
+                trade: trade || existingWorker.trade,
+                city: city || existingWorker.city,
+                area: area || existingWorker.area,
+                tools: tools || existingWorker.tools,
+                price: price || existingWorker.price
+            });
+        }
+
+        let existingUser = this.getUserByPhone ? this.getUserByPhone(cleanPhone) : null;
+        let userId = existingUser ? existingUser.id : null;
+
+        if (!userId && this.createUser) {
+            try {
+                const u = this.createUser({
+                    name: name || 'Worker',
+                    phone: cleanPhone,
+                    role: 'worker',
+                    password: 'worker@gigsync',
+                    city,
+                    area
+                });
+                userId = u ? u.id : null;
+            } catch (_) {}
+        }
+
+        return this.createWorker({
+            user_id: userId,
+            name: name || 'Worker',
+            phone: cleanPhone,
+            trade: trade || 'Skilled Specialist',
+            service: (trade || 'general').toLowerCase(),
+            skills: skills || trade || '',
+            tools: tools || 'Standard tool kit',
+            rating: 5.0,
+            km: 1.5,
+            jobs_completed: 0,
+            experience_years: experienceYears || 2,
+            price: price || 300,
+            is_available: 1,
+            is_verified: 1,
+            city,
+            area,
+            about: `${experienceYears || 2}+ years experience as ${trade || 'specialist'}.`
+        });
     },
 
     updateWorkerProfile(id, updates = {}) {
