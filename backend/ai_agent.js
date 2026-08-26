@@ -480,7 +480,7 @@ CRITICAL RULES:
                     // Append assistant function call and tool result to contents
                     contents.push(candidate.content);
                     contents.push({
-                        role: 'tool',
+                        role: 'user',
                         parts: [{
                             functionResponse: {
                                 name: call.name,
@@ -886,6 +886,8 @@ class ContextAwareVoiceAgent {
         let spokenResponse = '';
         let toolExecuted = null;
         let toolResult = null;
+        let detectedIntent = 'unknown';
+        let extractedEntities = {};
         const actionsPerformed = [];
 
         actionsPerformed.push(`Identified ${session.callerRole} (${session.callerName})`);
@@ -932,10 +934,158 @@ class ContextAwareVoiceAgent {
             actionsPerformed.push(`Refused unauthorized admin command`);
         }
 
+        // Pre-classify worker intent and update session role
+        if (isWorkerIntent(text, session.callerRole)) {
+            detectedIntent = 'worker_availability';
+            session.callerRole = 'worker';
+            const detectedName = extractCallerName(text);
+            if (detectedName && (!session.callerName || session.callerName === 'User')) {
+                session.callerName = detectedName;
+            }
+
+            const detectedTrade = extractTradeAndService(text) || session.context.currentService;
+            const { date } = extractDateTimeEntities(text);
+            const targetDate = date || 'Tomorrow';
+            const range = extractTimeRange(text);
+
+            extractedEntities = {
+                intent: 'worker_availability',
+                name: session.callerName,
+                worker_type: detectedTrade || 'Electrician',
+                date: targetDate.toLowerCase(),
+                start_time: range.startTime,
+                end_time: range.endTime
+            };
+
+            const isAvail = !lowerCleaned.includes('not available') && !lowerCleaned.includes('unavailable') && !lowerCleaned.includes('off') && !lowerCleaned.includes('leave');
+            const hasAvailabilityClause = /\b(available|free|duty|from \d|to \d|\d to \d|timing|hours|schedule|varege|inda|o'clock|wanted to work|want to work|ready to work)\b/i.test(lowerCleaned);
+
+            const worker = DB.getWorkerByPhone(session.callerPhone);
+            const tradeNoun = getTradePersonNoun(detectedTrade || (worker ? worker.trade : 'Specialist'));
+
+            const isDirectImperative = /\b(?:set my|update my|change my|mark my|mark me)\s+(?:availability|schedule|duty)\b/i.test(lowerCleaned);
+
+            if (hasAvailabilityClause) {
+                if (isDirectImperative) {
+                    toolExecuted = 'updateWorkerAvailability';
+                    toolResult = AI_TOOLS.updateWorkerAvailability({
+                        workerPhone: session.callerPhone,
+                        trade: detectedTrade || (worker ? worker.trade : 'Specialist'),
+                        date: targetDate,
+                        startTime: range.startTime,
+                        endTime: range.endTime,
+                        isAvailable: isAvail
+                    });
+                    actionsPerformed.push(`Updated ${targetDate} availability (${range.startTime} – ${range.endTime}) in database`);
+                    spokenResponse = isAvail
+                        ? `Done! Your availability has been updated for ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}.`
+                        : `Done! You have been marked OFF-DUTY for ${targetDate.toLowerCase()}.`;
+                } else {
+                    session.context.pendingAvailabilityData = {
+                        workerName: session.callerName || (worker ? worker.name : 'Rajesh'),
+                        trade: detectedTrade || (worker ? worker.trade : 'Specialist'),
+                        date: targetDate,
+                        startTime: range.startTime,
+                        endTime: range.endTime,
+                        startDisplay: range.startDisplay,
+                        endDisplay: range.endDisplay,
+                        isAvailable: isAvail
+                    };
+                    session.context.pendingIntent = 'CONFIRM_UPDATE_AVAILABILITY';
+                    actionsPerformed.push(`Prepared schedule update for ${targetDate} (${range.startDisplay} to ${range.endDisplay})`);
+
+                    spokenResponse = `Hi ${session.callerName || (worker ? worker.name : 'there')}! Got it. You’re ${tradeNoun} and you’re available ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}. Would you like me to add this to your schedule?`;
+                }
+            } else {
+                if (worker) {
+                    spokenResponse = `Hello ${session.callerName || worker.name}! I recognize you as a registered ${worker.trade} in ${session.city}. Would you like to update your working hours, check your schedule, or view incoming jobs?`;
+                } else {
+                    spokenResponse = `Hello ${session.callerName || 'there'}! I understand you work as ${tradeNoun}. To start receiving customer job requests and manage your availability on GigSync, please register your worker profile with your phone number.`;
+                }
+                actionsPerformed.push(`Recognized worker self-identification`);
+            }
+        }
+
+        // Handle pending multi-turn confirmations before external model call
+        else if (session.context.pendingIntent === 'CONFIRM_UPDATE_AVAILABILITY' && (isAffirmative || isNegative)) {
+            detectedIntent = 'confirm_availability';
+            if (isAffirmative && session.context.pendingAvailabilityData) {
+                const avail = session.context.pendingAvailabilityData;
+                toolExecuted = 'updateWorkerAvailability';
+                toolResult = AI_TOOLS.updateWorkerAvailability({
+                    workerPhone: session.callerPhone,
+                    trade: avail.trade || 'Specialist',
+                    date: avail.date,
+                    startTime: avail.startTime,
+                    endTime: avail.endTime,
+                    isAvailable: avail.isAvailable
+                });
+                actionsPerformed.push(`Updated ${avail.date} availability (${avail.startTime} – ${avail.endTime}) in database`);
+
+                spokenResponse = `Done! Your availability has been updated for ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
+                session.context.pendingIntent = null;
+                session.context.pendingAvailabilityData = null;
+                session.context.lastActionCompleted = 'AVAILABILITY_UPDATED';
+            } else if (isNegative) {
+                spokenResponse = `No problem, I haven't added this to your schedule. Let me know if you need anything else.`;
+                session.context.pendingIntent = null;
+                session.context.pendingAvailabilityData = null;
+            }
+        }
+
+        else if (session.context.pendingIntent === 'CONFIRM_POST_JOB' && (isAffirmative || isNegative)) {
+            detectedIntent = 'confirm_post_job';
+            if (isAffirmative && session.context.pendingJobData) {
+                const jobData = session.context.pendingJobData;
+                toolExecuted = 'createJob';
+                toolResult = AI_TOOLS.createJob(jobData);
+                actionsPerformed.push(`Created Job #${toolResult.job.id} for ${jobData.service} in SQLite database`);
+
+                spokenResponse = `Done! Your job request for ${jobData.service} in ${jobData.location || jobData.city} has been posted. We are notifying nearby registered specialists. Is there anything else I can help you with?`;
+                session.context.pendingIntent = null;
+                session.context.pendingJobData = null;
+                session.context.lastActionCompleted = 'JOB_POSTED';
+            } else if (isNegative) {
+                spokenResponse = `No problem, I've cancelled the job request. Let me know if you need help with anything else.`;
+                session.context.pendingIntent = null;
+                session.context.pendingJobData = null;
+            }
+        }
+
+        else if (session.context.pendingIntent === 'CONFIRM_CONNECT_WORKER' && (isAffirmative || isNegative)) {
+            detectedIntent = 'confirm_connect_worker';
+            if (isAffirmative && session.context.lastSelectedWorker) {
+                const worker = session.context.lastSelectedWorker;
+                toolExecuted = 'createJob';
+                toolResult = AI_TOOLS.createJob({
+                    customerPhone: session.callerPhone,
+                    customerName: session.callerName,
+                    service: worker.trade || session.context.currentService || 'Specialist Visit',
+                    problemDescription: `Direct booking request for ${worker.name}`,
+                    location: `${session.city} Town`,
+                    city: session.city,
+                    requestedDate: session.context.currentDate || 'Today',
+                    requestedTime: session.context.currentTime || 'Immediate',
+                    budget: worker.startingPrice || '₹300',
+                    workerId: worker.id,
+                    workerName: worker.name,
+                    workerPhone: worker.phone
+                });
+                actionsPerformed.push(`Created Booking #${toolResult.job.id} dispatched to ${worker.name}`);
+
+                spokenResponse = `Booking confirmed! I have assigned ${worker.name} (${worker.trade}) for your request. They have been notified. Is there anything else you need?`;
+                session.context.pendingIntent = null;
+                session.context.lastActionCompleted = 'BOOKING_CONFIRMED';
+            } else if (isNegative) {
+                spokenResponse = `Understood. Would you like me to search for another specialist or post an open job?`;
+                session.context.pendingIntent = null;
+            }
+        }
+
         // ======================================================================
-        // A.1 GEMINI API CLOUD BRAIN (PRIMARY WHEN GEMINI_API_KEY IS AVAILABLE)
+        // A.1 GEMINI API CLOUD BRAIN (PRIMARY FOR NATURAL QUERIES)
         // ======================================================================
-        if (!spokenResponse && (process.env.GEMINI_API_KEY || geminiBrain.getClient())) {
+        else if (!spokenResponse && (process.env.GEMINI_API_KEY || geminiBrain.getClient())) {
             try {
                 const geminiTurn = await geminiBrain.processTurn({ session, text });
                 if (geminiTurn && geminiTurn.spokenResponse) {
@@ -946,33 +1096,6 @@ class ContextAwareVoiceAgent {
                     if (Array.isArray(geminiTurn.actionsPerformed)) {
                         actionsPerformed.push(...geminiTurn.actionsPerformed);
                     }
-
-                    // Add assistant turn to session memory
-                    sessionManager.addTurn(session, 'assistant', spokenResponse);
-
-                    // Record real call log in SQLite DB
-                    DB.logCall({
-                        callerPhone: session.callerPhone,
-                        callerRole: session.callerRole,
-                        transcript: text,
-                        intentDetected: toolExecuted || session.context.pendingIntent || 'gemini_turn',
-                        actionsTaken: actionsPerformed.join('; '),
-                        durationSeconds: 10
-                    });
-
-                    return {
-                        spokenResponse,
-                        toolExecuted,
-                        toolResult,
-                        actionsPerformed,
-                        shouldEndCall,
-                        context: {
-                            currentService: session.context.currentService,
-                            currentLocation: session.city,
-                            pendingIntent: session.context.pendingIntent,
-                            workersFound: session.context.lastFoundWorkers ? session.context.lastFoundWorkers.length : 0
-                        }
-                    };
                 }
             } catch (geminiErr) {
                 console.warn('[Gemini Voice Agent] Fallback to deterministic rules engine:', geminiErr.message);
@@ -1239,6 +1362,7 @@ class ContextAwareVoiceAgent {
         // 1. Worker Self-Identification & Availability Updates (e.g. "My name is Rajesh I am an electrician I am available from 9 to 5 today")
         // 1. Worker Self-Identification & Availability Updates (e.g. "Hello my name is Rajesh I am an electrician I wanted to work from 11 to 5 o'clock tomorrow")
         else if (isWorkerIntent(text, session.callerRole)) {
+            detectedIntent = 'worker_availability';
             session.callerRole = 'worker';
             const detectedName = extractCallerName(text);
             if (detectedName && (!session.callerName || session.callerName === 'User')) {
@@ -1249,6 +1373,15 @@ class ContextAwareVoiceAgent {
             const { date } = extractDateTimeEntities(text);
             const targetDate = date || 'Tomorrow';
             const range = extractTimeRange(text);
+
+            extractedEntities = {
+                intent: 'worker_availability',
+                name: session.callerName,
+                worker_type: detectedTrade || 'Electrician',
+                date: targetDate.toLowerCase(),
+                start_time: range.startTime,
+                end_time: range.endTime
+            };
 
             const isAvail = !lowerCleaned.includes('not available') && !lowerCleaned.includes('unavailable') && !lowerCleaned.includes('off') && !lowerCleaned.includes('leave');
             const hasAvailabilityClause = /\b(available|free|duty|from \d|to \d|\d to \d|timing|hours|schedule|varege|inda|o'clock|wanted to work|want to work|ready to work)\b/i.test(lowerCleaned);
@@ -1421,9 +1554,19 @@ class ContextAwareVoiceAgent {
         // ======================================================================
         // O. JOB POSTING & CREATION REQUESTS (e.g. "I need washing machine repair in Ramanagara", "Please create a request for...", "Can you post a job...")
         // ======================================================================
-        else if (/\b(post a job|create a job|post job|create a request|create request|i need|i want someone for|can you post|post a request|book a repair|need repair|need service)\b/i.test(lowerCleaned)) {
+        else if (/\b(post a job|create a job|post job|create a request|create request|i need someone for|can you post|post a request|book a repair|need repair|need service|need someone to repair|repair my)\b/i.test(lowerCleaned)) {
+            detectedIntent = 'create_job';
             const detectedTrade = extractTradeAndService(text) || session.context.currentService;
             const { date, time } = extractDateTimeEntities(text);
+
+            extractedEntities = {
+                intent: 'create_job',
+                service: detectedTrade || 'Specialist Visit',
+                problem: text,
+                location: session.city,
+                date: date || 'Today',
+                time: time || 'Immediate'
+            };
 
             if (!detectedTrade) {
                 session.context.pendingIntent = 'CREATE_JOB_AWAITING_SERVICE';
@@ -1461,6 +1604,14 @@ class ContextAwareVoiceAgent {
 
             // Case A: Specific Trade Specified (e.g. "Is there an available electrician now in Kanakapura?", "Can I get a plumber?")
             if (explicitTrade) {
+                detectedIntent = 'find_worker';
+                extractedEntities = {
+                    intent: 'find_worker',
+                    service: explicitTrade,
+                    location: session.city,
+                    date: date || 'Today',
+                    time: time || 'Immediate'
+                };
                 session.context.currentService = explicitTrade;
                 if (date) session.context.currentDate = date;
                 if (time) session.context.currentTime = time;
@@ -1539,15 +1690,24 @@ class ContextAwareVoiceAgent {
             callerPhone: session.callerPhone,
             callerRole: session.callerRole,
             transcript: text,
-            intentDetected: toolExecuted || session.context.pendingIntent || 'conversation',
+            intentDetected: detectedIntent || toolExecuted || session.context.pendingIntent || 'conversation',
             actionsTaken: actionsPerformed.join('; '),
             durationSeconds: 10
         });
+
+        console.log('\n[VOICE] Transcript:', text);
+        console.log('[VOICE] Detected intent:', detectedIntent);
+        console.log('[VOICE] Extracted entities:', extractedEntities);
+        console.log('[VOICE] Selected tool:', toolExecuted);
+        console.log('[VOICE] Tool result:', toolResult ? (toolResult.count !== undefined ? `${toolResult.count} workers found` : (toolResult.job ? `Job #${toolResult.job.id}` : toolResult.status)) : null);
+        console.log('[VOICE] Final response:', spokenResponse);
 
         return {
             spokenResponse,
             toolExecuted,
             toolResult,
+            detectedIntent,
+            extractedEntities,
             actionsPerformed,
             shouldEndCall,
             context: {
