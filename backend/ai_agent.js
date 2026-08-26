@@ -1064,7 +1064,7 @@ class ContextAwareVoiceAgent {
                 if (isAffirmative && session.context.pendingAvailabilityData) {
                     const avail = session.context.pendingAvailabilityData;
                     
-                    if (avail.isNewRegistration || avail.name || avail.trade) {
+                    if (avail.updateType === 'REGISTRATION_AND_AVAILABILITY' || avail.updateType === 'MULTIPLE_DETAILS') {
                         AI_TOOLS.registerWorkerProfile({
                             name: avail.name || 'Worker',
                             phone: avail.phone || session.callerPhone,
@@ -1086,10 +1086,14 @@ class ContextAwareVoiceAgent {
                     actionsPerformed.push(`Updated ${avail.date} availability (${avail.startTime} – ${avail.endTime}) in database and Firebase`);
 
                     if (toolResult && toolResult.persisted) {
-                        if (avail.isNewRegistration || (avail.name && avail.name !== 'Worker' && avail.name !== 'Unknown')) {
-                            spokenResponse = `Done. Your details have been updated successfully. You are registered as ${getTradePersonNoun(avail.trade)} and you're available ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
-                        } else {
+                        const tradeNoun = (avail.tradeNoun || getTradePersonNoun(avail.trade)).replace(/^(an?)\s+/i, '');
+                        if (avail.updateType === 'AVAILABILITY_ONLY') {
                             spokenResponse = `Done. Your availability has been updated to ${avail.date.toLowerCase()}, ${avail.startDisplay} to ${avail.endDisplay}.`;
+                        } else if (avail.updateType === 'MULTIPLE_DETAILS') {
+                            spokenResponse = `Done. Your details have been updated:\nName: ${avail.name}\nProfession: ${tradeNoun.charAt(0).toUpperCase() + tradeNoun.slice(1)}\nAvailability: ${avail.date}, ${avail.startDisplay} to ${avail.endDisplay}.`;
+                        } else {
+                            const article = /^[aeiou]/i.test(tradeNoun) ? 'an' : 'a';
+                            spokenResponse = `Done. Your details have been updated successfully. You are registered as ${article} ${tradeNoun} and you're available ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
                         }
                     } else {
                         spokenResponse = `Sorry, I couldn't update your details. Please try again.`;
@@ -1245,8 +1249,8 @@ class ContextAwareVoiceAgent {
                 const worker = DB.getWorkerByPhone(session.callerPhone);
                 const hasAvailabilityClause = /\b(available|free|duty|from \d|to \d|\d to \d|timing|hours|schedule|varege|inda|o'clock|wanted to work|want to work|ready to work)\b/i.test(lowerCleaned);
                 const detectedTrade = extractTradeAndService(text);
-                const detectedName = extractCallerName(text) || (worker ? worker.name : null);
-                const tradeNoun = getTradePersonNoun(detectedTrade || (worker ? worker.trade : 'Specialist'));
+                const statedName = extractCallerName(text);
+                const tradeNoun = getTradePersonNoun(detectedTrade || (worker ? worker.trade : 'Specialist')).replace(/^(an?)\s+/i, '');
 
                 if (hasAvailabilityClause) {
                     const range = extractTimeRange(text);
@@ -1254,11 +1258,24 @@ class ContextAwareVoiceAgent {
                     const targetDate = date || 'Tomorrow';
                     const isAvail = !lowerCleaned.includes('not available') && !lowerCleaned.includes('unavailable') && !lowerCleaned.includes('off') && !lowerCleaned.includes('leave');
 
+                    // Determine update type
+                    let updateType = 'AVAILABILITY_ONLY';
+                    if (!worker) {
+                        updateType = 'REGISTRATION_AND_AVAILABILITY';
+                    } else if (statedName && detectedTrade) {
+                        updateType = 'MULTIPLE_DETAILS';
+                    } else if (detectedTrade && detectedTrade.toLowerCase() !== worker.trade.toLowerCase()) {
+                        updateType = 'MULTIPLE_DETAILS';
+                    } else {
+                        updateType = 'AVAILABILITY_ONLY';
+                    }
+
                     session.callerRole = 'worker';
                     session.context.pendingAvailabilityData = {
                         workerId: worker ? worker.id : null,
-                        name: detectedName || (worker ? worker.name : 'Rajesh'),
+                        name: statedName || (worker ? worker.name : 'Rajesh'),
                         trade: detectedTrade || (worker ? worker.trade : 'Electrician'),
+                        tradeNoun: tradeNoun,
                         phone: session.callerPhone,
                         date: targetDate,
                         startTime: range.startTime,
@@ -1266,30 +1283,36 @@ class ContextAwareVoiceAgent {
                         startDisplay: range.startDisplay,
                         endDisplay: range.endDisplay,
                         isAvailable: isAvail,
-                        isNewRegistration: !worker
+                        updateType
                     };
                     session.context.pendingIntent = 'CONFIRM_UPDATE_AVAILABILITY';
-                    actionsPerformed.push(`Prepared worker details & availability update for ${targetDate}`);
+                    actionsPerformed.push(`Prepared worker ${updateType} for ${targetDate}`);
 
-                    const nameSnippet = detectedName ? ` as ${detectedName},` : '';
-                    spokenResponse = `Got it. I have your details${nameSnippet} ${detectedTrade ? detectedTrade.toLowerCase() : (worker ? worker.trade.toLowerCase() : 'specialist')}, available ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}. Shall I save this?`;
+                    if (updateType === 'AVAILABILITY_ONLY') {
+                        spokenResponse = `Got it. You want to update your availability to ${targetDate.toLowerCase()}, ${range.startDisplay} to ${range.endDisplay}. Shall I save this?`;
+                    } else if (updateType === 'MULTIPLE_DETAILS') {
+                        spokenResponse = `Got it. I have your details as ${statedName || worker.name}, ${tradeNoun}, available ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}. Shall I save this?`;
+                    } else {
+                        spokenResponse = `Got it. I have your details as ${statedName || 'Rajesh'}, ${tradeNoun}, available ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}. Shall I save this?`;
+                    }
                 } else if (detectedTrade && /\b(now|became|changed to|change to|new trade|profession)\b/i.test(lowerCleaned)) {
                     session.callerRole = 'worker';
                     session.context.pendingProfessionData = {
                         workerId: worker ? worker.id : null,
-                        name: detectedName || (worker ? worker.name : 'Worker'),
+                        name: statedName || (worker ? worker.name : 'Worker'),
                         trade: detectedTrade,
+                        tradeNoun: tradeNoun,
                         phone: session.callerPhone
                     };
                     session.context.pendingIntent = 'CONFIRM_UPDATE_PROFESSION';
-                    spokenResponse = `Got it. You want to update your profession to ${detectedTrade.toLowerCase()}. Shall I save this?`;
+                    spokenResponse = `Got it. You want to update your profession to ${tradeNoun}. Shall I save this?`;
                     actionsPerformed.push(`Prompted confirmation for trade change to ${detectedTrade}`);
                 } else {
                     if (worker) {
                         spokenResponse = `Hello! I recognize you as a registered ${worker.trade}. Would you like to update your schedule, check your bookings, or view your earnings?`;
                     } else {
                         session.context.pendingIntent = 'CONFIRM_REGISTER_OFFER';
-                        spokenResponse = `Got it. I have your details as ${detectedName || 'a worker'}, ${detectedTrade || 'specialist'}. Would you like to set your working availability for today or tomorrow?`;
+                        spokenResponse = `Got it. I have your details as ${statedName || 'a worker'}, ${tradeNoun}. Would you like to set your working availability for today or tomorrow?`;
                     }
                     actionsPerformed.push(`Recognized worker self-identification`);
                 }

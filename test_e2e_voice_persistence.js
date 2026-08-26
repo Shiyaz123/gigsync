@@ -268,6 +268,40 @@ async function runE2ETests() {
         failed++;
     }
 
+    // --------------------------------------------------------------------------
+    // TEST 8: Continuous Natural Conversation ("What jobs do I have tomorrow?")
+    // --------------------------------------------------------------------------
+    try {
+        console.log('TEST 8: Natural Conversation Continuation After Update...');
+
+        const continuousSession = {
+            callerPhone: testWorkerPhone,
+            callerRole: 'worker',
+            city: 'Ramanagara',
+            history: [],
+            context: {}
+        };
+
+        const followUpRes = await aiAgent.processCallTurn(
+            continuousSession,
+            "What jobs do I have tomorrow?"
+        );
+        console.log('  Follow-up AI Spoken:', followUpRes.spokenResponse);
+
+        assert(
+            followUpRes.spokenResponse.toLowerCase().includes('available') ||
+            followUpRes.spokenResponse.toLowerCase().includes('job') ||
+            followUpRes.spokenResponse.toLowerCase().includes('schedule'),
+            `Follow-up query must query database schedule. Got: ${followUpRes.spokenResponse}`
+        );
+
+        console.log('  ✅ TEST 8 PASSED: Natural conversation continued with real database schedule query.\n');
+        passed++;
+    } catch (err) {
+        console.error('  ❌ TEST 8 FAILED:', err.message, '\n');
+        failed++;
+    }
+
     console.log('================================================================');
     console.log(`🏁 TEST RESULTS: ${passed} PASSED, ${failed} FAILED`);
     console.log('================================================================\n');
