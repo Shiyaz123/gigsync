@@ -212,10 +212,21 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, { status: 'success', worker });
     }
 
-    // GET /api/workers/:id/schedule
-    const schedMatch = pathname.match(/^\/api\/workers\/(\d+)\/schedule$/);
+    // GET /api/workers/:id/schedule & GET /api/workers/me/schedule
+    const schedMatch = pathname.match(/^\/api\/workers\/(me|\d+)\/schedule$/);
     if (schedMatch && req.method === 'GET') {
-        const workerId = Number(schedMatch[1]);
+        let workerId = schedMatch[1];
+        if (workerId === 'me') {
+            const session = getAuthSession(req);
+            if (!session || session.role !== 'worker') {
+                return sendJSON(res, { status: 'error', message: 'Worker authorization required.' }, 403);
+            }
+            const worker = DB.getWorkerByUserId(session.user_id);
+            if (!worker) return sendJSON(res, { status: 'error', message: 'Worker profile not found.' }, 404);
+            workerId = worker.id;
+        } else {
+            workerId = Number(workerId);
+        }
         const schedule = DB.getWorkerSchedule(workerId);
         if (!schedule) return sendJSON(res, { status: 'error', message: 'Worker schedule not found.' }, 404);
         return sendJSON(res, { status: 'success', ...schedule });

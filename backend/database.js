@@ -478,7 +478,22 @@ const DB = {
         }
 
         query += ' ORDER BY is_available DESC, rating DESC, jobs_completed DESC';
-        return db.prepare(query).all(...params);
+        const workers = db.prepare(query).all(...params);
+
+        // Attach latest availability slot to each worker
+        return workers.map(w => {
+            const latestSlot = db.prepare(`
+                SELECT date_str, start_time, end_time, is_available, updated_at
+                FROM worker_availability
+                WHERE worker_id = ? OR worker_phone = ?
+                ORDER BY updated_at DESC LIMIT 1
+            `).get(w.id, w.phone);
+            return {
+                ...w,
+                latest_availability: latestSlot || null,
+                availability_hours: latestSlot ? `${latestSlot.start_time} – ${latestSlot.end_time} (${latestSlot.date_str})` : 'Available'
+            };
+        });
     },
 
     getWorkerById(id) {
@@ -553,13 +568,21 @@ const DB = {
 
         let existingWorker = this.getWorkerByPhone(cleanPhone);
         if (existingWorker) {
-            return this.updateWorkerProfile(existingWorker.id, {
+            const updated = this.updateWorkerProfile(existingWorker.id, {
+                name: name || existingWorker.name,
                 trade: trade || existingWorker.trade,
                 city: city || existingWorker.city,
                 area: area || existingWorker.area,
                 tools: tools || existingWorker.tools,
                 price: price || existingWorker.price
             });
+            return {
+                success: true,
+                persisted: true,
+                workerId: updated.id,
+                worker: updated,
+                action: 'UPDATED'
+            };
         }
 
         let existingUser = this.getUserByPhone ? this.getUserByPhone(cleanPhone) : null;
@@ -579,7 +602,7 @@ const DB = {
             } catch (_) {}
         }
 
-        return this.createWorker({
+        const created = this.createWorker({
             user_id: userId,
             name: name || 'Worker',
             phone: cleanPhone,
@@ -598,12 +621,21 @@ const DB = {
             area,
             about: `${experienceYears || 2}+ years experience as ${trade || 'specialist'}.`
         });
+
+        return {
+            success: true,
+            persisted: true,
+            workerId: created.id,
+            worker: created,
+            action: 'CREATED'
+        };
     },
 
     updateWorkerProfile(id, updates = {}) {
         const fields = [];
         const params = [];
 
+        if (updates.name) { fields.push('name = ?'); params.push(updates.name); }
         if (updates.trade) { fields.push('trade = ?', 'service = ?'); params.push(updates.trade, updates.trade.toLowerCase()); }
         if (updates.skills !== undefined) { fields.push('skills = ?'); params.push(updates.skills); }
         if (updates.tools !== undefined) { fields.push('tools = ?'); params.push(updates.tools); }
@@ -619,6 +651,12 @@ const DB = {
         params.push(id);
         db.prepare(`UPDATE workers SET ${fields.join(', ')} WHERE id = ?`).run(...params);
         const updated = this.getWorkerById(id);
+        
+        // Sync name changes to users table
+        if (updates.name && updated) {
+            db.prepare('UPDATE users SET name = ? WHERE phone = ? OR id = ?').run(updates.name, updated.phone, updated.user_id || -1);
+        }
+
         FirebaseSync.syncWorker(updated).catch(e => console.warn('[Firebase Sync Error]:', e));
         return updated;
     },
@@ -656,15 +694,30 @@ const DB = {
             INSERT INTO worker_availability (worker_id, worker_phone, trade, date_str, start_time, end_time, is_available, notes)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
-        stmt.run(wId, phone, wTrade, dateStr, startTime, endTime, isAvailable ? 1 : 0, notes);
+        const runRes = stmt.run(wId, phone, wTrade, dateStr, startTime, endTime, isAvailable ? 1 : 0, notes);
+
+        if (wId) {
+            db.prepare('UPDATE workers SET is_available = ? WHERE id = ?').run(isAvailable ? 1 : 0, wId);
+        }
+
+        const slot = db.prepare('SELECT * FROM worker_availability WHERE id = ?').get(runRes.lastInsertRowid);
+        const updatedWorker = wId ? this.getWorkerById(wId) : null;
+        if (updatedWorker) {
+            FirebaseSync.syncWorker(updatedWorker).catch(e => console.warn('[Firebase Sync Error]:', e));
+        }
 
         return {
+            success: true,
+            persisted: Boolean(slot),
+            slotId: runRes.lastInsertRowid,
             workerId: wId,
             workerPhone: phone,
+            workerName: worker ? worker.name : null,
             trade: wTrade,
             date: dateStr,
             startTime,
             endTime,
+            hours: `${startTime} – ${endTime}`,
             isAvailable: Boolean(isAvailable)
         };
     },

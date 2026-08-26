@@ -948,6 +948,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="worker-card-meta">
                                 <span><i class="fa-solid fa-star" style="color:#F59E0B"></i> ${w.rating || '4.9'}</span>
                                 <span><i class="fa-solid fa-location-dot"></i> ${w.city}</span>
+                                <span><i class="fa-solid fa-clock"></i> ${w.availability_hours || 'Available'}</span>
                                 <span><strong>₹${w.price || 300}</strong></span>
                             </div>
                             <button type="button" class="btn btn-outline btn-sm btn-block" onclick="window._bookWorkerDirect('${w.name}', '${w.trade}')">
@@ -1180,13 +1181,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.user = { ...state.user, ...meRes.data.user };
                 const trade = state.user.profile?.trade;
                 if (trade) {
-                    const tradeIcon = Object.keys({ '⚡': ['Electrician'], '🔧': ['Plumb', 'Plumber'], '🔨': ['Carpenter'], '🏍️': ['Mechanic'], '❄️': ['AC', 'Fridge'], '🎨': ['Paint'], '🔌': ['Appliance'], '🧵': ['Tailor'], '🧹': ['Clean'] }).find(k => Object.values({}).some(v => v.some(s => trade.includes(s)))) || '🔧';
-                    document.getElementById('workerTradeHeading') && (document.getElementById('workerTradeHeading').textContent = `🔧 ${trade}`);
+                    const tradeIcons = {
+                        'Electrician': '⚡', 'Master Electrician': '⚡',
+                        'Plumber': '🔧', 'Plumbing Specialist': '🔧',
+                        'Carpenter': '🔨', 'General Carpenter': '🔨',
+                        'Mechanic': '🏍️', 'Two-Wheeler Mechanic': '🏍️',
+                        'AC': '❄️', 'AC & Fridge Tech': '❄️',
+                        'Painter': '🎨', 'Appliance': '🔌', 'Appliance Repair Tech': '🔌',
+                        'Tailor': '🧵', 'Cleaner': '🧹', 'Home Cleaner': '🧹'
+                    };
+                    const tradeIcon = Object.keys(tradeIcons).find(k => trade.includes(k)) ? tradeIcons[Object.keys(tradeIcons).find(k => trade.includes(k))] : '🔧';
+                    document.getElementById('workerTradeHeading') && (document.getElementById('workerTradeHeading').textContent = `${tradeIcon} ${trade}`);
                     document.getElementById('wDropdownTrade') && (document.getElementById('wDropdownTrade').textContent = trade);
                 }
                 workerProfile = state.user.profile;
             }
         }
+
+        // Fetch worker schedule and active availability slots from DB
+        let workerSchedule = null;
+        try {
+            const schedEndpoint = (workerProfile && workerProfile.id) ? `/api/workers/${workerProfile.id}/schedule` : '/api/workers/me/schedule';
+            const schedRes = await apiFetch(schedEndpoint);
+            if (schedRes.ok && schedRes.data) {
+                workerSchedule = schedRes.data;
+            }
+        } catch (_) {}
 
         const res = await apiFetch('/api/jobs');
         const allJobs = (res.ok && res.data.jobs) ? res.data.jobs : [];
@@ -1195,12 +1215,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const jobs = allJobs.filter(j => !workerPhone || j.worker_phone === workerPhone || j.worker_phone === null && j.status === 'Requested');
         state.jobs = allJobs;
 
-        // Availability Display — show slot or 'On Duty' from duty toggle state
+        // Availability Display — show slot or 'On Duty' from database schedule
         const availBadge = document.getElementById('workerAvailBadge');
         const todayHoursLabel = document.getElementById('workerTodayHoursLabel');
-        if (availBadge) {
-            availBadge.textContent = workerIsActive ? '🟢 Available' : '⚪ Off Duty';
-            availBadge.className = `avail-badge ${workerIsActive ? 'available' : 'unavailable'}`;
+        const slots = workerSchedule?.availabilitySlots || [];
+        if (slots.length > 0) {
+            const latest = slots[0];
+            if (todayHoursLabel) {
+                todayHoursLabel.textContent = `${latest.start_time} – ${latest.end_time} (${latest.date_str})`;
+            }
+            if (availBadge) {
+                availBadge.textContent = latest.is_available ? `🟢 Available (${latest.start_time} – ${latest.end_time})` : '⚪ Off Duty';
+                availBadge.className = `avail-badge ${latest.is_available ? 'available' : 'unavailable'}`;
+            }
+        } else {
+            if (availBadge) {
+                availBadge.textContent = workerIsActive ? '🟢 Available' : '⚪ Off Duty';
+                availBadge.className = `avail-badge ${workerIsActive ? 'available' : 'unavailable'}`;
+            }
         }
 
         // Current In-Progress Job (worker's own)

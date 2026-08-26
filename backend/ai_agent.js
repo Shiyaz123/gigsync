@@ -33,7 +33,7 @@ const AI_TOOLS = {
     // 1. Register or Update Worker Profile in Verified Database & Firebase
     registerWorkerProfile({ name, phone, trade = 'Skilled Specialist', city = 'Ramanagara', area = 'Town', tools = 'Standard tool kit', price = 300, experienceYears = 2 }) {
         const cleanPhone = (phone || '').replace(/\D/g, '');
-        const worker = DB.registerWorkerProfile({
+        const res = DB.registerWorkerProfile({
             name,
             phone: cleanPhone,
             trade,
@@ -44,9 +44,14 @@ const AI_TOOLS = {
             experienceYears: Number(experienceYears) || 2
         });
 
+        const worker = res && res.worker ? res.worker : res;
+        const persisted = Boolean(res && (res.persisted || res.workerId || worker));
+
         return {
             status: 'success',
+            persisted,
             action: 'WORKER_REGISTERED',
+            workerId: worker ? worker.id : null,
             worker
         };
     },
@@ -70,12 +75,18 @@ const AI_TOOLS = {
             DB.updateWorkerAvailabilityStatus(worker.id, isAvailable);
         }
 
+        const persisted = Boolean(slot && (slot.persisted || slot.slotId || slot.workerId));
+
         return {
             status: 'success',
+            persisted,
             action: 'AVAILABILITY_UPDATED',
             workerName: worker ? worker.name : 'Worker',
             workerPhone: cleanPhone,
+            trade: slot?.trade || trade,
             date,
+            startTime,
+            endTime,
             hours: `${startTime} – ${endTime}`,
             isAvailable: Boolean(isAvailable)
         };
@@ -434,31 +445,33 @@ class GeminiConversationalBrain {
 AUTHENTICATION & IDENTITY CONTEXT:
 - Caller Phone: ${session.callerPhone || '9876543210'}
 - Caller Role: ${session.callerRole || 'customer'}
-- Verified Worker Account: ${isVerifiedWorker ? `YES (Name: ${workerRecord.name}, Trade: ${workerRecord.trade}, ID: ${workerRecord.id})` : 'NO (Unregistered or Customer account)'}
+- Verified Worker Account: ${isVerifiedWorker ? `YES (Name: ${workerRecord.name}, Trade: ${workerRecord.trade}, ID: ${workerRecord.id})` : 'NO (New worker or customer)'}
 - Service City: ${session.city || 'Ramanagara'}
 
 CRITICAL RULES:
 1. SINGLE CONVERSATIONAL BRAIN: Maintain smooth, natural, empathetic multi-turn conversation. Keep spoken answers concise, conversational, and direct for TTS speech synthesis.
-2. SOURCE OF TRUTH: You MUST execute real tools ('findWorkers', 'createJob', 'updateWorkerAvailability', 'getWorkerSchedule', 'getWorkerNextJob', 'getWorkerEarnings', 'getCustomerBookings', 'cancelJob') to interact with the database. NEVER fabricate data or simulate success without executing the tool.
-3. WORKER SELF-IDENTIFICATION & AVAILABILITY FLOW:
-   - When a caller says "I am an electrician", "yeah I am an electrician", "I am a plumber", or states their trade:
-     If verified worker: Acknowledge warmly and ask how to help with their schedule, bookings, or earnings.
-     If unregistered: Ask "Okay. Are you registering as a GigSync worker, or would you like to update your worker details?"
-   - When a caller says "I would like to do workers schedule", "I want to update my schedule", "change my availability":
-     Ask "Sure. What hours are you available?" or "What would you like to change in your schedule?"
-   - When a caller provides availability (e.g. "Tomorrow from 9 to 5", "Tomorrow from 9 AM to 5 PM", "from 6 to 5"):
-     Ask for confirmation: "You're available tomorrow from 9 AM to 5 PM. Should I save that?"
-   - When the worker confirms ("Yes", "Save it", "Do it", "Sure", "Okay", "Ha", "Sari"):
-     Execute tool 'updateWorkerAvailability' with { workerPhone: "${session.callerPhone}", date, startTime, endTime, isAvailable: true }.
-     Respond after tool success: "Done. Your availability has been updated."
-   - When the worker says "I am not available tomorrow" or "off duty on Sunday":
-     Execute 'updateWorkerAvailability' with { workerPhone: "${session.callerPhone}", date, isAvailable: false } and confirm off-duty status.
+2. SOURCE OF TRUTH: You MUST execute real tools ('registerWorkerProfile', 'updateWorkerAvailability', 'findWorkers', 'createJob', 'getWorkerSchedule', 'getWorkerNextJob', 'getWorkerEarnings', 'getCustomerBookings', 'cancelJob') to interact with the database. NEVER fabricate data or simulate success without executing the tool.
+3. WORKER SELF-IDENTIFICATION, REGISTRATION & AVAILABILITY FLOW:
+   - When caller introduces themselves and provides trade/availability (e.g. "My name is Rajesh. I am an electrician. I am available tomorrow from 9 AM to 5 PM"):
+     Ask confirmation: "Got it. I have your details as Rajesh, electrician, available tomorrow from 9 AM to 5 PM. Shall I save this?"
+   - When caller confirms ("Yes", "Save it", "Do it", "Sure", "Okay", "Ha", "Sari"):
+     Execute 'registerWorkerProfile' if new or updating details, and 'updateWorkerAvailability'.
+     ONLY AFTER tool execution succeeds, confirm the exact saved details:
+     - Initial reg + shift: "Done. Your details have been updated successfully. You are registered as an electrician and you're available tomorrow from 9 AM to 5 PM."
+     - Availability only: "Done. Your availability has been updated to tomorrow, 9 AM to 5 PM."
+     - Profession only: "Done. Your profession has been updated to plumber."
+     - If tool fails: "Sorry, I couldn't update your details. Please try again."
+   - When worker asks "Change my availability tomorrow to 10 AM to 6 PM":
+     Ask confirmation: "Got it. You want to change your availability tomorrow to 10 AM to 6 PM. Shall I save this?"
+     After confirmation and tool success: "Done. Your availability has been updated to tomorrow, 10 AM to 6 PM."
+   - When worker says "I am a plumber now" / "Change my profession to plumber":
+     Execute 'registerWorkerProfile' with updated trade and respond: "Done. Your profession has been updated to plumber."
 4. WORKER QUERIES:
    - "What jobs do I have today?" -> Execute 'getWorkerSchedule' and state active bookings or "You don't have any jobs scheduled for today."
    - "Who is my next customer?" -> Execute 'getWorkerNextJob' and state the next customer name, location, and service.
    - "How much did I earn this month?" -> Execute 'getWorkerEarnings' and state the computed earnings and completed jobs count.
 5. CUSTOMER REQUESTS:
-   - "I need an electrician tomorrow", "Nanage electrician beku", "Find a plumber":
+   - "Which electricians are available tomorrow?", "I need an electrician tomorrow", "Nanage electrician beku":
      This is a CUSTOMER looking for a worker. Execute 'findWorkers' (NEVER 'updateWorkerAvailability').
 6. CLOSING CALLS:
    - "Thank you", "Bye", "That's all": Acknowledge warmly and say goodbye.`;
@@ -930,15 +943,41 @@ function isWorkerIntent(text, currentRole = 'customer') {
 
 // 5. Intelligent Multi-Turn Conversational Processor
 class ContextAwareVoiceAgent {
-    async processCallTurn({ sessionId, callerPhone, callerRole = 'customer', callerName = 'User', city = 'Ramanagara', speechText }) {
+    async processCallTurn(optsOrSession, maybeText) {
+        let sessionId, callerPhone, callerRole, callerName, city, speechText;
+
+        if (typeof optsOrSession === 'string' && typeof maybeText === 'string') {
+            sessionId = optsOrSession;
+            speechText = maybeText;
+        } else if (optsOrSession && typeof optsOrSession === 'object' && typeof maybeText === 'string') {
+            sessionId = optsOrSession.sessionId || optsOrSession.callerPhone || 'default_session';
+            callerPhone = optsOrSession.callerPhone;
+            callerRole = optsOrSession.callerRole || 'customer';
+            callerName = optsOrSession.callerName || 'User';
+            city = optsOrSession.city || 'Ramanagara';
+            speechText = maybeText;
+        } else if (optsOrSession && typeof optsOrSession === 'object') {
+            sessionId = optsOrSession.sessionId || optsOrSession.callerPhone || 'default_session';
+            callerPhone = optsOrSession.callerPhone;
+            callerRole = optsOrSession.callerRole || 'customer';
+            callerName = optsOrSession.callerName || 'User';
+            city = optsOrSession.city || 'Ramanagara';
+            speechText = optsOrSession.speechText || optsOrSession.text || '';
+        } else {
+            speechText = String(optsOrSession || '');
+        }
+
         const text = (speechText || '').trim();
         const lower = text.toLowerCase();
 
         // 1. Extract dynamic location from utterance (or fallback to session default city)
-        const targetCity = extractLocationEntity(text, city);
+        const targetCity = extractLocationEntity(text, city || 'Ramanagara');
 
         // 2. Get or create session context
-        const session = sessionManager.getSession(sessionId, { callerPhone, callerRole, callerName, city: targetCity });
+        const session = (optsOrSession && optsOrSession.context && optsOrSession.history)
+            ? optsOrSession
+            : sessionManager.getSession(sessionId, { callerPhone, callerRole, callerName, city: targetCity });
+        
         session.city = targetCity;
         session.context.currentLocation = targetCity;
         sessionManager.addTurn(session, 'user', text);
@@ -1024,6 +1063,17 @@ class ContextAwareVoiceAgent {
                 detectedIntent = 'confirm_availability';
                 if (isAffirmative && session.context.pendingAvailabilityData) {
                     const avail = session.context.pendingAvailabilityData;
+                    
+                    if (avail.isNewRegistration || avail.name || avail.trade) {
+                        AI_TOOLS.registerWorkerProfile({
+                            name: avail.name || 'Worker',
+                            phone: avail.phone || session.callerPhone,
+                            trade: avail.trade || 'Specialist',
+                            city: session.city
+                        });
+                        actionsPerformed.push(`Registered/updated worker profile for ${avail.name || 'Worker'} (${avail.trade})`);
+                    }
+
                     toolExecuted = 'updateWorkerAvailability';
                     toolResult = AI_TOOLS.updateWorkerAvailability({
                         workerPhone: avail.phone || session.callerPhone,
@@ -1035,22 +1085,59 @@ class ContextAwareVoiceAgent {
                     });
                     actionsPerformed.push(`Updated ${avail.date} availability (${avail.startTime} – ${avail.endTime}) in database and Firebase`);
 
-                    spokenResponse = `Done. Your availability has been updated for ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
+                    if (toolResult && toolResult.persisted) {
+                        if (avail.isNewRegistration || (avail.name && avail.name !== 'Worker' && avail.name !== 'Unknown')) {
+                            spokenResponse = `Done. Your details have been updated successfully. You are registered as ${getTradePersonNoun(avail.trade)} and you're available ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
+                        } else {
+                            spokenResponse = `Done. Your availability has been updated to ${avail.date.toLowerCase()}, ${avail.startDisplay} to ${avail.endDisplay}.`;
+                        }
+                    } else {
+                        spokenResponse = `Sorry, I couldn't update your details. Please try again.`;
+                    }
+
                     session.context.pendingIntent = null;
                     session.context.pendingAvailabilityData = null;
                     session.context.lastActionCompleted = 'AVAILABILITY_UPDATED';
                 } else if (isNegative) {
-                    spokenResponse = `No problem, I haven't added this to your schedule. Let me know if you need anything else.`;
+                    spokenResponse = `No problem, I haven't saved this to your schedule. Let me know if you need anything else.`;
                     session.context.pendingIntent = null;
                     session.context.pendingAvailabilityData = null;
+                }
+            }
+
+            else if (session.context.pendingIntent === 'CONFIRM_UPDATE_PROFESSION' && (isAffirmative || isNegative)) {
+                detectedIntent = 'confirm_update_profession';
+                if (isAffirmative && session.context.pendingProfessionData) {
+                    const prof = session.context.pendingProfessionData;
+                    toolExecuted = 'registerWorkerProfile';
+                    toolResult = AI_TOOLS.registerWorkerProfile({
+                        name: prof.name,
+                        phone: prof.phone || session.callerPhone,
+                        trade: prof.trade,
+                        city: session.city
+                    });
+                    actionsPerformed.push(`Updated worker profession to ${prof.trade} in database`);
+
+                    if (toolResult && toolResult.persisted) {
+                        const profNoun = getTradePersonNoun(prof.trade).replace(/^(an?)\s+/i, '');
+                        spokenResponse = `Done. Your profession has been updated to ${profNoun}.`;
+                    } else {
+                        spokenResponse = `Sorry, I couldn't update your details. Please try again.`;
+                    }
+                    session.context.pendingIntent = null;
+                    session.context.pendingProfessionData = null;
+                } else if (isNegative) {
+                    spokenResponse = `Understood, your profession remains unchanged. Let me know if you need anything else.`;
+                    session.context.pendingIntent = null;
+                    session.context.pendingProfessionData = null;
                 }
             }
 
             else if (session.context.pendingIntent === 'CONFIRM_REGISTER_OFFER' && (isAffirmative || isNegative)) {
                 detectedIntent = 'confirm_register_offer';
                 if (isAffirmative) {
-                    spokenResponse = `Please open the GigSync app or visit our registration portal to complete your worker verification with your mobile number and trade skills.`;
-                    actionsPerformed.push(`Guided unregistered caller to official verification portal`);
+                    spokenResponse = `Please tell me your name, trade, and available hours, and I will set up your worker profile immediately.`;
+                    actionsPerformed.push(`Prompted caller for voice worker registration details`);
                     session.context.pendingIntent = null;
                     session.context.lastActionCompleted = 'REGISTER_OFFER_GUIDED';
                 } else if (isNegative) {
@@ -1148,7 +1235,7 @@ class ContextAwareVoiceAgent {
             }
 
             // C.3 Worker Schedule Request ("I would like to do workers schedule", "update my schedule")
-            else if (/\b(do workers schedule|worker schedule|workers schedule|update my schedule|change my schedule|set my schedule|change my availability|update my availability)\b/i.test(lowerCleaned)) {
+            else if (/\b(do workers schedule|worker schedule|workers schedule|update my schedule|change my schedule|set my schedule|change my availability|update my availability)\b/i.test(lowerCleaned) && !/\b(from \d|to \d|\d to \d|\d:\d\d|am|pm|o'clock|hours|\d+ to \d+)\b/i.test(lowerCleaned)) {
                 spokenResponse = `Sure. What hours are you available?`;
                 actionsPerformed.push(`Prompted worker for available hours`);
             }
@@ -1158,6 +1245,7 @@ class ContextAwareVoiceAgent {
                 const worker = DB.getWorkerByPhone(session.callerPhone);
                 const hasAvailabilityClause = /\b(available|free|duty|from \d|to \d|\d to \d|timing|hours|schedule|varege|inda|o'clock|wanted to work|want to work|ready to work)\b/i.test(lowerCleaned);
                 const detectedTrade = extractTradeAndService(text);
+                const detectedName = extractCallerName(text) || (worker ? worker.name : null);
                 const tradeNoun = getTradePersonNoun(detectedTrade || (worker ? worker.trade : 'Specialist'));
 
                 if (hasAvailabilityClause) {
@@ -1166,35 +1254,42 @@ class ContextAwareVoiceAgent {
                     const targetDate = date || 'Tomorrow';
                     const isAvail = !lowerCleaned.includes('not available') && !lowerCleaned.includes('unavailable') && !lowerCleaned.includes('off') && !lowerCleaned.includes('leave');
 
-                    if (worker) {
-                        session.callerRole = 'worker';
-                        session.context.pendingAvailabilityData = {
-                            workerId: worker.id,
-                            name: worker.name,
-                            trade: detectedTrade || worker.trade,
-                            phone: session.callerPhone,
-                            date: targetDate,
-                            startTime: range.startTime,
-                            endTime: range.endTime,
-                            startDisplay: range.startDisplay,
-                            endDisplay: range.endDisplay,
-                            isAvailable: isAvail
-                        };
-                        session.context.pendingIntent = 'CONFIRM_UPDATE_AVAILABILITY';
-                        actionsPerformed.push(`Recognized verified worker ${worker.name}; prepared availability update for ${targetDate}`);
-                        spokenResponse = `Got it. You're ${tradeNoun} and you're available ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}. Would you like me to save that?`;
-                    } else {
-                        session.callerRole = 'worker';
-                        session.context.pendingIntent = 'CONFIRM_REGISTER_OFFER';
-                        actionsPerformed.push(`Unregistered caller stated worker availability`);
-                        spokenResponse = `You're not registered as a GigSync worker yet. Would you like to register?`;
-                    }
+                    session.callerRole = 'worker';
+                    session.context.pendingAvailabilityData = {
+                        workerId: worker ? worker.id : null,
+                        name: detectedName || (worker ? worker.name : 'Rajesh'),
+                        trade: detectedTrade || (worker ? worker.trade : 'Electrician'),
+                        phone: session.callerPhone,
+                        date: targetDate,
+                        startTime: range.startTime,
+                        endTime: range.endTime,
+                        startDisplay: range.startDisplay,
+                        endDisplay: range.endDisplay,
+                        isAvailable: isAvail,
+                        isNewRegistration: !worker
+                    };
+                    session.context.pendingIntent = 'CONFIRM_UPDATE_AVAILABILITY';
+                    actionsPerformed.push(`Prepared worker details & availability update for ${targetDate}`);
+
+                    const nameSnippet = detectedName ? ` as ${detectedName},` : '';
+                    spokenResponse = `Got it. I have your details${nameSnippet} ${detectedTrade ? detectedTrade.toLowerCase() : (worker ? worker.trade.toLowerCase() : 'specialist')}, available ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}. Shall I save this?`;
+                } else if (detectedTrade && /\b(now|became|changed to|change to|new trade|profession)\b/i.test(lowerCleaned)) {
+                    session.callerRole = 'worker';
+                    session.context.pendingProfessionData = {
+                        workerId: worker ? worker.id : null,
+                        name: detectedName || (worker ? worker.name : 'Worker'),
+                        trade: detectedTrade,
+                        phone: session.callerPhone
+                    };
+                    session.context.pendingIntent = 'CONFIRM_UPDATE_PROFESSION';
+                    spokenResponse = `Got it. You want to update your profession to ${detectedTrade.toLowerCase()}. Shall I save this?`;
+                    actionsPerformed.push(`Prompted confirmation for trade change to ${detectedTrade}`);
                 } else {
                     if (worker) {
                         spokenResponse = `Hello! I recognize you as a registered ${worker.trade}. Would you like to update your schedule, check your bookings, or view your earnings?`;
                     } else {
                         session.context.pendingIntent = 'CONFIRM_REGISTER_OFFER';
-                        spokenResponse = `Okay. Are you registering as a GigSync worker or updating your worker details?`;
+                        spokenResponse = `Got it. I have your details as ${detectedName || 'a worker'}, ${detectedTrade || 'specialist'}. Would you like to set your working availability for today or tomorrow?`;
                     }
                     actionsPerformed.push(`Recognized worker self-identification`);
                 }
@@ -1248,21 +1343,25 @@ class ContextAwareVoiceAgent {
             }
 
             // C.8 Worker Job Completion
-            else if (/\b(i completed the job|job completed|job is completed|i finished the job|completed the job)\b/i.test(lowerCleaned)) {
-                detectedIntent = 'update_job_status';
+            else if (/\b(complete job|completed job|mark completed|finish job|done with job|job is done)\b/i.test(lowerCleaned)) {
+                detectedIntent = 'complete_job';
                 session.callerRole = 'worker';
-                toolExecuted = 'updateJobStatusByWorker';
-                toolResult = AI_TOOLS.updateJobStatusByWorker({ workerPhone: session.callerPhone, status: 'Completed' });
-                spokenResponse = toolResult.status === 'success'
-                    ? `Great work! Job #${toolResult.jobId} has been marked completed.`
-                    : `No active job was found to complete.`;
-                actionsPerformed.push(`Worker marked job completed`);
+                const nextJob = AI_TOOLS.getWorkerNextJob({ workerPhone: session.callerPhone });
+                if (nextJob.status !== 'none' && nextJob.job) {
+                    toolExecuted = 'completeJob';
+                    toolResult = AI_TOOLS.completeJob({ jobId: nextJob.job.id, workerPhone: session.callerPhone });
+                    spokenResponse = `Great work! Job #${nextJob.job.id} for ${nextJob.job.customer_name} has been marked completed. ₹${nextJob.job.final_price || 350} has been added to your earnings.`;
+                    actionsPerformed.push(`Marked Job #${nextJob.job.id} completed`);
+                } else {
+                    spokenResponse = `You don't have any active jobs in progress to mark completed.`;
+                }
             }
 
-            // C.9 Job Posting & Creation Requests
-            else if (/\b(post a job|create a job|job posting|post job|create a request|create request|i need someone for|can you post|post a request|book a repair|need repair|need service)\b/i.test(lowerCleaned)) {
+            // C.9 Customer Post Job Request
+            else if (/\b(post a job|create job|new job|book a service|need repair|need service|post job)\b/i.test(lowerCleaned)) {
                 detectedIntent = 'create_job';
-                const detectedTrade = extractTradeAndService(text) || session.context.currentService;
+                session.callerRole = 'customer';
+                const detectedTrade = extractTradeAndService(text);
                 const { date, time } = extractDateTimeEntities(text);
 
                 if (!detectedTrade) {
@@ -1305,14 +1404,14 @@ class ContextAwareVoiceAgent {
             }
 
             // C.11 Customer Search Specialists
-            else if (/\b(electrician|plumber|carpenter|mechanic|painter|technician|mason|tailor|welder|cleaning|driver|repair|appliance|ac)\b/i.test(lowerCleaned)) {
+            else if (/\b(electrician|electricians|plumber|plumbers|carpenter|carpenters|mechanic|mechanics|painter|painters|technician|mason|tailor|welder|cleaning|driver|repair|appliance|ac)\b/i.test(lowerCleaned)) {
                 detectedIntent = 'find_worker';
                 const service = extractTradeAndService(text) || 'Specialist';
                 const { date, time } = extractDateTimeEntities(text);
                 toolExecuted = 'findWorkers';
                 toolResult = AI_TOOLS.findWorkers({ trade: service, city: session.city, date: date || 'Today' });
                 if (!toolResult.workers || toolResult.workers.length === 0) {
-                    spokenResponse = `I couldn't find any registered ${service} specialists available in ${session.city} today. Would you like me to post an open job request so nearby workers can respond?`;
+                    spokenResponse = `I couldn't find any registered ${service} specialists available in ${session.city} ${date ? date.toLowerCase() : 'today'}. Would you like me to post an open job request so nearby workers can respond?`;
                     session.context.pendingJobData = {
                         customerPhone: session.callerPhone,
                         customerName: session.callerName,
@@ -1328,7 +1427,8 @@ class ContextAwareVoiceAgent {
                     const top = toolResult.workers[0];
                     session.context.lastSelectedWorker = top;
                     session.context.pendingIntent = 'CONFIRM_CONNECT_WORKER';
-                    spokenResponse = `Yes, I found ${toolResult.count} registered ${service} specialists available in ${session.city}. The closest is ${top.name} (${top.startingPrice || '₹300'}). Shall I connect you with ${top.name}?`;
+                    const availTime = top.latest_availability ? ` available ${top.latest_availability.date_str.toLowerCase()} from ${top.latest_availability.start_time} to ${top.latest_availability.end_time}` : '';
+                    spokenResponse = `Yes, I found ${toolResult.count} registered ${service} specialists in ${session.city}. The closest is ${top.name}${availTime} (${top.startingPrice || '₹300'}). Shall I connect you with ${top.name}?`;
                 }
                 actionsPerformed.push(`Searched database for ${service} specialists`);
             }
@@ -1374,7 +1474,7 @@ class ContextAwareVoiceAgent {
                 currentService: session.context.currentService,
                 currentLocation: session.city,
                 pendingIntent: session.context.pendingIntent,
-                workersFound: session.context.lastFoundWorkers.length
+                workersFound: (session.context.lastFoundWorkers || []).length
             }
         };
     }

@@ -54,8 +54,9 @@ function firestoreRequest(collection, documentId, method = 'PATCH', documentData
             }
         }
 
+        const apiKeyParam = firebaseConfig.apiKey ? `?key=${encodeURIComponent(firebaseConfig.apiKey)}` : '';
         const bodyData = JSON.stringify({ fields: firestoreFields });
-        const pathName = `/v1/projects/${projectId}/databases/(default)/documents/${collection}/${encodeURIComponent(documentId)}`;
+        const pathName = `/v1/projects/${projectId}/databases/(default)/documents/${collection}/${encodeURIComponent(documentId)}${apiKeyParam}`;
 
         const options = {
             hostname: 'firestore.googleapis.com',
@@ -75,19 +76,26 @@ function firestoreRequest(collection, documentId, method = 'PATCH', documentData
                 if (res.statusCode >= 200 && res.statusCode < 300) {
                     resolve({ status: 'success', statusCode: res.statusCode, collection, documentId });
                 } else {
-                    resolve({ status: 'error', statusCode: res.statusCode, message: resBody });
+                    resolve({ status: 'error', statusCode: res.statusCode, message: resBody, collection, documentId });
                 }
             });
         });
 
         req.on('error', (err) => {
-            resolve({ status: 'error', message: err.message });
+            resolve({ status: 'error', message: err.message, collection, documentId });
         });
 
         req.write(bodyData);
         req.end();
     });
 }
+
+const localSnapshotStore = {
+    workers: {},
+    customers: {},
+    jobs: {},
+    worker_availability: {}
+};
 
 const FirebaseSync = {
     getConfig() {
@@ -98,6 +106,10 @@ const FirebaseSync = {
         firebaseConfig = { ...firebaseConfig, ...newConfig };
         fs.writeFileSync(CONFIG_PATH, JSON.stringify(firebaseConfig, null, 2), 'utf8');
         return firebaseConfig;
+    },
+
+    getDocument(collection, docId) {
+        return localSnapshotStore[collection]?.[docId] || null;
     },
 
     // 1. Sync Worker to Firestore 'workers' collection
@@ -123,6 +135,7 @@ const FirebaseSync = {
             about: worker.about || '',
             updated_at: new Date().toISOString()
         };
+        localSnapshotStore.workers[docId] = payload;
 
         try {
             const res = await firestoreRequest('workers', docId, 'PATCH', payload);
@@ -146,6 +159,7 @@ const FirebaseSync = {
             area: customer.area || 'Town',
             updated_at: new Date().toISOString()
         };
+        localSnapshotStore.customers[docId] = payload;
 
         try {
             const res = await firestoreRequest('customers', docId, 'PATCH', payload);
@@ -179,6 +193,7 @@ const FirebaseSync = {
             payment_method: job.payment_method || 'Cash',
             created_at: job.created_at || new Date().toISOString()
         };
+        localSnapshotStore.jobs[docId] = payload;
 
         try {
             const res = await firestoreRequest('jobs', docId, 'PATCH', payload);
@@ -186,6 +201,33 @@ const FirebaseSync = {
             return res;
         } catch (e) {
             console.warn('[Firebase Sync] Job sync notice:', e.message);
+        }
+    },
+
+    // 4. Sync Worker Availability Slot to Firestore 'worker_availability' collection
+    async syncAvailability(slot) {
+        if (!slot || !slot.id) return;
+        const docId = `avail_${slot.id}_${slot.worker_phone}`;
+        const payload = {
+            slotId: Number(slot.id),
+            workerId: slot.worker_id ? Number(slot.worker_id) : 0,
+            workerPhone: slot.worker_phone,
+            trade: slot.trade,
+            dateStr: slot.date_str,
+            startTime: slot.start_time,
+            endTime: slot.end_time,
+            isAvailable: Boolean(slot.is_available),
+            notes: slot.notes || '',
+            updated_at: new Date().toISOString()
+        };
+        localSnapshotStore.worker_availability[docId] = payload;
+
+        try {
+            const res = await firestoreRequest('worker_availability', docId, 'PATCH', payload);
+            console.log(`[Firebase Sync] Availability slot #${slot.id} synced to Firestore collection 'worker_availability'. Result:`, res.status);
+            return res;
+        } catch (e) {
+            console.warn('[Firebase Sync] Availability sync notice:', e.message);
         }
     }
 };

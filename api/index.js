@@ -70,55 +70,50 @@ module.exports = async (req, res) => {
         const cleanPhone = (body.phone || '').replace(/\D/g, '');
         const password = body.password || '';
 
-        // Check user in runtime state
-        let user = runtimeState.users.find(u => u.phone === cleanPhone);
+        let session = null;
+        try {
+            if (DB && typeof DB.authenticateUser === 'function') {
+                session = DB.authenticateUser(cleanPhone, password);
+            }
+        } catch (_) {}
 
-        // Auto-provision default admin if queried
-        if (!user && cleanPhone === '9999999999') {
-            user = {
-                id: 1,
-                name: 'Master Platform Administrator',
-                phone: '9999999999',
-                email: 'shiyazabdulazeez@gmail.com',
-                role: 'admin',
-                password_hash: crypto.scryptSync('admin@gigsync2026', 'gigsync_salt_tier2', 32).toString('hex'),
-                city: 'Ramanagara',
-                area: 'Headquarters'
-            };
-            runtimeState.users.push(user);
-        }
-
-        if (!user) {
-            return sendJSON(res, { status: 'error', message: 'User not found with this mobile number.' }, 401);
-        }
-
-        const hashedAttempt = crypto.scryptSync(password, 'gigsync_salt_tier2', 32).toString('hex');
-        if (hashedAttempt !== user.password_hash) {
-            return sendJSON(res, { status: 'error', message: 'Incorrect password.' }, 401);
-        }
-
-        const sessionToken = crypto.randomBytes(24).toString('hex');
-        runtimeState.sessions[sessionToken] = user;
-
-        let extraProfile = null;
-        if (user.role === 'worker') {
-            extraProfile = runtimeState.workers.find(w => w.user_id === user.id) || { trade: 'Specialist', rating: 5.0, price: 300 };
+        if (!session) {
+            // Fallback check in runtime state
+            let user = runtimeState.users.find(u => u.phone === cleanPhone);
+            if (!user && cleanPhone === '9999999999') {
+                user = {
+                    id: 1,
+                    name: 'Master Platform Administrator',
+                    phone: '9999999999',
+                    email: 'shiyazabdulazeez@gmail.com',
+                    role: 'admin',
+                    password_hash: crypto.scryptSync('admin@gigsync2026', 'gigsync_salt_tier2', 32).toString('hex'),
+                    city: 'Ramanagara',
+                    area: 'Headquarters'
+                };
+                runtimeState.users.push(user);
+            }
+            if (user) {
+                const hashedAttempt = crypto.scryptSync(password, 'gigsync_salt_tier2', 32).toString('hex');
+                if (hashedAttempt === user.password_hash) {
+                    const sessionToken = crypto.randomBytes(24).toString('hex');
+                    runtimeState.sessions[sessionToken] = user;
+                    let extraProfile = user.role === 'worker' ? (runtimeState.workers.find(w => w.user_id === user.id) || { trade: 'Specialist', rating: 5.0, price: 300 }) : null;
+                    return sendJSON(res, {
+                        status: 'success',
+                        message: 'Login successful.',
+                        token: sessionToken,
+                        user: { ...user, profile: extraProfile }
+                    });
+                }
+            }
+            return sendJSON(res, { status: 'error', message: 'Invalid mobile number or password.' }, 401);
         }
 
         return sendJSON(res, {
             status: 'success',
             message: 'Login successful.',
-            token: sessionToken,
-            user: {
-                id: user.id,
-                name: user.name,
-                phone: user.phone,
-                email: user.email,
-                role: user.role,
-                city: user.city,
-                area: user.area,
-                profile: extraProfile
-            }
+            ...session
         });
     }
 
@@ -132,6 +127,40 @@ module.exports = async (req, res) => {
             const adminSecret = body.adminSecret || '';
             if (adminSecret !== 'gigsync@admin2026') {
                 return sendJSON(res, { status: 'error', message: 'Access Denied: Valid Master Admin Security Key required.' }, 403);
+            }
+        }
+
+        try {
+            if (DB && typeof DB.createUser === 'function') {
+                const user = DB.createUser({
+                    name: (body.name || 'User').trim(),
+                    phone: cleanPhone,
+                    email: body.email ? body.email.trim() : null,
+                    role,
+                    password: body.password || 'password123',
+                    city: body.city || 'Ramanagara',
+                    area: body.area || 'Town'
+                });
+
+                if (role === 'worker') {
+                    const worker = DB.getWorkerByUserId(user.id);
+                    if (worker && (body.trade || body.skills || body.tools || body.price)) {
+                        DB.updateWorkerProfile(worker.id, {
+                            trade: body.trade || 'General Specialist',
+                            skills: body.skills || '',
+                            tools: body.tools || 'Standard tool kit',
+                            price: body.price || 300,
+                            about: body.about || ''
+                        });
+                    }
+                }
+
+                const session = DB.authenticateUser(cleanPhone, body.password || 'password123');
+                return sendJSON(res, { status: 'success', message: 'Account registered successfully.', ...session }, 201);
+            }
+        } catch (err) {
+            if (err.message && err.message.includes('UNIQUE')) {
+                return sendJSON(res, { status: 'error', message: 'An account with this phone number already exists.' }, 409);
             }
         }
 
@@ -185,6 +214,26 @@ module.exports = async (req, res) => {
 
     // 3. GET /api/auth/me
     if (pathname.endsWith('/auth/me') && req.method === 'GET') {
+        if (token && DB && typeof DB.getSession === 'function') {
+            const session = DB.getSession(token);
+            if (session) {
+                let profile = session.role === 'worker' ? DB.getWorkerByUserId(session.user_id) : DB.getUserById(session.user_id);
+                return sendJSON(res, {
+                    status: 'success',
+                    user: {
+                        id: session.user_id,
+                        name: session.name,
+                        phone: session.phone,
+                        email: session.email,
+                        role: session.role,
+                        city: session.city,
+                        area: session.area,
+                        profile
+                    }
+                });
+            }
+        }
+
         const user = runtimeState.sessions[token];
         if (!user) return sendJSON(res, { status: 'error', message: 'Unauthorized' }, 401);
 
@@ -197,44 +246,117 @@ module.exports = async (req, res) => {
 
     // 4. POST /api/auth/logout
     if (pathname.endsWith('/auth/logout') && req.method === 'POST') {
-        if (token && runtimeState.sessions[token]) {
-            delete runtimeState.sessions[token];
+        if (token) {
+            try { if (DB && typeof DB.deleteSession === 'function') DB.deleteSession(token); } catch (_) {}
+            if (runtimeState.sessions[token]) delete runtimeState.sessions[token];
         }
         return sendJSON(res, { status: 'success', message: 'Logged out.' });
     }
 
     // 5. GET /api/workers
     if (pathname.endsWith('/workers') && req.method === 'GET') {
-        return sendJSON(res, { status: 'success', count: runtimeState.workers.length, workers: runtimeState.workers });
+        const city = url.searchParams.get('city') || null;
+        const service = url.searchParams.get('service') || null;
+        const available = url.searchParams.get('available');
+        const minRating = url.searchParams.get('minRating');
+
+        let workers = [];
+        try {
+            if (DB && typeof DB.getAllWorkers === 'function') {
+                workers = DB.getAllWorkers({
+                    city,
+                    service,
+                    minRating,
+                    isAvailable: available !== null ? available === 'true' : undefined
+                });
+            }
+        } catch (_) {}
+
+        if (workers.length === 0 && runtimeState.workers.length > 0) {
+            workers = runtimeState.workers;
+        }
+
+        return sendJSON(res, { status: 'success', count: workers.length, workers });
+    }
+
+    // 5b. GET /api/workers/:id/schedule & GET /api/workers/me/schedule
+    const schedMatch = pathname.match(/\/workers\/(\d+|me)\/schedule/);
+    if (schedMatch && req.method === 'GET') {
+        let workerId = schedMatch[1];
+        if (workerId === 'me') {
+            const authSession = token && DB && typeof DB.getSession === 'function' ? DB.getSession(token) : null;
+            if (authSession && authSession.user_id) {
+                const w = DB.getWorkerByUserId(authSession.user_id);
+                workerId = w ? w.id : null;
+            }
+        }
+
+        if (workerId && DB && typeof DB.getWorkerSchedule === 'function') {
+            const sched = DB.getWorkerSchedule(Number(workerId));
+            if (sched) return sendJSON(res, { status: 'success', ...sched });
+        }
+        return sendJSON(res, { status: 'success', isAvailableNow: true, availabilitySlots: [], activeBookings: [] });
     }
 
     // 6. GET & POST /api/jobs
     if (pathname.endsWith('/jobs') && req.method === 'GET') {
-        return sendJSON(res, { status: 'success', count: runtimeState.jobs.length, jobs: runtimeState.jobs, opportunities: [] });
+        let jobs = [];
+        try {
+            if (DB && typeof DB.getAllJobs === 'function') {
+                jobs = DB.getAllJobs();
+            }
+        } catch (_) {}
+
+        if (jobs.length === 0) jobs = runtimeState.jobs;
+        return sendJSON(res, { status: 'success', count: jobs.length, jobs, opportunities: [] });
     }
     if (pathname.endsWith('/jobs') && req.method === 'POST') {
         const body = await parseBody(req);
-        const newJob = {
-            id: `GS-${Math.floor(1000 + Math.random() * 9000)}`,
-            customer_phone: body.customer_phone || '9876543210',
-            customer_name: body.customer_name || 'Customer',
-            service: body.service || 'Electrical',
-            problem_description: body.problem_description || 'Service request',
-            location: body.location || 'Town Area',
-            city: body.city || 'Ramanagara',
-            requested_date: body.requested_date || 'Today',
-            requested_time: body.requested_time || 'Immediate',
-            budget: body.budget || '₹350',
-            status: 'Requested',
-            created_at: new Date().toISOString()
-        };
-        runtimeState.jobs.unshift(newJob);
-        return sendJSON(res, { status: 'success', message: 'Job created', job: newJob }, 201);
+        let created = null;
+        try {
+            if (DB && typeof DB.createJob === 'function') {
+                created = DB.createJob({
+                    customer_phone: body.customer_phone || '9876543210',
+                    customer_name: body.customer_name || 'Customer',
+                    service: body.service || 'Electrical',
+                    problem_description: body.problem_description || 'Service request',
+                    location: body.location || 'Town Area',
+                    city: body.city || 'Ramanagara',
+                    requested_date: body.requested_date || 'Today',
+                    requested_time: body.requested_time || 'Immediate',
+                    budget: body.budget || '₹350'
+                });
+            }
+        } catch (_) {}
+
+        if (!created) {
+            created = {
+                id: `GS-${Math.floor(1000 + Math.random() * 9000)}`,
+                customer_phone: body.customer_phone || '9876543210',
+                customer_name: body.customer_name || 'Customer',
+                service: body.service || 'Electrical',
+                problem_description: body.problem_description || 'Service request',
+                location: body.location || 'Town Area',
+                city: body.city || 'Ramanagara',
+                requested_date: body.requested_date || 'Today',
+                requested_time: body.requested_time || 'Immediate',
+                budget: body.budget || '₹350',
+                status: 'Requested',
+                created_at: new Date().toISOString()
+            };
+            runtimeState.jobs.unshift(created);
+        }
+        return sendJSON(res, { status: 'success', message: 'Job created', job: created }, 201);
     }
 
     // 7. GET /api/call-logs
     if (pathname.endsWith('/call-logs') && req.method === 'GET') {
-        return sendJSON(res, { status: 'success', count: runtimeState.callLogs.length, callLogs: runtimeState.callLogs });
+        let callLogs = [];
+        try {
+            if (DB && typeof DB.getCallLogs === 'function') callLogs = DB.getCallLogs();
+        } catch (_) {}
+        if (callLogs.length === 0) callLogs = runtimeState.callLogs;
+        return sendJSON(res, { status: 'success', count: callLogs.length, callLogs });
     }
     // 8. POST /api/ai/voice-call & POST /api/ai/chat (Unified Context-Aware Conversational Engine)
     if ((pathname.endsWith('/ai/voice-call') || pathname.endsWith('/ai/chat')) && req.method === 'POST') {
