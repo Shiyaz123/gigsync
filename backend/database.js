@@ -324,6 +324,12 @@ function initDatabase() {
             status TEXT DEFAULT 'Completed',
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS voice_sessions (
+            session_id TEXT PRIMARY KEY,
+            data TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
     `);
 
     // Ensure Master Admin account exists
@@ -1616,6 +1622,50 @@ const DB = {
     getAllCallLogs() {
         if (!db) return [...memoryStore.callLogs];
         return db.prepare('SELECT * FROM call_logs ORDER BY timestamp DESC LIMIT 50').all();
+    },
+
+    // ---------------- VOICE SESSIONS (SERVERLESS MULTI-TURN PERSISTENCE) ----------------
+    getVoiceSession(sessionId) {
+        if (!sessionId) return null;
+        if (db) {
+            try {
+                const stmt = db.prepare('SELECT data FROM voice_sessions WHERE session_id = ?');
+                const row = stmt.get(sessionId);
+                if (row && row.data) {
+                    return JSON.parse(row.data);
+                }
+            } catch (e) {}
+        }
+        return memoryStore.voice_sessions?.[sessionId] || null;
+    },
+
+    saveVoiceSession(sessionId, data) {
+        if (!sessionId || !data) return;
+        const jsonStr = JSON.stringify(data);
+        if (db) {
+            try {
+                const stmt = db.prepare(`
+                    INSERT INTO voice_sessions (session_id, data, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(session_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at
+                `);
+                stmt.run(sessionId, jsonStr, Date.now());
+            } catch (e) {}
+        }
+        if (!memoryStore.voice_sessions) memoryStore.voice_sessions = {};
+        memoryStore.voice_sessions[sessionId] = data;
+    },
+
+    deleteVoiceSession(sessionId) {
+        if (!sessionId) return;
+        if (db) {
+            try {
+                db.prepare('DELETE FROM voice_sessions WHERE session_id = ?').run(sessionId);
+            } catch (e) {}
+        }
+        if (memoryStore.voice_sessions) {
+            delete memoryStore.voice_sessions[sessionId];
+        }
     },
 
     // Trigger complete sync of all SQLite records to Firebase

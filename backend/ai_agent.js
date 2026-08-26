@@ -1354,11 +1354,20 @@ class ConversationSessionManager {
 
     getSession(sessionId, defaultData = {}) {
         const key = sessionId || defaultData.callerPhone || 'default_session';
-        if (!this.sessions.has(key)) {
+        let session = this.sessions.get(key);
+        if (!session) {
+            const saved = (DB && DB.getVoiceSession) ? DB.getVoiceSession(key) : null;
+            if (saved) {
+                session = saved;
+                this.sessions.set(key, session);
+            }
+        }
+
+        if (!session) {
             const cleanPhone = (defaultData.callerPhone && /^[6-9]\d{9}$/.test(defaultData.callerPhone.replace(/\D/g, '')))
                 ? defaultData.callerPhone.replace(/\D/g, '')
                 : null;
-            this.sessions.set(key, {
+            session = {
                 sessionId: key,
                 callerPhone: cleanPhone,
                 callerRole: defaultData.callerRole || 'worker',
@@ -1395,10 +1404,10 @@ class ConversationSessionManager {
                     }
                 },
                 lastActivity: Date.now()
-            });
+            };
+            this.sessions.set(key, session);
         }
 
-        const session = this.sessions.get(key);
         session.lastActivity = Date.now();
         if (defaultData.callerPhone && /^[6-9]\d{9}$/.test(defaultData.callerPhone.replace(/\D/g, ''))) {
             session.callerPhone = defaultData.callerPhone.replace(/\D/g, '');
@@ -1414,9 +1423,20 @@ class ConversationSessionManager {
         return session;
     }
 
+    saveSession(session) {
+        if (!session || !session.sessionId) return;
+        this.sessions.set(session.sessionId, session);
+        if (DB && DB.saveVoiceSession) {
+            DB.saveVoiceSession(session.sessionId, session);
+        }
+    }
+
     resetSession(sessionId) {
         if (!sessionId) return;
         this.sessions.delete(sessionId);
+        if (DB && DB.deleteVoiceSession) {
+            DB.deleteVoiceSession(sessionId);
+        }
     }
 
     addTurn(session, role, text) {
@@ -2653,8 +2673,9 @@ class ContextAwareVoiceAgent {
             }
         }
 
-        // Add assistant turn to session memory
+        // Add assistant turn to session memory and persist across serverless invocations
         sessionManager.addTurn(session, 'assistant', spokenResponse);
+        sessionManager.saveSession(session);
 
         // Record real call log in SQLite DB
         DB.logCall({
