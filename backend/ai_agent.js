@@ -586,6 +586,52 @@ const AI_TOOLS = {
         return AI_TOOLS.updateJobStatusByWorker({ workerPhone, jobId, status: 'Completed' });
     },
 
+    // 6h. Get available unassigned job requests matching worker's trade and city
+    getAvailableJobRequests({ workerPhone, trade = null, city = null }) {
+        const { clean, worker } = resolveWorker(workerPhone);
+        const targetCity = city || (worker ? worker.city : 'Ramanagara');
+        const targetTrade = trade || (worker ? worker.trade : null);
+
+        let jobs = DB.getAllJobs().filter(j => j.status === 'Requested' && (!j.worker_id && !j.worker_phone));
+        if (targetCity) {
+            jobs = jobs.filter(j => !j.city || j.city.toLowerCase() === targetCity.toLowerCase());
+        }
+        if (targetTrade) {
+            const tradeNorm = targetTrade.toLowerCase();
+            jobs = jobs.filter(j => j.service && (j.service.toLowerCase().includes(tradeNorm) || tradeNorm.includes(j.service.toLowerCase())));
+        }
+
+        return {
+            status: 'success',
+            dataAvailable: true,
+            count: jobs.length,
+            city: targetCity,
+            trade: targetTrade,
+            jobRequests: jobs.map(j => ({
+                jobId: j.id,
+                service: j.service,
+                problem: j.problem_description,
+                location: j.location,
+                requestedDate: j.requested_date,
+                requestedTime: j.requested_time,
+                budget: j.budget
+            }))
+        };
+    },
+
+    // 6i. General GigSync Platform Information
+    getGigSyncInformation({ topic = 'general' } = {}) {
+        return {
+            status: 'success',
+            platform: 'GigSync Hyperlocal Marketplace',
+            description: 'GigSync connects local customers with verified trade specialists across Karnataka Tier-2 and Tier-3 cities.',
+            workerWorkflow: 'Workers register their trade, set daily working hours, receive customer service bookings, and track completed jobs and earnings.',
+            customerWorkflow: 'Customers search for verified specialists in their town, view live availability, and request bookings directly or via voice.',
+            availabilityPolicy: 'Workers can change or cancel their working hours anytime by speaking to the voice agent or using the worker portal.',
+            paymentPolicy: 'Visiting fee starts at ₹300. Earnings are tracked immediately upon job completion.'
+        };
+    },
+
     // 7. Find Real Registered Workers from Database (Customer Tool)
     findWorkers({ service, trade, city = 'Ramanagara' } = {}) {
         const targetTrade = trade || (service && service !== 'all' ? service : undefined);
@@ -921,6 +967,28 @@ const GEMINI_TOOLS_DECLARATIONS = [
             },
             required: ['jobId']
         }
+    },
+    {
+        name: 'getAvailableJobRequests',
+        description: 'Find unassigned, open customer job requests in the worker\'s city matching their trade. Use for "are there any jobs available", "any new jobs near me", "is anyone looking for an electrician", "show me available work".',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Filled automatically from the verified caller. Do not ask for it.' },
+                trade: { type: 'STRING', description: 'Trade e.g. Electrical. Optional.' },
+                city: { type: 'STRING', description: 'City e.g. Ramanagara. Optional.' }
+            }
+        }
+    },
+    {
+        name: 'getGigSyncInformation',
+        description: 'Answer general questions about how GigSync works, how workers get paid, setting availability, or platform policies. Use when a caller asks "how does GigSync work", "how do I get paid", "can I change my hours later", "why don\'t I see jobs".',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                topic: { type: 'STRING', description: 'The topic or question category' }
+            }
+        }
     }
 ];
 
@@ -1081,6 +1149,8 @@ WHICH TOOL TO REACH FOR (map intent, not keywords):
 - Jobs today or on a given day                                       -> getWorkerSchedule
 - Earnings / income / payment / how much have I made / pending money -> getWorkerEarnings
 - Completed jobs / how was my last job / rating / review             -> getWorkerJobHistory
+- Are there jobs available / any new requests / is anyone looking    -> getAvailableJobRequests
+- How does GigSync work / payment questions / platform policy        -> getGigSyncInformation
 - Change/set my working hours, "I don't want to work tomorrow"       -> updateWorkerAvailability
 - Change my profession, name, price, city or area                    -> updateWorkerProfileField
 - Register me / I am new / first-time signup                         -> registerWorkerProfile
@@ -2463,6 +2533,18 @@ class ContextAwareVoiceAgent {
                     spokenResponse = `Yes, I found ${toolResult.count} registered ${service} specialists in ${session.city}. The closest is ${top.name}${availTime} (${top.startingPrice || '₹300'}). Shall I connect you with ${top.name}?`;
                 }
                 actionsPerformed.push(`Searched database for ${service} specialists`);
+            }
+
+            // C.12 Unrelated queries (weather, news, sports, recipes, general knowledge)
+            else if (/\b(weather|temperature|forecast|rain|climate|cricket|score|news|politics|election|stock|bitcoin|crypto|recipe|movie|song|joke|poem|president|capital of)\b/i.test(lowerCleaned)) {
+                spokenResponse = `I'm here to help with GigSync worker services, bookings, availability, jobs, and earnings. What would you like help with?`;
+                actionsPerformed.push(`Politely redirected unrelated question`);
+            }
+
+            // C.13 General GigSync platform & workflow questions ("How does GigSync work?", "How do I get paid?", "Can I change my hours later?")
+            else if (/\b(how does gigsync work|how gigsync works|what is gigsync|about gigsync|how do i get paid|how payment works|can i change my hours|can i change my working hours)\b/i.test(lowerCleaned)) {
+                spokenResponse = `GigSync connects local customers with verified trade specialists. You can register your trade, set your daily availability, receive bookings, and manage your earnings directly with me.`;
+                actionsPerformed.push(`Explained GigSync workflow`);
             }
 
             // No rule matched. Always ask natural clarifying questions to keep the conversation flowing

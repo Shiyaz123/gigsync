@@ -2280,7 +2280,7 @@ document.addEventListener('DOMContentLoaded', () => {
             speechText
         };
         if (terminalCaller && terminalCaller.length === 10) payload.callerPhone = terminalCaller;
-        else if (state.user && state.user.phone) payload.callerPhone = state.user.phone;
+        else if (state.portal !== 'terminal' && state.user && state.user.phone) payload.callerPhone = state.user.phone;
 
         let res;
         try {

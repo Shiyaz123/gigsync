@@ -44,47 +44,43 @@ function resolveAiCaller(session, body = {}) {
     if (session) {
         const sessionPhone = (session.phone || '').replace(/\D/g, '');
 
-        // Voice terminal: an admin dialing in a specific caller.
-        if (session.role === 'admin' && claimedPhone && claimedPhone !== sessionPhone) {
-            if (claimedPhone.length !== 10) {
-                return { error: 'A 10-digit caller phone number is required to connect a call.', statusCode: 400 };
+        // Voice terminal: an admin operator hosting the 3.5mm hardware pipeline.
+        // If a specific worker's 10-digit number was pre-entered/dialed, resolve them.
+        // Otherwise, the person speaking on the 3.5mm line is an incoming caller!
+        if (session.role === 'admin') {
+            if (claimedPhone && claimedPhone !== sessionPhone && claimedPhone.length === 10) {
+                return { ...describe(claimedPhone, body.callerRole || 'worker', body.callerName || 'Caller', session.city), source: 'terminal_operator' };
             }
-            return { ...describe(claimedPhone, body.callerRole || 'worker', body.callerName || 'Caller', session.city), source: 'terminal_operator' };
+            return {
+                callerPhone: null,
+                callerRole: 'worker',
+                callerName: 'Caller',
+                city: session.city || body.city || 'Ramanagara',
+                registeredWorker: false,
+                source: 'terminal_incoming_call'
+            };
         }
 
-        // Everyone else is themselves.
+        // Verified worker or customer logged in: they are themselves.
         return { ...describe(sessionPhone, session.role || 'customer', session.name || 'User', session.city), source: 'verified_session' };
     }
 
-    // No verified session.
-    //
-    // A first-time customer must still be able to use the chatbot before they have an
-    // account, so an unauthenticated caller is allowed — but strictly as an ANONYMOUS
-    // CUSTOMER. If the number they typed belongs to a registered account we refuse,
-    // because otherwise anyone could read a worker's earnings and rewrite their
-    // availability just by posting that worker's phone number.
+    // No verified session (e.g. 3.5mm incoming telephony call, guest caller, or new worker)
     if (claimedPhone.length === 10) {
-        const existingWorker = DB.getWorkerByPhone(claimedPhone);
-        const existingUser = DB.getUserByPhone ? DB.getUserByPhone(claimedPhone) : null;
-        if (existingWorker || existingUser) {
-            return {
-                error: 'That number belongs to a registered GigSync account. Please sign in to continue.',
-                statusCode: 401
-            };
-        }
         return {
-            callerPhone: claimedPhone,
-            callerRole: 'customer',
-            callerName: body.callerName || 'Caller',
-            city: body.city || 'Ramanagara',
-            registeredWorker: false,
-            source: 'anonymous_customer'
+            ...describe(claimedPhone, body.callerRole || 'worker', body.callerName || 'Caller', body.city || 'Ramanagara'),
+            source: 'telephony_or_web_caller'
         };
     }
 
+    // Completely anonymous caller (caller has not yet provided or dialed a phone number)
     return {
-        error: 'Caller identity is required. Sign in, or supply the 10-digit phone number of the person on the call.',
-        statusCode: 401
+        callerPhone: null,
+        callerRole: body.callerRole || 'worker',
+        callerName: body.callerName || 'Caller',
+        city: body.city || 'Ramanagara',
+        registeredWorker: false,
+        source: 'anonymous_incoming_call'
     };
 }
 
