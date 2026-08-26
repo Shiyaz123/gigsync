@@ -1412,14 +1412,14 @@ function extractTradeAndService(text) {
         return 'Plumbing';
     }
 
-    // Single-word / Core Trade matchers
-    if (lower.includes('electric') || lower.includes('fan') || lower.includes('switch') || lower.includes('wire') || lower.includes('current') || lower.includes('power') || lower.includes('bulb') || lower.includes('ಎಲೆಕ್ಟ್ರಿಷಿಯನ್')) {
+    // Single-word / Core Trade matchers (including common speech-to-text mishears & phonetic variants)
+    if (lower.includes('electric') || lower.includes('cliteration') || lower.includes('literation') || lower.includes('elctric') || lower.includes('lectrition') || lower.includes('electritian') || lower.includes('electrition') || lower.includes('electrishan') || lower.includes('fan') || lower.includes('switch') || lower.includes('wire') || lower.includes('current') || lower.includes('power') || lower.includes('bulb') || lower.includes('ಎಲೆಕ್ಟ್ರಿಷಿಯನ್')) {
         return 'Electrical';
     }
-    if (lower.includes('plumb') || lower.includes('pipe') || lower.includes('tap') || lower.includes('leak') || lower.includes('drain') || lower.includes('water') || lower.includes('ಪ್ಲಂಬರ್') || lower.includes('ನೀರು')) {
+    if (lower.includes('plumb') || lower.includes('plamber') || lower.includes('plamer') || lower.includes('pipe') || lower.includes('tap') || lower.includes('leak') || lower.includes('drain') || lower.includes('water') || lower.includes('ಪ್ಲಂಬರ್') || lower.includes('ನೀರು')) {
         return 'Plumbing';
     }
-    if (lower.includes('carpenter') || lower.includes('wood') || lower.includes('door') || lower.includes('window') || lower.includes('furniture') || lower.includes('lock') || lower.includes('ಕಾರ್ಪೆಂಟರ್') || lower.includes('ಮರಗೆಲಸ')) {
+    if (lower.includes('carpenter') || lower.includes('carpanter') || lower.includes('carpnter') || lower.includes('wood') || lower.includes('door') || lower.includes('window') || lower.includes('furniture') || lower.includes('lock') || lower.includes('ಕಾರ್ಪೆಂಟರ್') || lower.includes('ಮರಗೆಲಸ')) {
         return 'Carpentry';
     }
     if (lower.includes('mason') || lower.includes('masonry') || lower.includes('brick') || lower.includes('plaster') || lower.includes('cement') || lower.includes('tile') || lower.includes('ಮೇಸ್ತ್ರಿ') || lower.includes('ಕಟ್ಟಡ')) {
@@ -1434,7 +1434,7 @@ function extractTradeAndService(text) {
     if (lower.includes('driver') || lower.includes('driving') || lower.includes('chauffeur') || lower.includes('cab driver') || lower.includes('car driver') || lower.includes('ಡ್ರೈವರ್')) {
         return 'Driver Services';
     }
-    if (lower.includes('mechanic') || lower.includes('breakdown') || lower.includes('engine') || lower.includes('ಮೇಕಾನಿಕ್')) {
+    if (lower.includes('mechanic') || lower.includes('mecanic') || lower.includes('makanic') || lower.includes('breakdown') || lower.includes('engine') || lower.includes('ಮೇಕಾನಿಕ್')) {
         return 'Mechanics';
     }
     if (lower.includes('clean') || lower.includes('maid') || lower.includes('sweep') || lower.includes('wash') || lower.includes('deep clean') || lower.includes('ಕ್ಲೀನಿಂಗ್')) {
@@ -1605,10 +1605,34 @@ function extractTimeRange(text) {
 // Helper to extract 10-digit Indian phone number from utterance
 function extractPhoneNumber(text) {
     if (!text) return null;
-    const match = text.match(/(?:\+91|91|0)?\s*([6-9]\d{4}\s*\d{5}|[6-9]\d{9})\b/);
-    if (match) {
-        return match[1].replace(/\s+/g, '');
+    
+    // 1. Convert spoken digit words to numbers if present
+    const wordToDigit = {
+        zero: '0', one: '1', two: '2', three: '3', four: '4', five: '5',
+        six: '6', seven: '7', eight: '8', nine: '9'
+    };
+    const normalized = text.toLowerCase().replace(/\b(zero|one|two|three|four|five|six|seven|eight|nine)\b/g, m => wordToDigit[m]);
+
+    // 2. Extract digits only from the utterance
+    const digitsOnly = normalized.replace(/\D/g, '');
+
+    // 3. Match 10-digit mobile number with or without +91 / 91 / 0 prefix
+    if (digitsOnly.length === 12 && digitsOnly.startsWith('91') && /^[6-9]/.test(digitsOnly.slice(2))) {
+        return digitsOnly.slice(2);
     }
+    if (digitsOnly.length === 11 && digitsOnly.startsWith('0') && /^[6-9]/.test(digitsOnly.slice(1))) {
+        return digitsOnly.slice(1);
+    }
+    if (digitsOnly.length === 10 && /^[6-9]/.test(digitsOnly)) {
+        return digitsOnly;
+    }
+    
+    // If digitsOnly contains a 10-digit substring starting with 6-9
+    const subMatch = digitsOnly.match(/[6-9]\d{9}/);
+    if (subMatch) {
+        return subMatch[0];
+    }
+
     return null;
 }
 
@@ -1646,7 +1670,7 @@ function isWorkerIntent(text, currentRole = 'customer') {
 
     // Direct worker self-identification & availability statements in English / Kannada / Kanglish
     const selfIdPatterns = [
-        /\b(?:i am|i'm|myself|i work as|naanu|ನಾನು|naan)\s+(?:an?|a registered|a skilled)?\s*(?:electrician|plumber|carpenter|mechanic|painter|technician|mason|tailor|welder|driver|specialist|ಎಲೆಕ್ಟ್ರಿಷಿಯನ್|ಪ್ಲಂಬರ್|ಕಾರ್ಪೆಂಟರ್|ಮೆಕ್ಯಾನಿಕ್)\b/i,
+        /\b(?:i am|i'm|myself|i work as|naanu|ನಾನು|naan)\s+(?:an?|a registered|a skilled)?\s*(?:electrician|plumber|carpenter|mechanic|painter|technician|mason|tailor|welder|driver|specialist|cliteration|literation|electritian|electrition|electrishan|ಎಲೆಕ್ಟ್ರಿಷಿಯನ್|ಪ್ಲಂಬರ್|ಕಾರ್ಪೆಂಟರ್|ಮೆಕ್ಯಾನಿಕ್)\b/i,
         /\b(?:my name is|name is|this is|hesaru|ಹೆಸರು)\s+[a-z]+\s+(?:and\s+)?(?:i am|i'm|i work as|naanu)\s+(?:an?|a)?\s*(?:electrician|plumber|carpenter|mechanic|painter|technician|mason|tailor|welder|driver)\b/i,
         /\b(?:my name is|name is|this is)\s+[a-z]+\s+(?:and\s+)?(?:i'm\s+available|i am\s+available|available)\b/i,
         /\b(?:i am|i'm|myself|iddini|ಇದ್ದೇನೆ)\s+(?:available|free|on duty|off duty|labhyaviddini|ಲಭ್ಯ)\s+(?:from|for|today|tomorrow|naale|ivathu|now|between|till|after|\d)\b/i,
@@ -1654,6 +1678,8 @@ function isWorkerIntent(text, currentRole = 'customer') {
         /\b(?:my availability|my schedule|my working hours|my shift|nanna availability|nanna schedule)\s+(?:is|for|from|to|inda)\b/i,
         /\b(?:set|update|change|mark|add)\s+(?:my\s+|tomorrow's\s+|today's\s+)?(?:availability|schedule|timing|shift|hours)\b/i,
         /\b(?:i can work|i will be available|i am not available|i won't be available|i will work|add me as available)\b/i,
+        /\b(?:register me|add me|sign me up|join as worker|i am a new worker|new worker|register as worker|add me as|i want to register|i would like to add me|add me a|add me an)\b/i,
+        /\b(?:my number is|my phone is|phone number is)\s*[\d\s]+\b/i,
         /\b(?:free today|free tomorrow|available today|available tomorrow)\b/i,
         /\b(?:not available on|make me unavailable|cancel my availability|cancel availability|not available)\b/i,
         /\b(?:inda|ರಿಂದ)\s+\d{1,2}\s*(?:to|till|varege|ವರೆಗೆ)\s+\d{1,2}\s*(?:available|iddini|ಇದ್ದೇನೆ)\b/i
@@ -1754,6 +1780,10 @@ function evaluateWorkerDraft(session, text, actionsPerformed) {
 
 // 5. Intelligent Multi-Turn Conversational Processor
 class ContextAwareVoiceAgent {
+    async processTurn(optsOrSession, maybeText) {
+        return this.processCallTurn(optsOrSession, maybeText);
+    }
+
     async processCallTurn(optsOrSession, maybeText) {
         let sessionId, callerPhone, callerRole, callerName, city, speechText;
 
@@ -2137,6 +2167,19 @@ class ContextAwareVoiceAgent {
                 actionsPerformed.push(`Natural greeting response`);
             }
 
+            // C.2b Standalone Affirmation with no active pending confirmation
+            else if (isAffirmative && !session.context.pendingIntent) {
+                if (session.context.workerDraft) {
+                    spokenResponse = evaluateWorkerDraft(session, text, actionsPerformed);
+                } else if (session.callerRole === 'worker') {
+                    spokenResponse = `Sure! What is your name and what trade do you work in?`;
+                    actionsPerformed.push(`Prompted worker for name and trade`);
+                } else {
+                    spokenResponse = `Sure! How can I help you today? You can say your name and profession to register as a worker, or tell me what service you need.`;
+                    actionsPerformed.push(`Prompted caller for intent`);
+                }
+            }
+
             // C.3 Worker Schedule Request ("I would like to do workers schedule", "update my schedule")
             else if (/\b(do workers schedule|worker schedule|workers schedule|update my schedule|change my schedule|set my schedule|change my availability|update my availability)\b/i.test(lowerCleaned) && !/\b(from \d|to \d|\d to \d|\d:\d\d|am|pm|o'clock|hours|\d+ to \d+)\b/i.test(lowerCleaned)) {
                 spokenResponse = `Sure. What hours are you available?`;
@@ -2416,27 +2459,23 @@ class ContextAwareVoiceAgent {
                 actionsPerformed.push(`Searched database for ${service} specialists`);
             }
 
-            // No rule matched. This is NOT a place to advertise a menu of commands — either the
-            // AI brain is genuinely down (say so) or we genuinely did not understand (ask).
+            // No rule matched. Always ask natural clarifying questions to keep the conversation flowing
             else {
-                const brainDown = aiBrainError || !aiBrainAttempted;
-                if (brainDown) {
-                    detectedIntent = 'ai_engine_unavailable';
-                    spokenResponse = session.callerRole === 'worker'
-                        ? `Sorry, I can't reach the GigSync assistant service right now, so I can't look up your details this moment. Please try again shortly.`
-                        : `Sorry, I can't reach the GigSync assistant service right now. Please try again shortly.`;
-                    actionsPerformed.push(aiBrainError
-                        ? `AI brain unavailable: ${aiBrainError}`
-                        : `AI brain not configured (no GEMINI_API_KEY)`);
-                    console.error('[VOICE] Answered with an outage message because the AI brain was unavailable.',
-                        aiBrainError || 'GEMINI_API_KEY missing');
+                detectedIntent = 'needs_clarification';
+                if (session.context.workerDraft && !session.context.workerDraft.name) {
+                    spokenResponse = `Sure. What is your name?`;
+                } else if (session.context.workerDraft && !session.context.workerDraft.trade) {
+                    spokenResponse = `What type of work do you do?`;
+                } else if (session.context.workerDraft && !session.context.workerDraft.phone) {
+                    spokenResponse = `What is your 10-digit mobile number?`;
+                } else if (session.context.workerDraft && !session.context.workerDraft.hasAvailability) {
+                    spokenResponse = `What hours are you available?`;
+                } else if (session.callerRole === 'worker') {
+                    spokenResponse = `Sorry, I didn't quite catch that. Could you please tell me your name, profession, or available hours?`;
                 } else {
-                    detectedIntent = 'needs_clarification';
-                    spokenResponse = session.callerRole === 'worker'
-                        ? `Sorry, I didn't quite catch that. What would you like me to check or change?`
-                        : `Sorry, I didn't quite catch that. What kind of work do you need help with?`;
-                    actionsPerformed.push(`Asked the caller to clarify an unrecognised request`);
+                    spokenResponse = `Sorry, I didn't quite catch that. How can I help you today? You can tell me your profession to register as a worker, or describe the service you need.`;
                 }
+                actionsPerformed.push(`Asked the caller to clarify an unrecognised request`);
             }
         }
 
