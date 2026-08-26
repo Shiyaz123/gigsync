@@ -5,7 +5,7 @@
 
 const DB = require('../backend/database');
 const { aiAgent } = require('../backend/ai_agent');
-const { resolveAiCaller } = require('../backend/caller_identity');
+const { resolveAiCaller, getAuthSession } = require('../backend/caller_identity');
 
 /* --------------------------------------------------------------------------
    Persistence note
@@ -53,6 +53,7 @@ module.exports = async (req, res) => {
 
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = url.pathname;
+    const query = Object.fromEntries(url.searchParams.entries());
     const authHeader = req.headers['authorization'] || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
 
