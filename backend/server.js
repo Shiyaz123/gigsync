@@ -53,14 +53,10 @@ function sendJSON(res, data, statusCode = 200) {
     res.end(JSON.stringify(data));
 }
 
-function getAuthSession(req) {
-    const authHeader = req.headers['authorization'] || '';
-    if (authHeader.startsWith('Bearer ')) {
-        const token = authHeader.slice(7).trim();
-        return DB.getSession(token);
-    }
-    return null;
-}
+// Caller identity lives in backend/caller_identity.js so that this server and the
+// Vercel handler resolve "who is on the line" with the exact same rule. See that
+// file for why the session — not the request body — decides.
+const { resolveAiCaller, getAuthSession } = require('./caller_identity');
 
 const server = http.createServer(async (req, res) => {
     // CORS Preflight
@@ -76,6 +72,60 @@ const server = http.createServer(async (req, res) => {
 
     const parsedUrl = url.parse(req.url, true);
     const pathname = parsedUrl.pathname;
+
+    /* ----------------------------------------------------------------------
+       0. LIVE CHANGE STREAM (Server-Sent Events)
+
+       GET /api/events — a long-lived stream that pushes one message every time a
+       worker, availability slot or job actually changes in the database.
+
+       Why this exists: a customer looking at the specialist list used to see
+       whatever was loaded when the page opened. If a worker changed their hours
+       on the 3.5mm voice line a second later, the customer's screen kept showing
+       the old ones until they manually refreshed.
+
+       Why it is fed from the database and not from a browser Firestore listener:
+       the browser has no Firebase SDK here (by design — one AI brain, one data
+       path through the backend), and Firestore is currently a mirror of SQLite
+       rather than the authority. Pushing from the write path means the customer
+       sees the same truth the AI just wrote, including when the cloud mirror is
+       failing. Events carry only what changed; the client re-reads through the
+       normal API, so there is exactly one code path that produces the data.
+       ---------------------------------------------------------------------- */
+    if (pathname === '/api/events' && req.method === 'GET') {
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache, no-transform',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+            'Access-Control-Allow-Origin': '*'
+        });
+
+        // Tell the client it is connected, so the UI can show a live indicator that
+        // reflects a real open stream rather than an assumption.
+        res.write(`event: ready\ndata: ${JSON.stringify({ connected: true })}\n\n`);
+
+        const unsubscribe = DB.onChange((change) => {
+            try {
+                res.write(`event: change\ndata: ${JSON.stringify(change)}\n\n`);
+            } catch (_) {
+                // Socket already gone; the close handler will clean up.
+            }
+        });
+
+        // Comment frames keep proxies and browsers from dropping an idle stream.
+        const heartbeat = setInterval(() => {
+            try { res.write(': keep-alive\n\n'); } catch (_) {}
+        }, 25000);
+
+        const cleanup = () => {
+            clearInterval(heartbeat);
+            unsubscribe();
+        };
+        req.on('close', cleanup);
+        req.on('error', cleanup);
+        return;
+    }
 
     /* ----------------------------------------------------------------------
        1. AUTHENTICATION REST API
@@ -463,33 +513,72 @@ const server = http.createServer(async (req, res) => {
        5. AI VOICE & CONVERSATIONAL GATEWAY
        ---------------------------------------------------------------------- */
 
+    // GET /api/ai/caller?phone=XXXXXXXXXX
+    //
+    // Resolves who a number belongs to using the SAME rule the AI endpoint uses, so the
+    // 3.5mm voice terminal can confirm the person on the handset before the call starts
+    // and cannot end up talking to a different record than the one it displayed.
+    if (pathname === '/api/ai/caller' && req.method === 'GET') {
+        const session = getAuthSession(req);
+        const identity = resolveAiCaller(session, { callerPhone: parsedUrl.query.phone || '' });
+        if (identity.error) {
+            return sendJSON(res, { status: 'error', message: identity.error }, identity.statusCode || 400);
+        }
+        return sendJSON(res, {
+            status: 'success',
+            caller: {
+                phone: identity.callerPhone,
+                name: identity.callerName,
+                role: identity.callerRole,
+                city: identity.city,
+                source: identity.source,
+                registeredWorker: identity.registeredWorker
+            }
+        });
+    }
+
     // POST /api/ai/voice-call & POST /api/ai/chat
     if ((pathname === '/api/ai/voice-call' || pathname === '/api/ai/chat') && req.method === 'POST') {
         const body = await parseBody(req);
         const session = getAuthSession(req);
-
-        const callerPhone = body.callerPhone || (session ? session.phone : '9876543210');
-        const callerRole = body.callerRole || (session ? session.role : 'customer');
-        const callerName = body.callerName || (session ? session.name : 'User');
-        const callerCity = body.city || (session ? session.city : 'Ramanagara');
         const speechText = body.speechText || body.message || '';
 
         if (!speechText) {
             return sendJSON(res, { status: 'error', message: 'speechText or message is required.' }, 400);
         }
 
+        // Caller identity resolution.
+        //
+        // The verified session is authoritative — a browser must not be able to claim
+        // someone else's phone number and read or edit their record. The one exception is
+        // the 3.5mm voice terminal: an admin operator dials in on behalf of a worker who is
+        // physically on the handset, so an admin session MAY name the caller explicitly.
+        // In that case the caller's real name and role come from the database, never from
+        // the request body.
+        const identity = resolveAiCaller(session, body);
+        if (identity.error) {
+            return sendJSON(res, { status: 'error', message: identity.error }, identity.statusCode || 400);
+        }
+
         try {
             const aiTurn = await aiAgent.processCallTurn({
-                sessionId: body.sessionId || (session ? session.phone : callerPhone),
-                callerPhone,
-                callerRole,
-                callerName,
-                city: callerCity,
+                sessionId: body.sessionId || identity.callerPhone,
+                callerPhone: identity.callerPhone,
+                callerRole: identity.callerRole,
+                callerName: identity.callerName,
+                city: identity.city,
                 speechText
             });
 
             return sendJSON(res, {
                 status: 'success',
+                callerIdentity: {
+                    phone: identity.callerPhone,
+                    name: identity.callerName,
+                    role: identity.callerRole,
+                    source: identity.source,
+                    registeredWorker: identity.registeredWorker
+                },
                 ...aiTurn
             });
         } catch (err) {
@@ -580,6 +669,22 @@ const server = http.createServer(async (req, res) => {
     });
 });
 
+server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.warn(`[Server] Port ${PORT} already in use. Retrying or using existing server instance.`);
+    } else {
+        console.error('[Server Error]:', err.message);
+    }
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('[Uncaught Exception]:', err.message);
+});
+
+process.on('unhandledRejection', (reason) => {
+    console.error('[Unhandled Rejection]:', reason);
+});
+
 server.listen(PORT, () => {
     console.log('=======================================================');
     console.log(` GigSync Full-Stack Desktop Server & AI Voice Gateway`);
@@ -592,3 +697,4 @@ server.listen(PORT, () => {
 });
 
 module.exports = server;
+

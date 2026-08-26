@@ -28,11 +28,71 @@ if (fs.existsSync(envPath)) {
 const { GoogleGenAI } = require('@google/genai');
 const DB = require('./database');
 
+// ======================================================================
+// 0. SHARED HELPERS FOR REAL-DATA TOOLS
+// ======================================================================
+
+// Resolve a worker strictly from the verified caller phone. Never guesses.
+function resolveWorker(phone) {
+    const clean = (phone || '').replace(/\D/g, '');
+    if (!clean) return { clean: '', worker: null };
+    return { clean, worker: DB.getWorkerByPhone(clean) || null };
+}
+
+// Standard "this caller has no worker record" answer so the AI can be honest
+// instead of inventing a profile.
+function notRegistered(clean) {
+    return {
+        status: 'not_registered',
+        dataAvailable: false,
+        workerPhone: clean,
+        message: `No worker account is registered for ${clean || 'this caller'} in the GigSync database.`
+    };
+}
+
+const WORKER_OPEN_STATUSES = ['Requested', 'Accepted', 'Confirmed', 'On the Way', 'In Progress'];
+
+// Every job row belonging to this worker, newest first.
+function jobsForWorker(clean, workerId) {
+    return DB.getAllJobs().filter(j => {
+        const jp = (j.worker_phone || '').replace(/\D/g, '');
+        return (jp && jp === clean) || (workerId && Number(j.worker_id) === Number(workerId));
+    });
+}
+
+// The database layer returns a `firebaseSync` promise for write operations so the
+// caller can find out whether the Firestore mirror actually accepted the write.
+// Nothing here ever claims success on the AI's behalf.
+async function awaitFirebase(dbResult) {
+    if (!dbResult || !dbResult.firebaseSync) {
+        return { ok: null, message: 'Firebase mirror was not attempted for this operation.' };
+    }
+    try {
+        const out = await dbResult.firebaseSync;
+        return out || { ok: null, message: 'Firebase mirror returned no result.' };
+    } catch (err) {
+        return { ok: false, message: `Firebase mirror failed: ${err.message}` };
+    }
+}
+
 // 1. Definition of Real Database Tools (No Assumptions, No Fabricated Records)
 const AI_TOOLS = {
     // 1. Register or Update Worker Profile in Verified Database & Firebase
-    registerWorkerProfile({ name, phone, trade = 'Skilled Specialist', city = 'Ramanagara', area = 'Town', tools = 'Standard tool kit', price = 300, experienceYears = 2 }) {
+    async registerWorkerProfile({ name, phone, trade = 'Skilled Specialist', city = 'Ramanagara', area = 'Town', tools = 'Standard tool kit', price = 300, experienceYears = 2 }) {
         const cleanPhone = (phone || '').replace(/\D/g, '');
+        if (cleanPhone.length !== 10) {
+            return {
+                status: 'error',
+                persisted: false,
+                message: 'A valid 10-digit phone number is required before a worker record can be created. Ask the caller for it.'
+            };
+        }
+        if (!name || String(name).trim().length < 2) {
+            return { status: 'error', persisted: false, message: 'A worker name is required. Ask the caller for it.' };
+        }
+
+        const existingBefore = DB.getWorkerByPhone(cleanPhone);
+
         const res = DB.registerWorkerProfile({
             name,
             phone: cleanPhone,
@@ -44,60 +104,118 @@ const AI_TOOLS = {
             experienceYears: Number(experienceYears) || 2
         });
 
-        const worker = res && res.worker ? res.worker : res;
-        const persisted = Boolean(res && (res.persisted || res.workerId || worker));
+        // Read back from SQLite. A returned object is not proof; a re-read is.
+        const after = DB.getWorkerByPhone(cleanPhone);
+        const persisted = Boolean(after && after.id);
+        const firebase = await awaitFirebase(res);
 
         return {
-            status: 'success',
+            status: persisted ? 'success' : 'error',
             persisted,
-            action: 'WORKER_REGISTERED',
-            workerId: worker ? worker.id : null,
-            worker
+            action: existingBefore ? 'WORKER_PROFILE_UPDATED' : 'WORKER_REGISTERED',
+            wasExistingWorker: Boolean(existingBefore),
+            workerId: after ? after.id : null,
+            worker: after,
+            firebase,
+            // True only when BOTH the authoritative DB and the Firebase mirror confirmed.
+            fullySynced: persisted && firebase.ok === true
         };
     },
 
     // 2. Worker Availability Update
-    updateWorkerAvailability({ workerPhone, trade = 'Skilled Specialist', date = 'Tomorrow', startTime = '09:00 AM', endTime = '05:00 PM', isAvailable = true }) {
-        const cleanPhone = (workerPhone || '').replace(/\D/g, '');
-        const worker = DB.getWorkerByPhone(cleanPhone);
+    async updateWorkerAvailability({ workerPhone, trade = 'Skilled Specialist', date = 'Tomorrow', startTime, endTime, isAvailable = true, confirmed = false }) {
+        const { clean, worker } = resolveWorker(workerPhone);
 
-        const slot = DB.setWorkerAvailabilitySlot({
-            workerId: worker ? worker.id : null,
-            workerPhone: cleanPhone,
-            trade: worker ? worker.trade : trade,
-            dateStr: date,
-            startTime,
-            endTime,
-            isAvailable: Boolean(isAvailable)
-        });
-
-        if (worker) {
-            DB.updateWorkerAvailabilityStatus(worker.id, isAvailable);
+        // An availability slot must belong to a real worker; otherwise it is an orphan record.
+        if (!worker) {
+            return {
+                status: 'not_registered',
+                persisted: false,
+                workerPhone: clean,
+                message: `No worker is registered for ${clean || 'this caller'}. Register the worker profile first (name, phone, profession), then set availability.`
+            };
+        }
+        // Marking a whole day OFF needs no clock times — "I don't want to work tomorrow" is a
+        // complete instruction. Reuse whatever hours are already stored for that day so the record
+        // stays meaningful, and fall back to a full-day span when nothing is stored.
+        let effectiveStart = startTime;
+        let effectiveEnd = endTime;
+        if (!isAvailable && (!startTime || !endTime)) {
+            const existing = (DB.getWorkerAvailability(clean, date) || [])[0] || null;
+            effectiveStart = startTime || (existing ? existing.start_time : '12:00 AM');
+            effectiveEnd = endTime || (existing ? existing.end_time : '11:59 PM');
         }
 
-        const persisted = Boolean(slot && (slot.persisted || slot.slotId || slot.workerId));
+        // Hours are never guessed for an AVAILABLE day — the AI must ask.
+        if (!effectiveStart || !effectiveEnd) {
+            return {
+                status: 'error',
+                persisted: false,
+                message: 'Both a start time and an end time are required to mark the worker available. Ask the worker for the missing one — do not assume it.'
+            };
+        }
+
+        // CONFIRMATION GATE. Nothing is written until the worker has agreed to these exact
+        // details out loud. This is enforced here rather than only in the prompt because a
+        // prompt rule is advisory — the model was observed saving a schedule change on the
+        // worker's first sentence, without ever asking.
+        if (!confirmed) {
+            const summary = isAvailable
+                ? `${date}, ${effectiveStart} to ${effectiveEnd}`
+                : `${date} as a day off`;
+            return {
+                status: 'confirmation_required',
+                persisted: false,
+                pendingChange: { date, startTime: effectiveStart, endTime: effectiveEnd, isAvailable: Boolean(isAvailable) },
+                message: `NOT SAVED YET. Read these exact details back to the worker and ask them to confirm: ${summary}. If they say yes, call updateWorkerAvailability again with the same values and confirmed set to true. If they change any detail, use the new values and ask again.`
+            };
+        }
+
+        const res = DB.setWorkerAvailabilitySlot({
+            workerId: worker.id,
+            workerPhone: clean,
+            trade: worker.trade || trade,
+            dateStr: date,
+            startTime: effectiveStart,
+            endTime: effectiveEnd,
+            isAvailable: Boolean(isAvailable),
+            notes: isAvailable ? '' : 'Worker marked this day as not working'
+        });
+
+        DB.updateWorkerAvailabilityStatus(worker.id, isAvailable);
+
+        // Read back the stored slot for this exact date.
+        const storedForDate = (DB.getWorkerAvailability(clean, date) || [])[0] || null;
+        const persisted = Boolean(storedForDate)
+            && storedForDate.start_time === effectiveStart
+            && storedForDate.end_time === effectiveEnd
+            && Boolean(storedForDate.is_available) === Boolean(isAvailable);
+        const firebase = await awaitFirebase(res);
 
         return {
-            status: 'success',
+            status: persisted ? 'success' : 'error',
             persisted,
-            action: 'AVAILABILITY_UPDATED',
-            workerName: worker ? worker.name : 'Worker',
-            workerPhone: cleanPhone,
-            trade: slot?.trade || trade,
+            action: isAvailable ? 'AVAILABILITY_UPDATED' : 'MARKED_NOT_WORKING',
+            workerName: worker.name,
+            workerPhone: clean,
+            trade: worker.trade || trade,
             date,
-            startTime,
-            endTime,
-            hours: `${startTime} – ${endTime}`,
-            isAvailable: Boolean(isAvailable)
+            startTime: storedForDate ? storedForDate.start_time : effectiveStart,
+            endTime: storedForDate ? storedForDate.end_time : effectiveEnd,
+            hours: `${effectiveStart} – ${effectiveEnd}`,
+            isAvailable: Boolean(isAvailable),
+            firebase,
+            fullySynced: persisted && firebase.ok === true
         };
     },
 
     // 3. Get Worker Schedule & Bookings for Given Date
     getWorkerSchedule({ workerPhone, date = 'Today' }) {
-        const cleanPhone = (workerPhone || '').replace(/\D/g, '');
-        const schedule = DB.getWorkerSchedule(cleanPhone);
-        const allJobs = DB.getAllJobs().filter(j => (j.worker_phone && j.worker_phone.replace(/\D/g, '') === cleanPhone));
-        let activeJobs = allJobs.filter(j => ['Requested', 'Accepted', 'On the Way', 'In Progress', 'Confirmed'].includes(j.status));
+        const { clean, worker } = resolveWorker(workerPhone);
+        if (!worker) return notRegistered(clean);
+
+        const schedule = DB.getWorkerSchedule(clean);
+        let activeJobs = jobsForWorker(clean, worker.id).filter(j => WORKER_OPEN_STATUSES.includes(j.status));
 
         if (date && date.toLowerCase() !== 'all') {
             activeJobs = activeJobs.filter(j => j.requested_date && j.requested_date.toLowerCase() === date.toLowerCase());
@@ -105,7 +223,9 @@ const AI_TOOLS = {
 
         return {
             status: 'success',
-            workerName: schedule?.worker?.name || 'Worker',
+            dataAvailable: true,
+            workerName: worker.name,
+            profession: worker.trade,
             isAvailableNow: schedule?.isAvailableNow || false,
             date,
             count: activeJobs.length,
@@ -116,58 +236,342 @@ const AI_TOOLS = {
 
     // 4. Get Next Upcoming Job for Worker
     getWorkerNextJob({ workerPhone }) {
-        const cleanPhone = (workerPhone || '').replace(/\D/g, '');
-        const jobs = DB.getAllJobs().filter(j => 
-            (j.worker_phone && j.worker_phone.replace(/\D/g, '') === cleanPhone) &&
-            ['Requested', 'Accepted', 'On the Way', 'In Progress', 'Confirmed'].includes(j.status)
-        );
+        const { clean, worker } = resolveWorker(workerPhone);
+        if (!worker) return notRegistered(clean);
+
+        const jobs = jobsForWorker(clean, worker.id)
+            .filter(j => WORKER_OPEN_STATUSES.includes(j.status))
+            .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
 
         if (jobs.length === 0) {
-            return { status: 'none', message: 'No upcoming jobs scheduled.' };
+            return {
+                status: 'none',
+                dataAvailable: true,
+                workerName: worker.name,
+                message: 'This worker has no upcoming or open jobs in the database.'
+            };
         }
 
+        const j = jobs[0];
         return {
             status: 'success',
-            job: jobs[0]
+            dataAvailable: true,
+            workerName: worker.name,
+            remainingOpenJobs: jobs.length,
+            job: {
+                jobId: j.id,
+                status: j.status,
+                customerName: j.customer_name,
+                service: j.service,
+                problem: j.problem_description,
+                location: j.location,
+                city: j.city,
+                requestedDate: j.requested_date,
+                requestedTime: j.requested_time,
+                budget: j.budget
+            }
         };
     },
 
     // 5. Update Job Status by Worker (Arrived, Completed, Cancelled)
     updateJobStatusByWorker({ workerPhone, jobId, status = 'Completed' }) {
-        const cleanPhone = (workerPhone || '').replace(/\D/g, '');
-        const allJobs = DB.getAllJobs().filter(j => (j.worker_phone && j.worker_phone.replace(/\D/g, '') === cleanPhone));
-        
+        const { clean, worker } = resolveWorker(workerPhone);
+        if (!worker) return notRegistered(clean);
+
+        const openJobs = jobsForWorker(clean, worker.id).filter(j => WORKER_OPEN_STATUSES.includes(j.status));
+
         let targetJob = null;
         if (jobId) {
-            targetJob = allJobs.find(j => String(j.id).toLowerCase() === String(jobId).toLowerCase());
-        }
-        if (!targetJob && allJobs.length > 0) {
-            targetJob = allJobs.find(j => ['Accepted', 'On the Way', 'In Progress', 'Confirmed'].includes(j.status)) || allJobs[0];
+            targetJob = jobsForWorker(clean, worker.id)
+                .find(j => String(j.id).toLowerCase() === String(jobId).toLowerCase());
+            if (!targetJob) {
+                return {
+                    status: 'error',
+                    persisted: false,
+                    message: `Job ${jobId} does not belong to this worker or does not exist.`
+                };
+            }
+        } else if (openJobs.length === 1) {
+            targetJob = openJobs[0];
+        } else if (openJobs.length > 1) {
+            // More than one candidate: ask the worker which one. Never pick for them.
+            return {
+                status: 'needs_disambiguation',
+                persisted: false,
+                message: 'This worker has more than one open job. Ask which job before changing any status.',
+                choices: openJobs.map(j => ({
+                    jobId: j.id, customerName: j.customer_name, service: j.service,
+                    location: j.location, requestedDate: j.requested_date,
+                    requestedTime: j.requested_time, status: j.status
+                }))
+            };
         }
 
         if (!targetJob) {
-            return { status: 'error', message: 'No active job found to update.' };
+            return {
+                status: 'none',
+                persisted: false,
+                message: 'This worker has no open job in the database to update.'
+            };
         }
 
-        const updated = DB.updateJobStatus(targetJob.id, status);
+        DB.updateJobStatus(targetJob.id, status);
+
+        // Read back — only a re-read proves the status actually changed.
+        const after = DB.getJobById(targetJob.id);
+        const persisted = Boolean(after) && after.status === status;
+
         return {
-            status: 'success',
+            status: persisted ? 'success' : 'error',
+            persisted,
             action: 'JOB_STATUS_UPDATED',
             jobId: targetJob.id,
-            newStatus: status,
-            job: updated
+            requestedStatus: status,
+            storedStatus: after ? after.status : null,
+            job: after
         };
     },
 
     // 6. Get Worker Earnings
     getWorkerEarnings({ workerPhone }) {
-        const cleanPhone = (workerPhone || '').replace(/\D/g, '');
-        const earnings = DB.getWorkerEarnings(cleanPhone);
+        const { clean, worker } = resolveWorker(workerPhone);
+        if (!worker) return notRegistered(clean);
+        const earnings = DB.getWorkerEarnings(clean);
+        const last = (earnings.completedJobs || [])[0] || null;
         return {
             status: 'success',
-            workerPhone: cleanPhone,
-            earnings
+            dataAvailable: true,
+            workerName: worker.name,
+            workerPhone: clean,
+            currency: 'INR',
+            earnings,
+            lastPayment: last ? {
+                jobId: last.id,
+                amount: last.final_price,
+                service: last.service,
+                customerName: last.customer_name,
+                completedAt: last.completed_at,
+                paymentStatus: last.payment_status,
+                paymentMethod: last.payment_method
+            } : null
         };
+    },
+
+    // 6a. Full worker profile as actually stored ("What details do you have about me?")
+    getWorkerProfile({ workerPhone }) {
+        const { clean, worker } = resolveWorker(workerPhone);
+        if (!worker) return notRegistered(clean);
+        const slots = DB.getWorkerAvailability(clean) || [];
+        return {
+            status: 'success',
+            dataAvailable: true,
+            profile: {
+                workerId: worker.id,
+                name: worker.name,
+                phone: worker.phone,
+                profession: worker.trade,
+                service: worker.service,
+                skills: worker.skills || null,
+                tools: worker.tools || null,
+                city: worker.city,
+                area: worker.area,
+                serviceAreas: worker.service_areas || null,
+                experienceYears: worker.experience_years ?? null,
+                startingPrice: worker.price,
+                rating: worker.rating,
+                jobsCompleted: worker.jobs_completed,
+                isVerified: Boolean(worker.is_verified),
+                onDutyNow: Boolean(worker.is_available)
+            },
+            availabilitySlots: slots.map(s => ({
+                date: s.date_str, startTime: s.start_time, endTime: s.end_time,
+                isAvailable: Boolean(s.is_available), updatedAt: s.updated_at
+            }))
+        };
+    },
+
+    // 6b. Availability for a date, or every stored slot ("Am I available today?")
+    getWorkerAvailability({ workerPhone, date = null }) {
+        const { clean, worker } = resolveWorker(workerPhone);
+        if (!worker) return notRegistered(clean);
+        const all = DB.getWorkerAvailability(clean) || [];
+        const wanted = date && String(date).toLowerCase() !== 'all'
+            ? all.filter(s => (s.date_str || '').toLowerCase() === String(date).toLowerCase())
+            : all;
+
+        return {
+            status: 'success',
+            dataAvailable: true,
+            workerName: worker.name,
+            profession: worker.trade,
+            queriedDate: date || 'all',
+            onDutyNow: Boolean(worker.is_available),
+            matchCount: wanted.length,
+            // Empty match means nothing is stored for that date — say so, do not guess.
+            slots: wanted.map(s => ({
+                date: s.date_str, startTime: s.start_time, endTime: s.end_time,
+                isAvailable: Boolean(s.is_available), updatedAt: s.updated_at
+            })),
+            allStoredDates: [...new Set(all.map(s => s.date_str))]
+        };
+    },
+
+    // 6c. Every booking/request for this worker, with status breakdown
+    getWorkerBookings({ workerPhone, date = null, status = null }) {
+        const { clean, worker } = resolveWorker(workerPhone);
+        if (!worker) return notRegistered(clean);
+
+        let jobs = jobsForWorker(clean, worker.id);
+        if (date && String(date).toLowerCase() !== 'all') {
+            jobs = jobs.filter(j => (j.requested_date || '').toLowerCase() === String(date).toLowerCase());
+        }
+        if (status && String(status).toLowerCase() !== 'all') {
+            jobs = jobs.filter(j => (j.status || '').toLowerCase() === String(status).toLowerCase());
+        }
+
+        const byStatus = {};
+        for (const j of jobs) byStatus[j.status] = (byStatus[j.status] || 0) + 1;
+
+        return {
+            status: 'success',
+            dataAvailable: true,
+            workerName: worker.name,
+            queriedDate: date || 'all',
+            queriedStatus: status || 'all',
+            totalCount: jobs.length,
+            countsByStatus: byStatus,
+            openCount: jobs.filter(j => WORKER_OPEN_STATUSES.includes(j.status)).length,
+            bookings: jobs.map(j => ({
+                jobId: j.id,
+                status: j.status,
+                customerName: j.customer_name,
+                service: j.service,
+                problem: j.problem_description,
+                location: j.location,
+                city: j.city,
+                requestedDate: j.requested_date,
+                requestedTime: j.requested_time,
+                budget: j.budget,
+                createdAt: j.created_at
+            }))
+        };
+    },
+
+    // 6d. Completed job history incl. real ratings/reviews ("How was my last job?")
+    getWorkerJobHistory({ workerPhone, limit = 10 }) {
+        const { clean, worker } = resolveWorker(workerPhone);
+        if (!worker) return notRegistered(clean);
+
+        const completed = jobsForWorker(clean, worker.id)
+            .filter(j => j.status === 'Completed')
+            .sort((a, b) => String(b.completed_at || b.created_at).localeCompare(String(a.completed_at || a.created_at)));
+
+        const shape = j => ({
+            jobId: j.id,
+            service: j.service,
+            customerName: j.customer_name,
+            location: j.location,
+            completedAt: j.completed_at,
+            amount: j.final_price,
+            paymentStatus: j.payment_status,
+            // null means the customer never left one — report it as unavailable.
+            rating: j.rating ?? null,
+            review: j.review || null
+        });
+
+        return {
+            status: 'success',
+            dataAvailable: true,
+            workerName: worker.name,
+            completedCount: completed.length,
+            lastCompletedJob: completed.length ? shape(completed[0]) : null,
+            history: completed.slice(0, Number(limit) || 10).map(shape)
+        };
+    },
+
+    // 6e. "Is there anything I need to do today?" — one real snapshot of the day
+    getWorkerDayBriefing({ workerPhone, date = 'Today' }) {
+        const { clean, worker } = resolveWorker(workerPhone);
+        if (!worker) return notRegistered(clean);
+
+        const jobs = jobsForWorker(clean, worker.id);
+        const forDate = jobs.filter(j => (j.requested_date || '').toLowerCase() === String(date).toLowerCase());
+        const slots = (DB.getWorkerAvailability(clean) || [])
+            .filter(s => (s.date_str || '').toLowerCase() === String(date).toLowerCase());
+
+        return {
+            status: 'success',
+            dataAvailable: true,
+            workerName: worker.name,
+            profession: worker.trade,
+            date,
+            onDutyNow: Boolean(worker.is_available),
+            availabilityForDate: slots.map(s => ({ startTime: s.start_time, endTime: s.end_time, isAvailable: Boolean(s.is_available) })),
+            pendingRequests: forDate.filter(j => j.status === 'Requested').length,
+            confirmedJobs: forDate.filter(j => ['Accepted', 'Confirmed'].includes(j.status)).length,
+            inProgressJobs: forDate.filter(j => ['On the Way', 'In Progress'].includes(j.status)).length,
+            completedToday: forDate.filter(j => j.status === 'Completed').length,
+            cancelled: forDate.filter(j => j.status === 'Cancelled').length,
+            jobs: forDate.map(j => ({
+                jobId: j.id, status: j.status, customerName: j.customer_name,
+                service: j.service, location: j.location, requestedTime: j.requested_time
+            }))
+        };
+    },
+
+    // 6f. Change stored profile fields for the verified worker (profession, price, ...)
+    updateWorkerProfileField({ workerPhone, name, trade, price, city, area, skills, tools, confirmed = false }) {
+        const { clean, worker } = resolveWorker(workerPhone);
+        if (!worker) return notRegistered(clean);
+
+        const updates = {};
+        if (name) updates.name = name;
+        if (trade) { updates.trade = trade; updates.service = String(trade).toLowerCase(); }
+        if (price) updates.price = Number(price) || worker.price;
+        if (city) updates.city = city;
+        if (area) updates.area = area;
+        if (skills) updates.skills = skills;
+        if (tools) updates.tools = tools;
+
+        if (Object.keys(updates).length === 0) {
+            return { status: 'error', persisted: false, message: 'No profile field was supplied to change.' };
+        }
+
+        // Same confirmation gate as availability: a worker's profession, name or rate is not
+        // changed until they have agreed to the specific change.
+        if (!confirmed) {
+            const summary = Object.entries(updates)
+                .filter(([k]) => k !== 'service')
+                .map(([k, v]) => `${k === 'trade' ? 'profession' : k} to ${v}`)
+                .join(', ');
+            return {
+                status: 'confirmation_required',
+                persisted: false,
+                pendingChange: updates,
+                message: `NOT SAVED YET. Ask the worker to confirm this change: ${summary}. If they say yes, call updateWorkerProfileField again with the same values and confirmed set to true.`
+            };
+        }
+
+        DB.updateWorkerProfile(worker.id, updates);
+
+        // Read back from the database — the only proof the write landed.
+        const after = DB.getWorkerByPhone(clean);
+        const persisted = Boolean(after) && Object.entries(updates).every(([k, v]) =>
+            String(after[k] ?? '').toLowerCase() === String(v ?? '').toLowerCase());
+
+        return {
+            status: persisted ? 'success' : 'error',
+            persisted,
+            action: 'WORKER_PROFILE_UPDATED',
+            changedFields: Object.keys(updates),
+            workerId: worker.id,
+            profile: after ? { name: after.name, profession: after.trade, price: after.price, city: after.city, area: after.area } : null
+        };
+    },
+
+    // 6g. Worker marks a job finished ("I completed the job.")
+    completeJob({ workerPhone, jobId = null }) {
+        return AI_TOOLS.updateJobStatusByWorker({ workerPhone, jobId, status: 'Completed' });
     },
 
     // 7. Find Real Registered Workers from Database (Customer Tool)
@@ -303,22 +707,24 @@ const GEMINI_TOOLS_DECLARATIONS = [
     },
     {
         name: 'updateWorkerAvailability',
-        description: 'Set or update the working schedule, hours, or duty status for a worker on a given date.',
+        description: 'Set the calling worker\'s working hours for one day, or mark that day off. To set hours you MUST have both a start and an end time — ask the worker for whichever is missing instead of guessing. To mark a day off, pass isAvailable:false and no times are needed ("I don\'t want to work tomorrow"). NOTHING IS SAVED until you call this a second time with confirmed:true, after the worker has agreed to the exact details.',
         parameters: {
             type: 'OBJECT',
             properties: {
-                workerPhone: { type: 'STRING', description: 'Worker phone number' },
-                trade: { type: 'STRING', description: 'Trade e.g. Electrician' },
-                date: { type: 'STRING', description: 'Date e.g. Tomorrow, Sunday, Today' },
-                startTime: { type: 'STRING', description: 'Start time e.g. 09:00 AM, 10:00 AM' },
-                endTime: { type: 'STRING', description: 'End time e.g. 05:00 PM, 06:00 PM' },
-                isAvailable: { type: 'BOOLEAN', description: 'True if on duty/available, false if off duty/unavailable' }
-            }
+                workerPhone: { type: 'STRING', description: 'Filled automatically from the verified caller. Do not ask for it.' },
+                trade: { type: 'STRING', description: 'Trade e.g. Electrician. Optional — the stored profession is used when omitted.' },
+                date: { type: 'STRING', description: 'Day label: Today, Tomorrow, or a weekday name' },
+                startTime: { type: 'STRING', description: 'Start time e.g. 09:00 AM. Required when isAvailable is true.' },
+                endTime: { type: 'STRING', description: 'End time e.g. 05:00 PM. Required when isAvailable is true.' },
+                isAvailable: { type: 'BOOLEAN', description: 'True = working these hours. False = not working that day (no times required).' },
+                confirmed: { type: 'BOOLEAN', description: 'Set true ONLY after you read the exact day and hours back to the worker and they agreed. Leave false or omit on the first call — the tool will then tell you what to confirm.' }
+            },
+            required: ['date']
         }
     },
     {
         name: 'getWorkerSchedule',
-        description: 'Check a worker schedule and active customer bookings for today, tomorrow, or a specific date.',
+        description: 'Jobs booked with the calling worker for a given day, plus their stored availability slots.',
         parameters: {
             type: 'OBJECT',
             properties: {
@@ -352,11 +758,100 @@ const GEMINI_TOOLS_DECLARATIONS = [
     },
     {
         name: 'getWorkerEarnings',
-        description: 'Calculate real total earnings, this month earnings, and completed gigs for the worker.',
+        description: 'Real earnings for the calling worker: today, this month, lifetime total, pending amount, number of completed jobs, and the most recent payment. Use for any money/payment/income question.',
         parameters: {
             type: 'OBJECT',
             properties: {
-                workerPhone: { type: 'STRING', description: 'Worker phone number' }
+                workerPhone: { type: 'STRING', description: 'Filled automatically from the verified caller. Do not ask for it.' }
+            }
+        }
+    },
+    {
+        name: 'getWorkerProfile',
+        description: 'Read everything GigSync actually stores about the calling worker: name, phone, profession/trade, skills, tools, city, area, experience, starting price, rating, jobs completed, verification and duty status. Use for "what details do you have about me", "who am I registered as", "what is my rate", "what trade am I listed under".',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Filled automatically from the verified caller. Do not ask for it.' }
+            }
+        }
+    },
+    {
+        name: 'getWorkerAvailability',
+        description: 'Read the calling worker\'s stored availability slots. Pass a date to check one day ("Today", "Tomorrow", a weekday) or omit it for every stored day. Use for "am I available today", "what is my availability tomorrow", "what are my working hours", "am I on duty".',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Filled automatically from the verified caller. Do not ask for it.' },
+                date: { type: 'STRING', description: 'Day label to check, e.g. Today, Tomorrow, Sunday. Omit for all stored days.' }
+            }
+        }
+    },
+    {
+        name: 'getWorkerBookings',
+        description: 'Read every booking and job request attached to the calling worker, with a count broken down by status. Optionally filter by date or status. Use for "has anyone booked me", "did anyone request me", "how many jobs do I have this week", "has my customer cancelled", "what bookings do I have", "do I have anything tomorrow".',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Filled automatically from the verified caller. Do not ask for it.' },
+                date: { type: 'STRING', description: 'Optional day label filter, e.g. Today, Tomorrow.' },
+                status: { type: 'STRING', description: 'Optional status filter: Requested, Confirmed, Accepted, On the Way, In Progress, Completed, Cancelled.' }
+            }
+        }
+    },
+    {
+        name: 'getWorkerJobHistory',
+        description: 'Read the calling worker\'s completed job history including the real customer rating and written review for each job, the amount paid and the payment status. Use for "what jobs have I completed", "how was my last job", "what was my last payment", "what did customers say about me". If rating or review is null the customer never left one — say it is not available.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Filled automatically from the verified caller. Do not ask for it.' },
+                limit: { type: 'NUMBER', description: 'How many past jobs to return. Default 10.' }
+            }
+        }
+    },
+    {
+        name: 'getWorkerDayBriefing',
+        description: 'One combined snapshot of a single day for the calling worker: the availability stored for that day plus counts of pending requests, confirmed jobs, jobs in progress, completed and cancelled jobs, with the job list. Use for open-ended questions like "is there anything I need to do today", "what does my day look like", "am I busy tomorrow", "what is my status".',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Filled automatically from the verified caller. Do not ask for it.' },
+                date: { type: 'STRING', description: 'Day label, e.g. Today or Tomorrow. Defaults to Today.' }
+            }
+        }
+    },
+    {
+        name: 'updateWorkerProfileField',
+        description: 'Change stored profile fields for the calling worker who already has an account: profession/trade, display name, starting price, city, area, skills or tools. Only pass the fields that are actually changing. NOTHING IS SAVED until you call this a second time with confirmed:true, after the worker has agreed to the change.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Filled automatically from the verified caller. Do not ask for it.' },
+                name: { type: 'STRING', description: 'New display name' },
+                trade: { type: 'STRING', description: 'New profession e.g. Plumber, Electrician, Carpenter, Mechanic' },
+                price: { type: 'NUMBER', description: 'New starting price in rupees' },
+                city: { type: 'STRING', description: 'New city' },
+                area: { type: 'STRING', description: 'New area/neighbourhood' },
+                skills: { type: 'STRING', description: 'Comma separated skills' },
+                tools: { type: 'STRING', description: 'Comma separated tools owned' },
+                confirmed: { type: 'BOOLEAN', description: 'Set true ONLY after you read the change back to the worker and they agreed. Leave false or omit on the first call.' }
+            }
+        }
+    },
+    {
+        name: 'getServices',
+        description: 'The list of service categories GigSync covers. Use when a caller asks what services the platform offers, or when a worker asks which trades they can be listed under.',
+        parameters: { type: 'OBJECT', properties: {} }
+    },
+    {
+        name: 'completeJob',
+        description: 'Mark one of the calling worker\'s jobs as Completed. Use when the worker says the job is finished. If the worker has several open jobs the tool returns the list so you can ask which one — never guess.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                workerPhone: { type: 'STRING', description: 'Filled automatically from the verified caller. Do not ask for it.' },
+                jobId: { type: 'STRING', description: 'Job ID such as GS-1048, when known.' }
             }
         }
     },
@@ -419,10 +914,73 @@ const GEMINI_TOOLS_DECLARATIONS = [
 // ======================================================================
 // 1.2 UNIFIED GEMINI CONVERSATIONAL BRAIN
 // ======================================================================
+const GEMINI_MODEL_CHAIN = (() => {
+    const preferred = (process.env.GEMINI_MODEL || '').trim();
+    const chain = [
+        'gemini-3.5-flash',
+        'gemini-3.5-flash-lite',
+        'gemini-3.1-flash-lite',
+        'gemini-3.6-flash'
+    ];
+    if (preferred) chain.unshift(preferred);
+    return chain.filter((m, i) => chain.indexOf(m) === i);
+})();
+
+// Errors that mean "this model is busy / out of quota" — try the next model instead of
+// silently dropping the caller into a scripted reply.
+function isModelExhaustedError(err) {
+    const blob = `${err && err.status ? err.status : ''} ${err && err.code ? err.code : ''} ${err && err.message ? err.message : err}`;
+    return /\b(429|500|503)\b|RESOURCE_EXHAUSTED|UNAVAILABLE|INTERNAL|quota|rate limit|overloaded|exceeded/i.test(blob);
+}
+
+// Tools that act on the caller's own worker record. The phone always comes from the
+// verified session, never from anything the caller (or a mis-heard transcript) supplied.
+const SELF_SCOPED_WORKER_TOOLS = new Set([
+    'getWorkerProfile', 'getWorkerAvailability', 'getWorkerBookings', 'getWorkerJobHistory',
+    'getWorkerDayBriefing', 'getWorkerSchedule', 'getWorkerNextJob', 'getWorkerEarnings',
+    'updateWorkerAvailability', 'updateWorkerProfileField', 'updateJobStatusByWorker',
+    'completeJob', 'registerWorkerProfile'
+]);
+
+// Turns a tool result into one honest operator-facing audit line. Writes report whether
+// they actually persisted, and a broken Firebase mirror is named explicitly.
+function describeToolOutcome(toolName, result) {
+    if (!result || typeof result !== 'object') return `${toolName}: no result returned`;
+
+    if (result.status === 'confirmation_required') {
+        return `${toolName}: awaiting caller confirmation — nothing written`;
+    }
+    if (result.status === 'not_registered') {
+        return `${toolName}: no worker account for ${result.workerPhone || 'this caller'}`;
+    }
+    if (result.status === 'needs_disambiguation') {
+        return `${toolName}: asked the caller which job they meant`;
+    }
+
+    // Writes expose a persisted flag; reads do not.
+    if (Object.prototype.hasOwnProperty.call(result, 'persisted')) {
+        if (!result.persisted) {
+            return `${toolName}: WRITE FAILED — ${result.message || 'the change did not persist'}`;
+        }
+        let line = `${toolName}: saved to the database`;
+        if (result.firebase && result.firebase.ok === true) line += ', mirrored to Firebase';
+        else if (result.firebase && result.firebase.ok === false) line += `, but the Firebase mirror FAILED — ${result.firebase.message}`;
+        return line;
+    }
+
+    if (result.status === 'error') return `${toolName}: ${result.message || 'failed'}`;
+    if (result.dataAvailable === false) return `${toolName}: no data available`;
+    return `${toolName}: read real data`;
+}
+
 class GeminiConversationalBrain {
     constructor() {
         this.apiKey = process.env.GEMINI_API_KEY || '';
         this.client = this.apiKey ? new GoogleGenAI({ apiKey: this.apiKey }) : null;
+        this.modelChain = GEMINI_MODEL_CHAIN;
+        this.modelIndex = 0;          // sticky: stay on the last model that actually worked
+        this.lastError = null;        // surfaced honestly instead of a generic menu reply
+        this.lastModelUsed = null;
     }
 
     getClient() {
@@ -433,48 +991,146 @@ class GeminiConversationalBrain {
         return this.client;
     }
 
+    // Ask the model chain in order, starting from whichever model last succeeded.
+    // Advances only on quota/availability errors; real errors (bad request, bad key) throw.
+    async generateWithFallback(client, request) {
+        let lastErr = null;
+        for (let attempt = 0; attempt < this.modelChain.length; attempt++) {
+            const idx = (this.modelIndex + attempt) % this.modelChain.length;
+            const model = this.modelChain[idx];
+            try {
+                const response = await client.models.generateContent({ ...request, model });
+                if (idx !== this.modelIndex) {
+                    console.warn(`[Gemini Engine] Switched active model to '${model}' after ${this.modelChain[this.modelIndex]} was unavailable.`);
+                    this.modelIndex = idx;
+                }
+                this.lastModelUsed = model;
+                this.lastError = null;
+                return response;
+            } catch (err) {
+                lastErr = err;
+                if (!isModelExhaustedError(err)) throw err;
+                console.warn(`[Gemini Engine] Model '${model}' unavailable (${err.message}). Trying next model.`);
+            }
+        }
+        throw lastErr || new Error('All Gemini models in the fallback chain are unavailable.');
+    }
+
     async processTurn({ session, text }) {
         const client = this.getClient();
-        if (!client) return null;
+        if (!client) {
+            this.lastError = 'GEMINI_API_KEY is not configured, so the AI brain cannot run.';
+            return null;
+        }
 
         const workerRecord = DB.getWorkerByPhone(session.callerPhone);
         const isVerifiedWorker = Boolean(workerRecord);
+        const isWorkerCall = session.callerRole === 'worker' || isVerifiedWorker;
 
-        const systemInstruction = `You are GigSync AI, the official voice assistant and conversational intelligence for GigSync — a hyperlocal marketplace serving Tier-2 and Tier-3 cities in Karnataka, India (including Ramanagara, Kanakapura, Channapatna, Bengaluru, Mysuru, Bidadi, Magadi, etc.).
+        const now = new Date();
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const tomorrow = new Date(now.getTime() + 86400000);
 
-AUTHENTICATION & IDENTITY CONTEXT:
-- Caller Phone: ${session.callerPhone || '9876543210'}
-- Caller Role: ${session.callerRole || 'customer'}
-- Verified Worker Account: ${isVerifiedWorker ? `YES (Name: ${workerRecord.name}, Trade: ${workerRecord.trade}, ID: ${workerRecord.id})` : 'NO (New worker or customer)'}
-- Service City: ${session.city || 'Ramanagara'}
+        const identityBlock = `CALLER IDENTITY (from the verified session — never ask the caller to repeat their phone number):
+- Phone: ${session.callerPhone || '(unknown)'}
+- Role: ${isWorkerCall ? 'worker' : 'customer'}
+- Registered GigSync worker account: ${isVerifiedWorker
+    ? `YES — id ${workerRecord.id}, name "${workerRecord.name}", profession "${workerRecord.trade}", city ${workerRecord.city}`
+    : 'NO — there is no worker row for this phone number yet'}
+- City: ${session.city || 'Ramanagara'}
+- Right now it is ${dayNames[now.getDay()]}, ${now.toDateString()}. "Today" = ${dayNames[now.getDay()]}, "Tomorrow" = ${dayNames[tomorrow.getDay()]}.`;
 
-CRITICAL RULES:
-1. SINGLE CONVERSATIONAL BRAIN: Maintain smooth, natural, empathetic multi-turn conversation. Keep spoken answers concise, conversational, and direct for TTS speech synthesis.
-2. SOURCE OF TRUTH: You MUST execute real tools ('registerWorkerProfile', 'updateWorkerAvailability', 'findWorkers', 'createJob', 'getWorkerSchedule', 'getWorkerNextJob', 'getWorkerEarnings', 'getCustomerBookings', 'cancelJob') to interact with the database. NEVER fabricate data or simulate success without executing the tool.
-3. WORKER SELF-IDENTIFICATION, REGISTRATION & AVAILABILITY FLOW:
-   - When caller introduces themselves and provides trade/availability (e.g. "My name is Rajesh. I am an electrician. I am available tomorrow from 9 AM to 5 PM"):
-     Ask confirmation: "Got it. I have your details as Rajesh, electrician, available tomorrow from 9 AM to 5 PM. Shall I save this?"
-   - When caller confirms ("Yes", "Save it", "Do it", "Sure", "Okay", "Ha", "Sari"):
-     Execute 'registerWorkerProfile' if new or updating details, and 'updateWorkerAvailability'.
-     ONLY AFTER tool execution succeeds, confirm the exact saved details:
-     - Initial reg + shift: "Done. Your details have been updated successfully. You are registered as an electrician and you're available tomorrow from 9 AM to 5 PM."
-     - Availability only: "Done. Your availability has been updated to tomorrow, 9 AM to 5 PM."
-     - Profession only: "Done. Your profession has been updated to plumber."
-     - If tool fails: "Sorry, I couldn't update your details. Please try again."
-   - When worker asks "Change my availability tomorrow to 10 AM to 6 PM":
-     Ask confirmation: "Got it. You want to change your availability tomorrow to 10 AM to 6 PM. Shall I save this?"
-     After confirmation and tool success: "Done. Your availability has been updated to tomorrow, 10 AM to 6 PM."
-   - When worker says "I am a plumber now" / "Change my profession to plumber":
-     Execute 'registerWorkerProfile' with updated trade and respond: "Done. Your profession has been updated to plumber."
-4. WORKER QUERIES:
-   - "What jobs do I have today?" -> Execute 'getWorkerSchedule' and state active bookings or "You don't have any jobs scheduled for today."
-   - "Who is my next customer?" -> Execute 'getWorkerNextJob' and state the next customer name, location, and service.
-   - "How much did I earn this month?" -> Execute 'getWorkerEarnings' and state the computed earnings and completed jobs count.
-5. CUSTOMER REQUESTS:
-   - "Which electricians are available tomorrow?", "I need an electrician tomorrow", "Nanage electrician beku":
-     This is a CUSTOMER looking for a worker. Execute 'findWorkers' (NEVER 'updateWorkerAvailability').
-6. CLOSING CALLS:
-   - "Thank you", "Bye", "That's all": Acknowledge warmly and say goodbye.`;
+        const workerBrief = `YOU ARE A GENERAL GIGSYNC WORKER ASSISTANT — NOT A MENU OF COMMANDS.
+The worker may ask anything about GigSync: their profile, availability, working hours, bookings,
+job requests, customers, locations, schedule, this week's workload, earnings, payments, ratings,
+reviews, completed jobs, cancellations, or the services they offer. Understand the intent behind
+whatever wording they use. The examples below are examples only — generalise to questions nobody
+listed. Never reply with a generic capability menu just because the exact phrasing is new to you.
+
+FOR EVERY WORKER MESSAGE, FOLLOW THIS PROCEDURE:
+1. Work out what the worker is actually asking or asking you to do.
+2. Decide whether answering needs real GigSync data.
+3. If it needs data, CALL THE TOOL that holds it. Never answer a data question from memory.
+4. Answer using only what the tool returned.
+5. If they want something changed, confirm the change in one short sentence first.
+6. Then call the tool that performs the change.
+7. Check the tool's 'persisted' / 'storedStatus' / 'firebase' fields to see what really happened.
+8. Tell the worker what actually happened — including when it failed.
+
+WHICH TOOL TO REACH FOR (map intent, not keywords):
+- Who am I / what do you have on me / my rate / my trade / my area  -> getWorkerProfile
+- Am I available today / my hours / availability for a day           -> getWorkerAvailability
+- Has anyone booked me / did anyone request me / how many jobs this
+  week / has a customer cancelled / anything tomorrow                -> getWorkerBookings
+- Next job / next customer / where do I need to go / what time       -> getWorkerNextJob
+- Today's plan / anything I need to do / how busy am I               -> getWorkerDayBriefing
+- Jobs today or on a given day                                       -> getWorkerSchedule
+- Earnings / income / payment / how much have I made / pending money -> getWorkerEarnings
+- Completed jobs / how was my last job / rating / review             -> getWorkerJobHistory
+- Change/set my working hours, "I don't want to work tomorrow"       -> updateWorkerAvailability
+- Change my profession, name, price, city or area                    -> updateWorkerProfileField
+- Register me / I am new / first-time signup                         -> registerWorkerProfile
+- Job finished / I'm done                                            -> completeJob
+- On my way / arrived / started / can't take it / cancel             -> updateJobStatusByWorker
+
+HONESTY RULES (these outrank sounding helpful):
+- Never invent a name, hour, date, customer, amount, rating or job. If it is not in a tool result,
+  you do not know it.
+- If a tool returns dataAvailable:false, or an empty list, or a null field, SAY it is not available:
+  "There's no availability saved for tomorrow yet." / "No customer has left a rating for that job."
+- If a tool returns status:"not_registered", explain there is no worker account for their number and
+  offer to register them — do not pretend to read their data.
+- If a tool returns status:"needs_disambiguation", read out the choices and ask which job they mean.
+- BEFORE any write (availability, profile change, registration, job status), read the exact details
+  back and ask for a yes: "Got it — tomorrow, 10 AM to 6 PM. Shall I save that?" Only skip that
+  question if the worker has already said yes to those same details earlier in this call. Never save
+  something they have not agreed to.
+- If a tool returns status:"confirmation_required", NOTHING has been saved. Read the details in its
+  message back to the worker and ask them to confirm. Do not tell them it is done. When they say yes,
+  call the same tool again with the same values plus confirmed:true. If they change a detail, use the
+  new value and confirm again.
+- For writes, only say "Done" when the result has persisted:true. If persisted is false, say plainly
+  that it did not save. If persisted is true but firebase.ok is false, their change IS saved — tell
+  them it is saved. Do not read out technical causes; a worker on a phone call does not need to hear
+  about Firestore, APIs, projects or cloud sync. Never say the words Firebase, Firestore, database,
+  API, sync or server to a worker.
+- Never guess missing details. No availability without both a start and an end time; ask for what is
+  missing, and if the worker doesn't answer, ask once more.
+- Tolerate speech-to-text noise, but confirm genuine ambiguity: "6 to 5" -> "Just to confirm, 6 AM to 5 PM?"
+- Handle changes of mind mid-call: "Actually make it 10 to 6" replaces the number they just gave.
+- Pass day labels ("Today", "Tomorrow", a weekday name) to tools, not calendar dates.
+
+IF THE REQUEST IS UNCLEAR: ask ONE short clarifying question and keep the thread.
+  "Can I change it?" -> "Sure. What would you like to change?"
+  "Tomorrow." -> "Do you want to change your availability for tomorrow?"
+  "Yes." -> "What hours would you like?"
+This is a conversation, not a questionnaire. Use the earlier turns of this call to fill in the
+subject the worker left out.
+
+IF THE REQUEST HAS NOTHING TO DO WITH GIGSYNC: redirect politely, once —
+  "I'm here to help with your GigSync work, bookings, availability and account. What would you like help with?"
+Never dress up an unrelated answer as a GigSync answer.`;
+
+        const customerBrief = `YOU ARE HELPING A CUSTOMER looking for a skilled worker.
+- Searching for a trade ("I need an electrician tomorrow", "Nanage electrician beku") -> findWorkers.
+  Never call updateWorkerAvailability for a customer.
+- Booking a worker -> createJob, after confirming the details back to them.
+- "What have I booked?" -> getCustomerBookings. "Cancel my booking" -> cancelJob.
+- Available services -> getServices.
+- Only describe workers, prices and slots that a tool actually returned. If nothing is available in
+  their city for that day, say exactly that instead of inventing an option.`;
+
+        const systemInstruction = `You are GigSync AI, the single conversational brain behind GigSync — a hyperlocal
+marketplace for skilled workers in Tier-2 and Tier-3 Karnataka cities (Ramanagara, Kanakapura,
+Channapatna, Bengaluru, Mysuru, Bidadi, Magadi).
+
+${identityBlock}
+
+${isWorkerCall ? workerBrief : customerBrief}
+
+STYLE: you are being spoken aloud over a phone line. One or two short sentences. Plain spoken
+English (a little Kannada/Hindi is fine if the caller uses it). No lists, no markdown, no emoji.
+When the caller says thanks or goodbye, reply warmly and let the call end.`;
 
         try {
             // Format history for Gemini API
@@ -497,10 +1153,10 @@ CRITICAL RULES:
             let toolResult = null;
             let shouldEndCall = false;
 
-            // Gemini Function Calling Loop (up to 4 tool turns)
-            for (let step = 0; step < 4; step++) {
-                const response = await client.models.generateContent({
-                    model: 'gemini-3.6-flash',
+            // Gemini Function Calling Loop (up to 6 tool turns — a single question can need
+            // several lookups, e.g. "who is my next customer and how much do they owe me")
+            for (let step = 0; step < 6; step++) {
+                const response = await this.generateWithFallback(client, {
                     contents,
                     config: {
                         systemInstruction,
@@ -522,13 +1178,33 @@ CRITICAL RULES:
                     // Default contextual arguments
                     if (!args.city) args.city = session.city;
                     if (!args.customerPhone) args.customerPhone = session.callerPhone;
-                    if (!args.workerPhone) args.workerPhone = session.callerPhone;
                     if (!args.customerName) args.customerName = session.callerName;
+
+                    // Identity is taken from the verified session, not from the transcript, so a
+                    // mis-heard or spoken phone number can never read or edit someone else's record.
+                    if (SELF_SCOPED_WORKER_TOOLS.has(call.name)) {
+                        args.workerPhone = session.callerPhone;
+                    } else if (!args.workerPhone) {
+                        args.workerPhone = session.callerPhone;
+                    }
 
                     // Execute tool from AI_TOOLS
                     if (typeof AI_TOOLS[call.name] === 'function') {
-                        toolResult = AI_TOOLS[call.name](args);
-                        actionsPerformed.push(`Gemini tool called: ${call.name}`);
+                        try {
+                            toolResult = await AI_TOOLS[call.name](args);
+                        } catch (toolErr) {
+                            console.error(`[Gemini Engine] Tool '${call.name}' threw:`, toolErr.message);
+                            toolResult = {
+                                status: 'error',
+                                persisted: false,
+                                dataAvailable: false,
+                                message: `The ${call.name} operation failed: ${toolErr.message}`
+                            };
+                        }
+                        // Operator-facing audit line. The worker hears a plain spoken answer, so
+                        // this is where a failed write or a failed cloud mirror has to become
+                        // visible — otherwise nobody ever learns the sync is broken.
+                        actionsPerformed.push(describeToolOutcome(call.name, toolResult));
                     } else {
                         toolResult = { status: 'error', message: `Unknown tool ${call.name}` };
                     }
@@ -559,12 +1235,16 @@ CRITICAL RULES:
                         toolExecuted,
                         toolResult,
                         actionsPerformed,
-                        shouldEndCall
+                        shouldEndCall,
+                        modelUsed: this.lastModelUsed
                     };
                 }
             }
         } catch (err) {
-            console.warn('[Gemini Engine] Fallback to deterministic rules engine:', err.message);
+            // Do NOT hide this. When the brain is down the caller deserves to know, instead of
+            // getting a scripted line that looks like a real answer.
+            this.lastError = err.message || String(err);
+            console.error(`[Gemini Engine] Brain unavailable across models [${this.modelChain.join(', ')}]:`, this.lastError);
             return null;
         }
 
@@ -1086,6 +1766,8 @@ class ContextAwareVoiceAgent {
         let toolResult = null;
         let detectedIntent = 'unknown';
         let extractedEntities = {};
+        let aiBrainAttempted = false;
+        let aiBrainError = null;
         const actionsPerformed = [];
 
         actionsPerformed.push(`Identified ${session.callerRole} (${session.callerName})`);
@@ -1137,6 +1819,7 @@ class ContextAwareVoiceAgent {
         // B. PRIMARY GEMINI API CLOUD BRAIN (CALLED FOR ALL LIVE CONVERSATION TURNS)
         // ======================================================================
         else if (process.env.GEMINI_API_KEY || geminiBrain.getClient()) {
+            aiBrainAttempted = true;
             try {
                 const geminiTurn = await geminiBrain.processTurn({ session, text });
                 if (geminiTurn && geminiTurn.spokenResponse) {
@@ -1147,9 +1830,12 @@ class ContextAwareVoiceAgent {
                     if (Array.isArray(geminiTurn.actionsPerformed)) {
                         actionsPerformed.push(...geminiTurn.actionsPerformed);
                     }
+                } else {
+                    aiBrainError = geminiBrain.lastError || 'The AI brain returned no response.';
                 }
             } catch (geminiErr) {
-                console.warn('[Gemini Voice Agent] Fallback to deterministic rules engine:', geminiErr.message);
+                aiBrainError = geminiErr.message;
+                console.error('[Gemini Voice Agent] Brain failed, using deterministic engine:', geminiErr.message);
             }
         }
 
@@ -1213,7 +1899,7 @@ class ContextAwareVoiceAgent {
                     const avail = session.context.pendingAvailabilityData;
                     
                     if (avail.updateType === 'REGISTRATION_AND_AVAILABILITY' || avail.updateType === 'MULTIPLE_DETAILS') {
-                        AI_TOOLS.registerWorkerProfile({
+                        await AI_TOOLS.registerWorkerProfile({
                             name: avail.name || 'Worker',
                             phone: avail.phone || session.callerPhone,
                             trade: avail.trade || 'Specialist',
@@ -1223,15 +1909,28 @@ class ContextAwareVoiceAgent {
                     }
 
                     toolExecuted = 'updateWorkerAvailability';
-                    toolResult = AI_TOOLS.updateWorkerAvailability({
+                    toolResult = await AI_TOOLS.updateWorkerAvailability({
                         workerPhone: avail.phone || session.callerPhone,
                         trade: avail.trade || 'Specialist',
                         date: avail.date,
                         startTime: avail.startTime,
                         endTime: avail.endTime,
-                        isAvailable: avail.isAvailable !== false
+                        isAvailable: avail.isAvailable !== false,
+                        // The worker just said yes to these exact details, which is what the
+                        // confirmation gate requires.
+                        confirmed: true
                     });
-                    actionsPerformed.push(`Updated ${avail.date} availability (${avail.startTime} – ${avail.endTime}) in database and Firebase`);
+                    // Report what actually happened, not what we hoped would happen.
+                    if (toolResult && toolResult.persisted) {
+                        actionsPerformed.push(`Updated ${avail.date} availability (${avail.startTime} – ${avail.endTime}) in the database`);
+                        if (toolResult.firebase && toolResult.firebase.ok === true) {
+                            actionsPerformed.push('Mirrored the availability change to Firebase');
+                        } else if (toolResult.firebase && toolResult.firebase.ok === false) {
+                            actionsPerformed.push(`Firebase mirror failed: ${toolResult.firebase.message}`);
+                        }
+                    } else {
+                        actionsPerformed.push(`Could not save ${avail.date} availability — the database write did not persist`);
+                    }
 
                     if (toolResult && toolResult.persisted) {
                         const tradeNoun = (avail.tradeNoun || getTradePersonNoun(avail.trade)).replace(/^(an?)\s+/i, '');
@@ -1264,13 +1963,15 @@ class ContextAwareVoiceAgent {
                 if (isAffirmative && session.context.pendingProfessionData) {
                     const prof = session.context.pendingProfessionData;
                     toolExecuted = 'registerWorkerProfile';
-                    toolResult = AI_TOOLS.registerWorkerProfile({
+                    toolResult = await AI_TOOLS.registerWorkerProfile({
                         name: prof.name,
                         phone: prof.phone || session.callerPhone,
                         trade: prof.trade,
                         city: session.city
                     });
-                    actionsPerformed.push(`Updated worker profession to ${prof.trade} in database`);
+                    actionsPerformed.push(toolResult && toolResult.persisted
+                        ? `Updated worker profession to ${prof.trade} in the database`
+                        : `Could not update worker profession to ${prof.trade} — the write did not persist`);
 
                     if (toolResult && toolResult.persisted) {
                         const profNoun = getTradePersonNoun(prof.trade).replace(/^(an?)\s+/i, '');
@@ -1511,7 +2212,9 @@ class ContextAwareVoiceAgent {
                 toolResult = AI_TOOLS.getWorkerSchedule({ workerPhone: session.callerPhone, date: targetDate });
 
                 const matchingSlot = (toolResult.availabilitySlots || []).find(s => s.date_str && s.date_str.toLowerCase() === targetDate.toLowerCase());
-                if (matchingSlot) {
+                if (toolResult.status === 'not_registered') {
+                    spokenResponse = `I don't have a worker account registered for your number yet, so there's no schedule saved. Would you like me to register you?`;
+                } else if (matchingSlot) {
                     spokenResponse = `Yes, you are marked available for ${targetDate.toLowerCase()} from ${matchingSlot.start_time} to ${matchingSlot.end_time}.`;
                 } else if (!toolResult.count || toolResult.count === 0) {
                     spokenResponse = `You don't have any jobs scheduled for ${targetDate.toLowerCase()}.`;
@@ -1528,10 +2231,13 @@ class ContextAwareVoiceAgent {
                 session.callerRole = 'worker';
                 toolExecuted = 'getWorkerNextJob';
                 toolResult = AI_TOOLS.getWorkerNextJob({ workerPhone: session.callerPhone });
-                if (toolResult.status === 'none') {
+                if (toolResult.status === 'not_registered') {
+                    spokenResponse = `I don't have a worker account registered for your number yet, so there are no jobs to show. Would you like me to register you?`;
+                } else if (toolResult.status !== 'success' || !toolResult.job) {
                     spokenResponse = `You don't have any upcoming jobs scheduled right now.`;
                 } else {
-                    spokenResponse = `Your next job is for ${toolResult.job.customer_name} at ${toolResult.job.location} at ${toolResult.job.requested_time} for ${toolResult.job.service}.`;
+                    const j = toolResult.job;
+                    spokenResponse = `Your next job is ${j.service} for ${j.customerName} at ${j.location}${j.requestedTime ? `, ${j.requestedTime}` : ''}. It's currently ${j.status}.`;
                 }
                 actionsPerformed.push(`Queried worker next job`);
             }
@@ -1542,10 +2248,24 @@ class ContextAwareVoiceAgent {
                 session.callerRole = 'worker';
                 toolExecuted = 'getWorkerEarnings';
                 toolResult = AI_TOOLS.getWorkerEarnings({ workerPhone: session.callerPhone });
-                const earned = toolResult.earnings.thisMonth || toolResult.earnings.totalEarnings || 0;
-                const completed = toolResult.earnings.totalCompletedJobs || 0;
-                spokenResponse = `You have earned ₹${earned} this month across ${completed} completed jobs.`;
-                actionsPerformed.push(`Calculated worker earnings (₹${earned})`);
+                if (toolResult.status === 'not_registered') {
+                    spokenResponse = `I don't have a worker account registered for your number, so there are no earnings recorded. Would you like me to register you?`;
+                } else {
+                    // Report this month and lifetime separately — never pass a lifetime total off as
+                    // this month's income.
+                    const e = toolResult.earnings || {};
+                    const month = e.thisMonth || 0;
+                    const total = e.totalEarnings || 0;
+                    const completed = e.totalCompletedJobs || 0;
+                    if (completed === 0) {
+                        spokenResponse = `You have no completed jobs recorded yet, so there are no earnings to report.`;
+                    } else if (month === 0) {
+                        spokenResponse = `You haven't earned anything yet this month. Your lifetime total is ₹${total} across ${completed} completed jobs.`;
+                    } else {
+                        spokenResponse = `You've earned ₹${month} this month. Your lifetime total is ₹${total} across ${completed} completed jobs.`;
+                    }
+                    actionsPerformed.push(`Read real earnings (month ₹${month}, total ₹${total})`);
+                }
             }
 
             // C.8 Worker Job Completion
@@ -1553,13 +2273,24 @@ class ContextAwareVoiceAgent {
                 detectedIntent = 'complete_job';
                 session.callerRole = 'worker';
                 const nextJob = AI_TOOLS.getWorkerNextJob({ workerPhone: session.callerPhone });
-                if (nextJob.status !== 'none' && nextJob.job) {
-                    toolExecuted = 'completeJob';
-                    toolResult = AI_TOOLS.completeJob({ jobId: nextJob.job.id, workerPhone: session.callerPhone });
-                    spokenResponse = `Great work! Job #${nextJob.job.id} for ${nextJob.job.customer_name} has been marked completed. ₹${nextJob.job.final_price || 350} has been added to your earnings.`;
-                    actionsPerformed.push(`Marked Job #${nextJob.job.id} completed`);
+                if (nextJob.status === 'not_registered') {
+                    spokenResponse = `I don't have a worker account registered for your number yet, so there are no jobs to close. Would you like me to register you?`;
+                } else if (nextJob.status === 'success' && nextJob.job) {
+                    if (nextJob.remainingOpenJobs > 1) {
+                        // More than one open job — ask instead of guessing which one is finished.
+                        spokenResponse = `You have ${nextJob.remainingOpenJobs} open jobs. Which one is finished — the ${nextJob.job.service} for ${nextJob.job.customerName} at ${nextJob.job.location}?`;
+                        session.context.pendingIntent = 'CONFIRM_COMPLETE_JOB';
+                        session.context.pendingCompleteJobId = nextJob.job.jobId;
+                    } else {
+                        toolExecuted = 'completeJob';
+                        toolResult = await AI_TOOLS.completeJob({ jobId: nextJob.job.jobId, workerPhone: session.callerPhone });
+                        spokenResponse = (toolResult && toolResult.persisted)
+                            ? `Done. Job ${nextJob.job.jobId} for ${nextJob.job.customerName} is marked completed.`
+                            : `Sorry, I couldn't mark that job completed. It is still showing as ${nextJob.job.status}.`;
+                        actionsPerformed.push(`completeJob ${nextJob.job.jobId} persisted=${toolResult && toolResult.persisted}`);
+                    }
                 } else {
-                    spokenResponse = `You don't have any active jobs in progress to mark completed.`;
+                    spokenResponse = `You don't have any open jobs to mark completed right now.`;
                 }
             }
 
@@ -1639,12 +2370,27 @@ class ContextAwareVoiceAgent {
                 actionsPerformed.push(`Searched database for ${service} specialists`);
             }
 
-            // Default graceful prompt
+            // No rule matched. This is NOT a place to advertise a menu of commands — either the
+            // AI brain is genuinely down (say so) or we genuinely did not understand (ask).
             else {
-                spokenResponse = session.callerRole === 'worker'
-                    ? `How can I assist you with your schedule, bookings, or earnings today?`
-                    : `Welcome to GigSync. What service or trade specialist are you looking for in ${session.city}?`;
-                actionsPerformed.push(`Default conversational guidance`);
+                const brainDown = aiBrainError || !aiBrainAttempted;
+                if (brainDown) {
+                    detectedIntent = 'ai_engine_unavailable';
+                    spokenResponse = session.callerRole === 'worker'
+                        ? `Sorry, I can't reach the GigSync assistant service right now, so I can't look up your details this moment. Please try again shortly.`
+                        : `Sorry, I can't reach the GigSync assistant service right now. Please try again shortly.`;
+                    actionsPerformed.push(aiBrainError
+                        ? `AI brain unavailable: ${aiBrainError}`
+                        : `AI brain not configured (no GEMINI_API_KEY)`);
+                    console.error('[VOICE] Answered with an outage message because the AI brain was unavailable.',
+                        aiBrainError || 'GEMINI_API_KEY missing');
+                } else {
+                    detectedIntent = 'needs_clarification';
+                    spokenResponse = session.callerRole === 'worker'
+                        ? `Sorry, I didn't quite catch that. What would you like me to check or change?`
+                        : `Sorry, I didn't quite catch that. What kind of work do you need help with?`;
+                    actionsPerformed.push(`Asked the caller to clarify an unrecognised request`);
+                }
             }
         }
 
@@ -1693,6 +2439,7 @@ module.exports = {
     aiAgent,
     geminiBrain,
     GEMINI_TOOLS_DECLARATIONS,
+    GEMINI_MODEL_CHAIN,
     AI_TOOLS,
     sessionManager
 };

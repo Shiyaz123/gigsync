@@ -337,14 +337,28 @@ function initDatabase() {
         `).run('Master Platform Administrator', adminPhone, 'shiyazabdulazeez@gmail.com', 'admin', pHash, 'Ramanagara', 'Headquarters');
     }
 
-    // PURGE ALL OLD DUMMY DATA: Keep ONLY the 3 test workers
-    const activeTestPhones = ['7760782551', '8073280683', '9743191097'];
-    db.prepare(`DELETE FROM workers WHERE phone NOT IN ('7760782551', '8073280683', '9743191097')`).run();
-    db.prepare(`DELETE FROM users WHERE role = 'worker' AND phone NOT IN ('7760782551', '8073280683', '9743191097')`).run();
-    db.prepare(`DELETE FROM worker_availability WHERE worker_phone NOT IN ('7760782551', '8073280683', '9743191097')`).run();
-    db.prepare(`DELETE FROM jobs WHERE worker_phone IS NOT NULL AND worker_phone NOT IN ('7760782551', '8073280683', '9743191097')`).run();
+    // --------------------------------------------------------------------------
+    // SEED / TEST RECORDS — kept strictly separate from production data.
+    //
+    // These 3 rows exist so the app has something to demo with. They are NOT
+    // production records and nothing in the app logic may depend on them.
+    // Production data (workers who registered by voice, chat or signup) is never
+    // touched here. The old code deleted every worker whose phone was not one of
+    // the 3 seeds on EVERY process start, which silently destroyed every worker
+    // created through the voice pipeline. That purge now only runs when it is
+    // explicitly asked for: GIGSYNC_SEED_RESET=1
+    // --------------------------------------------------------------------------
+    const seedReset = process.env.GIGSYNC_SEED_RESET === '1';
 
-    // Seed ONLY the 3 realistic test workers
+    if (seedReset) {
+        console.warn('⚠️  [Database] GIGSYNC_SEED_RESET=1 — deleting ALL worker records except the 3 seed test phones.');
+        db.prepare(`DELETE FROM workers WHERE phone NOT IN ('7760782551', '8073280683', '9743191097')`).run();
+        db.prepare(`DELETE FROM users WHERE role = 'worker' AND phone NOT IN ('7760782551', '8073280683', '9743191097')`).run();
+        db.prepare(`DELETE FROM worker_availability WHERE worker_phone NOT IN ('7760782551', '8073280683', '9743191097')`).run();
+        db.prepare(`DELETE FROM jobs WHERE worker_phone IS NOT NULL AND worker_phone NOT IN ('7760782551', '8073280683', '9743191097')`).run();
+    }
+
+    // Seed the 3 test workers
     const seedWorkers = [
         {
             name: 'Rumais',
@@ -412,7 +426,7 @@ function initDatabase() {
                 VALUES (?, ?, ?, 'worker', ?, ?, ?)
             `).run(w.name, w.phone, w.email, pHash, w.city, w.area);
             u = { id: Number(res.lastInsertRowid) };
-        } else {
+        } else if (seedReset) {
             db.prepare(`UPDATE users SET name = ?, email = ? WHERE id = ?`).run(w.name, w.email, u.id);
         }
 
@@ -426,22 +440,35 @@ function initDatabase() {
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.5, 25, 4, ?, 1, 1, ?, ?, ?, 'Ramanagara, Nearby Areas', ?)
             `).run(u.id, w.name, w.phone, w.trade, w.service, w.skills, w.tools, w.rating, w.price, w.initials, w.city, w.area, w.about);
             workerRow = { id: Number(wRes.lastInsertRowid) };
-        } else {
+        } else if (seedReset) {
+            // Only overwrite a live record when a seed reset was explicitly requested —
+            // otherwise a worker who changed their trade by voice would be reverted on restart.
             db.prepare(`
                 UPDATE workers SET name = ?, trade = ?, service = ?, rating = ?, price = ?, is_available = 1, is_verified = 1
                 WHERE id = ?
             `).run(w.name, w.trade, w.service, w.rating, w.price, workerRow.id);
         }
 
-        // Seed Exactly 1 Active Availability Record
-        db.prepare(`DELETE FROM worker_availability WHERE worker_phone = ?`).run(w.phone);
-        db.prepare(`
-            INSERT INTO worker_availability (worker_id, worker_phone, trade, date_str, start_time, end_time, is_available, notes)
-            VALUES (?, ?, ?, ?, ?, ?, 1, 'Standard shift')
-        `).run(workerRow.id, w.phone, w.trade, w.slotDate, w.slotStart, w.slotEnd);
+        // Give a seed worker one starter availability slot ONLY if they have none at all.
+        // Never delete slots the worker set themselves through the voice or chat agent.
+        const existingSlots = db.prepare(
+            `SELECT COUNT(*) AS c FROM worker_availability WHERE worker_phone = ?`
+        ).get(w.phone);
+        if (seedReset) {
+            db.prepare(`DELETE FROM worker_availability WHERE worker_phone = ?`).run(w.phone);
+        }
+        if (seedReset || !existingSlots || existingSlots.c === 0) {
+            db.prepare(`
+                INSERT INTO worker_availability (worker_id, worker_phone, trade, date_str, start_time, end_time, is_available, notes)
+                VALUES (?, ?, ?, ?, ?, ?, 1, 'Seed test record — standard shift')
+            `).run(workerRow.id, w.phone, w.trade, w.slotDate, w.slotStart, w.slotEnd);
+        }
     }
 
-    console.log('✅ [Database] Seeded exactly 3 test workers: Rumais (Electrician), Saqib (Plumber), Shaik Mohammed Anas (Mechanic)');
+    const liveWorkerCount = db.prepare(
+        `SELECT COUNT(*) AS c FROM workers WHERE phone NOT IN ('7760782551', '8073280683', '9743191097')`
+    ).get();
+    console.log(`✅ [Database] Seed test workers present (Rumais, Saqib, Shaik Mohammed Anas). Real (non-seed) worker records preserved: ${liveWorkerCount ? liveWorkerCount.c : 0}`);
     } catch (e) {
         console.warn('[Database Init Exception]:', e.message);
     }
@@ -450,10 +477,80 @@ function initDatabase() {
 initDatabase();
 
 /* ==========================================================================
+   FIREBASE MIRROR HELPER
+   Returns a promise resolving to the REAL Firestore outcome so callers can
+   verify the cloud write instead of assuming it worked. Firestore failures
+   never break the local write — SQLite stays authoritative — but they are
+   reported truthfully rather than swallowed.
+   ========================================================================== */
+function mirrorToFirebase({ worker = null, slot = null, job = null, customer = null }) {
+    const jobs = [];
+    if (worker) jobs.push(['worker', FirebaseSync.syncWorker(worker)]);
+    if (slot) jobs.push(['worker_availability', FirebaseSync.syncAvailability(slot)]);
+    if (job) jobs.push(['job', FirebaseSync.syncJob(job)]);
+    if (customer) jobs.push(['customer', FirebaseSync.syncCustomer(customer)]);
+
+    if (jobs.length === 0) {
+        return Promise.resolve({ ok: null, message: 'Nothing to mirror to Firebase.', collections: [] });
+    }
+
+    return Promise.all(jobs.map(([label, p]) =>
+        Promise.resolve(p)
+            .then(res => ({ label, ok: Boolean(res && res.status === 'success'), detail: res || null }))
+            .catch(err => ({ label, ok: false, detail: { status: 'error', message: err.message } }))
+    )).then(results => {
+        const failed = results.filter(r => !r.ok);
+        return {
+            ok: failed.length === 0,
+            collections: results.map(r => r.label),
+            results,
+            message: failed.length === 0
+                ? `Mirrored to Firestore: ${results.map(r => r.label).join(', ')}.`
+                : `Firestore write failed for ${failed.map(f => f.label).join(', ')}: ${failed.map(f => (f.detail && f.detail.message ? String(f.detail.message).slice(0, 240) : 'unknown error')).join(' | ')}`
+        };
+    });
+}
+
+/* ==========================================================================
+   CHANGE NOTIFICATIONS
+
+   Every write below funnels through this so open browser pages can be told what
+   changed the moment it changes, instead of showing whatever the customer's
+   screen happened to load minutes ago.
+
+   Why it is here and not in the API layer: a worker's availability can be changed
+   by a REST call, by the AI voice agent, or by the 3.5mm terminal. Notifying from
+   each of those separately guarantees one of them eventually gets forgotten. This
+   is the one place they all pass through.
+
+   Listeners must never break a write, so each is wrapped.
+   ========================================================================== */
+
+const changeListeners = new Set();
+
+function emitChange(entity, detail = {}) {
+    if (changeListeners.size === 0) return;
+    const event = { entity, ...detail, at: new Date().toISOString() };
+    for (const listener of changeListeners) {
+        try {
+            listener(event);
+        } catch (err) {
+            console.warn('[DB Change Listener Error]:', err.message);
+        }
+    }
+}
+
+/* ==========================================================================
    DATABASE OPERATIONS & REPOSITORY METHODS
    ========================================================================== */
 
 const DB = {
+    // Subscribe to writes. Returns an unsubscribe function.
+    onChange(listener) {
+        changeListeners.add(listener);
+        return () => changeListeners.delete(listener);
+    },
+
     // ---------------- AUTH & USER OPERATIONS ----------------
     createUser({ name, phone, email, role, password, city = 'Ramanagara', area = 'Town' }) {
         const cleanPhone = (phone || '').replace(/\D/g, '');
@@ -880,12 +977,18 @@ const DB = {
                 tools: tools || existingWorker.tools,
                 price: price || existingWorker.price
             });
+            // Re-read from storage: 'persisted' must describe what is actually stored,
+            // not what we hoped the UPDATE did.
+            const readBack = this.getWorkerByPhone(cleanPhone);
             return {
-                success: true,
-                persisted: true,
-                workerId: updated.id,
-                worker: updated,
-                action: 'UPDATED'
+                success: Boolean(readBack),
+                persisted: Boolean(readBack)
+                    && (!name || readBack.name === name)
+                    && (!trade || readBack.trade === trade),
+                workerId: readBack ? readBack.id : (updated ? updated.id : null),
+                worker: readBack || updated,
+                action: 'UPDATED',
+                firebaseSync: mirrorToFirebase({ worker: readBack || updated })
             };
         }
 
@@ -926,12 +1029,15 @@ const DB = {
             about: `${experienceYears || 2}+ years experience as ${trade || 'specialist'}.`
         });
 
+        // Verify the row exists in storage before reporting success.
+        const readBack = this.getWorkerByPhone(cleanPhone);
         return {
-            success: true,
-            persisted: true,
-            workerId: created.id,
-            worker: created,
-            action: 'CREATED'
+            success: Boolean(readBack),
+            persisted: Boolean(readBack),
+            workerId: readBack ? readBack.id : (created ? created.id : null),
+            worker: readBack || created,
+            action: 'CREATED',
+            firebaseSync: mirrorToFirebase({ worker: readBack || created })
         };
     },
 
@@ -946,6 +1052,7 @@ const DB = {
                 if (user) user.name = updates.name;
             }
             FirebaseSync.syncWorker(worker).catch(e => console.warn('[Firebase Sync Error]:', e));
+            emitChange('worker', { workerId: worker.id, workerPhone: worker.phone, workerName: worker.name, city: worker.city });
             return worker;
         }
 
@@ -975,6 +1082,7 @@ const DB = {
         }
 
         FirebaseSync.syncWorker(updated).catch(e => console.warn('[Firebase Sync Error]:', e));
+        if (updated) emitChange('worker', { workerId: updated.id, workerPhone: updated.phone, workerName: updated.name, city: updated.city });
         return updated;
     },
 
@@ -994,11 +1102,13 @@ const DB = {
         if (!db) {
             worker.is_available = isAvailable ? 1 : 0;
             FirebaseSync.syncWorker(worker).catch(e => console.warn('[Firebase Sync Error]:', e));
+            emitChange('worker', { workerId: worker.id, workerPhone: worker.phone, workerName: worker.name, isAvailable: Boolean(isAvailable) });
             return worker;
         }
         db.prepare('UPDATE workers SET is_available = ? WHERE id = ?').run(isAvailable ? 1 : 0, worker.id);
         const updated = this.getWorkerById(worker.id);
         FirebaseSync.syncWorker(updated).catch(e => console.warn('[Firebase Sync Error]:', e));
+        emitChange('worker', { workerId: updated.id, workerPhone: updated.phone, workerName: updated.name, isAvailable: Boolean(updated.is_available) });
         return updated;
     },
 
@@ -1013,8 +1123,14 @@ const DB = {
         const wId = worker ? worker.id : null;
 
         if (!db) {
+            if (!memoryStore.availability[phone]) memoryStore.availability[phone] = [];
+            // Upsert by (worker, date) so "change my hours for tomorrow" replaces the slot
+            // instead of stacking a second, contradictory row for the same day.
+            const existingIdx = memoryStore.availability[phone].findIndex(
+                s => String(s.date_str).toLowerCase() === String(dateStr).toLowerCase()
+            );
             const slot = {
-                id: Date.now(),
+                id: existingIdx >= 0 ? memoryStore.availability[phone][existingIdx].id : Date.now(),
                 worker_id: wId,
                 worker_phone: phone,
                 trade: wTrade,
@@ -1024,9 +1140,18 @@ const DB = {
                 is_available: isAvailable ? 1 : 0,
                 notes
             };
-            if (!memoryStore.availability[phone]) memoryStore.availability[phone] = [];
-            memoryStore.availability[phone].unshift(slot);
+            if (existingIdx >= 0) memoryStore.availability[phone][existingIdx] = slot;
+            else memoryStore.availability[phone].unshift(slot);
             if (worker) worker.is_available = isAvailable ? 1 : 0;
+            emitChange('availability', {
+                workerId: wId,
+                workerPhone: phone,
+                workerName: worker ? worker.name : null,
+                date: dateStr,
+                startTime,
+                endTime,
+                isAvailable: Boolean(isAvailable)
+            });
             return {
                 success: true,
                 persisted: true,
@@ -1039,39 +1164,74 @@ const DB = {
                 startTime,
                 endTime,
                 hours: `${startTime} – ${endTime}`,
-                isAvailable: Boolean(isAvailable)
+                isAvailable: Boolean(isAvailable),
+                firebaseSync: mirrorToFirebase({ worker, slot })
             };
         }
 
-        const stmt = db.prepare(`
-            INSERT INTO worker_availability (worker_id, worker_phone, trade, date_str, start_time, end_time, is_available, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        const runRes = stmt.run(wId, phone, wTrade, dateStr, startTime, endTime, isAvailable ? 1 : 0, notes);
+        // Upsert on (worker_phone, date_str): one authoritative slot per worker per day.
+        const existingSlot = db.prepare(
+            `SELECT * FROM worker_availability WHERE worker_phone = ? AND LOWER(date_str) = LOWER(?) ORDER BY id DESC LIMIT 1`
+        ).get(phone, dateStr);
+
+        let slotId;
+        if (existingSlot) {
+            db.prepare(`
+                UPDATE worker_availability
+                SET worker_id = ?, trade = ?, date_str = ?, start_time = ?, end_time = ?, is_available = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            `).run(wId, wTrade, dateStr, startTime, endTime, isAvailable ? 1 : 0, notes, existingSlot.id);
+            slotId = existingSlot.id;
+            // Remove any older duplicates for the same day left behind by the previous insert-only code.
+            db.prepare(
+                `DELETE FROM worker_availability WHERE worker_phone = ? AND LOWER(date_str) = LOWER(?) AND id <> ?`
+            ).run(phone, dateStr, existingSlot.id);
+        } else {
+            const runRes = db.prepare(`
+                INSERT INTO worker_availability (worker_id, worker_phone, trade, date_str, start_time, end_time, is_available, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(wId, phone, wTrade, dateStr, startTime, endTime, isAvailable ? 1 : 0, notes);
+            slotId = Number(runRes.lastInsertRowid);
+        }
 
         if (wId) {
             db.prepare('UPDATE workers SET is_available = ? WHERE id = ?').run(isAvailable ? 1 : 0, wId);
         }
 
-        const slot = db.prepare('SELECT * FROM worker_availability WHERE id = ?').get(runRes.lastInsertRowid);
+        // Read back what SQLite actually stored — this, not the input, is the truth.
+        const slot = db.prepare('SELECT * FROM worker_availability WHERE id = ?').get(slotId);
         const updatedWorker = wId ? this.getWorkerById(wId) : null;
-        if (updatedWorker) {
-            FirebaseSync.syncWorker(updatedWorker).catch(e => console.warn('[Firebase Sync Error]:', e));
+
+        // Tell open pages. Announced from the read-back row, so a listener can never be
+        // told about hours that were not actually stored.
+        if (slot) {
+            emitChange('availability', {
+                workerId: wId,
+                workerPhone: phone,
+                workerName: worker ? worker.name : null,
+                date: slot.date_str,
+                startTime: slot.start_time,
+                endTime: slot.end_time,
+                isAvailable: Boolean(slot.is_available)
+            });
         }
 
         return {
-            success: true,
-            persisted: Boolean(slot),
-            slotId: runRes.lastInsertRowid,
+            success: Boolean(slot),
+            persisted: Boolean(slot) && slot.start_time === startTime && slot.end_time === endTime,
+            slotId,
             workerId: wId,
             workerPhone: phone,
             workerName: worker ? worker.name : null,
             trade: wTrade,
-            date: dateStr,
-            startTime,
-            endTime,
-            hours: `${startTime} – ${endTime}`,
-            isAvailable: Boolean(isAvailable)
+            date: slot ? slot.date_str : dateStr,
+            startTime: slot ? slot.start_time : startTime,
+            endTime: slot ? slot.end_time : endTime,
+            hours: `${slot ? slot.start_time : startTime} – ${slot ? slot.end_time : endTime}`,
+            isAvailable: Boolean(isAvailable),
+            // Promise the caller can await to learn the REAL Firestore outcome, instead of a
+            // fire-and-forget call whose 403 nobody ever saw.
+            firebaseSync: mirrorToFirebase({ worker: updatedWorker, slot })
         };
     },
 
@@ -1210,6 +1370,7 @@ const DB = {
 
         const created = this.getJobById(jobId);
         FirebaseSync.syncJob(created).catch(e => console.warn('[Firebase Sync Error]:', e));
+        if (created) emitChange('job', { jobId: created.id, status: created.status, customerPhone: created.customer_phone, workerPhone: created.worker_phone, workerId: created.worker_id, city: created.city });
         return created;
     },
 
@@ -1300,6 +1461,7 @@ const DB = {
                 }
             }
             FirebaseSync.syncJob(job).catch(e => console.warn('[Firebase Sync Error]:', e));
+            emitChange('job', { jobId: job.id, status: job.status, customerPhone: job.customer_phone, workerPhone: job.worker_phone, workerId: job.worker_id, city: job.city });
             return job;
         }
 
@@ -1322,6 +1484,7 @@ const DB = {
         db.prepare(`UPDATE jobs SET ${fields.join(', ')} WHERE id = ?`).run(...params);
         const updated = this.getJobById(jobId);
         FirebaseSync.syncJob(updated).catch(e => console.warn('[Firebase Sync Error]:', e));
+        if (updated) emitChange('job', { jobId: updated.id, status: updated.status, customerPhone: updated.customer_phone, workerPhone: updated.worker_phone, workerId: updated.worker_id, city: updated.city });
         return updated;
     },
 

@@ -113,8 +113,8 @@
                                 <label class="field-label" style="color:var(--gs-primary);font-weight:600">
                                     <i class="fa-solid fa-key"></i> Terminal Security Key
                                 </label>
-                                <input type="password" id="gTerminalSecretInput" class="field-input" placeholder="Enter terminal passcode">
-                                <small class="field-hint">Default passcode: gigsync@admin2026</small>
+                                <input type="password" id="gTerminalSecretInput" class="field-input" placeholder="Enter operator password">
+                                <small class="field-hint">Operator mobile goes in the Mobile Number field above. Default admin: 9999999999 / admin@gigsync2026</small>
                             </div>
                         </div>
 
@@ -549,6 +549,28 @@
                         <div class="hardware-info">
                             <span class="hardware-label">🎧 3.5mm Sound Card (IN / OUT)</span>
                             <strong class="hardware-status" id="audio35ConnStatus">Connected (Audio Input Detected)</strong>
+                        </div>
+                    </div>
+
+                    <!-- Caller identity.
+                         The AI reads and writes this person's real GigSync record, so the
+                         number must be their actual registered mobile. Without it the
+                         terminal has no idea whose availability or earnings it is touching. -->
+                    <div class="hardware-card" style="grid-column: 1 / -1; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <i class="fa-solid fa-id-card" style="color:var(--gs-primary); font-size:18px;"></i>
+                            <div>
+                                <span class="hardware-label" style="display:block;">👤 Caller On The Line (Registered Mobile):</span>
+                                <input type="tel" id="terminalCallerPhone" maxlength="10" inputmode="numeric"
+                                    placeholder="10-digit registered number"
+                                    style="padding:6px 10px; border-radius:var(--gs-radius-sm); border:1px solid var(--gs-border); font-size:12.5px; font-weight:600; outline:none; background:#FFF; width:210px;">
+                            </div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <button type="button" class="btn btn-outline btn-sm" id="terminalIdentifyCallerBtn">
+                                <i class="fa-solid fa-user-check"></i> Identify Caller
+                            </button>
+                            <strong class="hardware-status" id="terminalCallerStatus">No caller identified yet</strong>
                         </div>
                     </div>
 

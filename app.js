@@ -338,28 +338,14 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 data = JSON.parse(text);
             } catch (err) {
-                // Fallback for Master Admin
-                if (endpoint.includes('/api/auth/login') && options.body) {
-                    const b = JSON.parse(options.body);
-                    if (b.phone === '9999999999' && b.password === 'admin@gigsync2026') {
-                        return {
-                            ok: true,
-                            status: 200,
-                            data: {
-                                status: 'success',
-                                token: 'master_admin_session_token',
-                                user: {
-                                    id: 1,
-                                    name: 'Platform Administrator',
-                                    phone: '9999999999',
-                                    role: 'admin',
-                                    city: 'Ramanagara'
-                                }
-                            }
-                        };
-                    }
-                }
-                return { ok: false, status: res.status, data: { status: 'error', message: 'Connecting to server...' } };
+                // A non-JSON body means the server did not answer properly. It used to be
+                // treated as a cue to hand out a fake admin session client-side, which made an
+                // unreachable backend look like a successful login. Report the truth instead.
+                return {
+                    ok: false,
+                    status: res.status,
+                    data: { status: 'error', message: 'The GigSync server did not respond properly. Please try again.' }
+                };
             }
             return { ok: res.ok, status: res.status, data };
         } catch (err) {
@@ -540,13 +526,20 @@ document.addEventListener('DOMContentLoaded', () => {
         gWorkerExtraFields?.classList.toggle('hidden', !isWorker || authMode !== 'register');
         gTerminalSecretGroup?.classList.toggle('hidden', !isTerminal);
         document.getElementById('authTabsRow')?.classList.toggle('hidden', isTerminal);
-        gPhoneGroup?.classList.toggle('hidden', isTerminal);
+        // The terminal operator signs in as a real admin, so they need the mobile field too.
+        // Their password lives in the Terminal Security Key field instead of gPasswordGroup.
+        gPhoneGroup?.classList.toggle('hidden', false);
         gPasswordGroup?.classList.toggle('hidden', isTerminal);
         document.getElementById('gCityGroup')?.classList.toggle('hidden', isTerminal);
 
-        // Pre-fill terminal secret
-        if (isTerminal && gTerminalSecretInput && !gTerminalSecretInput.value) {
-            gTerminalSecretInput.value = 'gigsync@admin2026';
+        // Pre-fill the default operator credentials so the shipped admin account still
+        // opens the terminal without the operator having to look them up.
+        if (isTerminal) {
+            if (gTerminalSecretInput && !gTerminalSecretInput.value) {
+                gTerminalSecretInput.value = 'admin@gigsync2026';
+            }
+            const phoneField = document.getElementById('gPhoneInput');
+            if (phoneField && !phoneField.value) phoneField.value = '9999999999';
         }
 
         // Update button labels
@@ -609,15 +602,34 @@ document.addEventListener('DOMContentLoaded', () => {
         const secret = document.getElementById('gTerminalSecretInput')?.value.trim();
 
         if (selectedRole === 'terminal') {
-            if (secret && secret !== 'gigsync@admin2026') {
-                authError.textContent = 'Invalid Terminal Passcode (Default: gigsync@admin2026)';
+            // The voice terminal now needs a REAL admin session, because the server only lets
+            // an authenticated admin connect a call on another person's behalf. The old code
+            // faked a 'master_admin_session_token' that the server had never issued, so every
+            // 3.5mm call arrived with no verifiable identity at all.
+            const adminPhone = phone || '9999999999';
+            const res = await apiFetch('/api/auth/login', {
+                method: 'POST',
+                body: JSON.stringify({ phone: adminPhone, password: secret })
+            });
+
+            if (!res.ok || !res.data.user || !res.data.token) {
+                authError.textContent = (res.data && res.data.message)
+                    || 'Terminal sign-in failed. Check the operator number and security key.';
                 authError.classList.remove('hidden');
                 return;
             }
-            state.user = { id: 1, name: 'Voice Terminal Operator', role: 'admin', phone: phone || '9999999999', city };
-            state.token = 'master_admin_session_token';
+            if (res.data.user.role !== 'admin') {
+                authError.textContent = 'That account is not a terminal operator. Sign in with an admin account.';
+                authError.classList.remove('hidden');
+                return;
+            }
+
+            state.token = res.data.token;
+            state.user = res.data.user;
+            localStorage.setItem('gigsync_token', state.token);
+            updateActiveCity(state.user.city || city);
             switchPortal('terminal');
-            toast('Connected to GigSync Voice Terminal');
+            toast(`Voice Terminal connected — operator ${state.user.name}`);
             return;
         }
 
@@ -628,22 +640,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (authMode === 'register') {
-            const regPayload = {
-                phone,
-                password: password || '123456',
-                name: name || (selectedRole === 'worker' ? 'Ramesh Kumar' : 'Customer User'),
-                role: selectedRole,
-                city,
-                trade,
-                price
-            };
+            if (!name) {
+                authError.textContent = 'Please enter your name.';
+                authError.classList.remove('hidden');
+                return;
+            }
+            if (!password) {
+                authError.textContent = 'Please choose a password.';
+                authError.classList.remove('hidden');
+                return;
+            }
+
+            const regPayload = { phone, password, name, role: selectedRole, city, trade, price };
 
             const res = await apiFetch('/api/auth/register', {
                 method: 'POST',
                 body: JSON.stringify(regPayload)
             });
 
-            if (res.ok && res.data.user) {
+            if (res.ok && res.data.user && res.data.token) {
                 state.token = res.data.token;
                 state.user = res.data.user;
                 localStorage.setItem('gigsync_token', res.data.token);
@@ -652,31 +667,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 switchPortal(selectedRole === 'worker' ? 'worker' : 'customer');
                 toast(`Welcome to GigSync, ${state.user.name}!`);
             } else {
-                // Local fallback registration
-                const fallbackUser = {
-                    id: Date.now(),
-                    phone,
-                    name: regPayload.name,
-                    role: selectedRole,
-                    city,
-                    profile: selectedRole === 'worker' ? { trade, price } : null
-                };
-                state.token = 'local_vault_token';
-                state.user = fallbackUser;
-                localStorage.setItem('gigsync_token', state.token);
-                LocalAuthVault.saveUser(fallbackUser);
-                updateActiveCity(city);
-                switchPortal(selectedRole === 'worker' ? 'worker' : 'customer');
-                toast(`Account created locally, ${fallbackUser.name}!`);
+                // No local fallback account. The old code invented a client-side user with a
+                // made-up name ('Ramesh Kumar') and a token the server had never issued, so the
+                // person appeared signed in while nothing existed in the database — and every
+                // later request silently acted as nobody.
+                authError.textContent = (res.data && res.data.message)
+                    || 'Could not create your account. Please check your connection and try again.';
+                authError.classList.remove('hidden');
             }
         } else {
             // Sign In
+            if (!password) {
+                authError.textContent = 'Please enter your password.';
+                authError.classList.remove('hidden');
+                return;
+            }
+
             const res = await apiFetch('/api/auth/login', {
                 method: 'POST',
-                body: JSON.stringify({ phone, password: password || '123456', role: selectedRole })
+                body: JSON.stringify({ phone, password, role: selectedRole })
             });
 
-            if (res.ok && res.data.user) {
+            if (res.ok && res.data.user && res.data.token) {
                 state.token = res.data.token;
                 state.user = res.data.user;
                 localStorage.setItem('gigsync_token', res.data.token);
@@ -685,56 +697,45 @@ document.addEventListener('DOMContentLoaded', () => {
                 switchPortal(state.user.role === 'worker' ? 'worker' : 'customer');
                 toast(`Welcome back, ${state.user.name}`);
             } else {
-                // Check local vault or allow direct demo fallback
-                const vaultUser = LocalAuthVault.findByPhone(phone);
-                if (vaultUser) {
-                    state.token = 'local_vault_token';
-                    state.user = vaultUser;
-                    localStorage.setItem('gigsync_token', state.token);
-                    updateActiveCity(vaultUser.city || city);
-                    switchPortal(vaultUser.role === 'worker' ? 'worker' : 'customer');
-                    toast(`Welcome back, ${vaultUser.name}`);
-                } else {
-                    // Create guest on the fly for ease of use
-                    const instantUser = {
-                        id: Date.now(),
-                        phone,
-                        name: selectedRole === 'worker' ? 'Rumais (Worker)' : 'Customer User',
-                        role: selectedRole,
-                        city,
-                        trade: selectedRole === 'worker' ? trade : null,
-                        price: selectedRole === 'worker' ? price : null
-                    };
-                    state.token = 'instant_session_token';
-                    state.user = instantUser;
-                    localStorage.setItem('gigsync_token', state.token);
-                    LocalAuthVault.saveUser(instantUser);
-                    updateActiveCity(city);
-                    switchPortal(selectedRole === 'worker' ? 'worker' : 'customer');
-                    toast(`Signed in as ${instantUser.name}`);
-                }
+                // Sign-in failures are reported honestly. Previously a wrong password quietly
+                // produced an 'instant_session_token' identity called 'Rumais (Worker)', which
+                // meant a failed login looked identical to a successful one.
+                authError.textContent = (res.data && res.data.message)
+                    || 'Incorrect mobile number or password.';
+                authError.classList.remove('hidden');
             }
         }
     });
 
     // Guest Mode Continue
+    //
+    // Guest mode is for BROWSING only, and it can no longer claim to be somebody real.
+    // It previously signed the visitor in as seed worker Rumais (7760782551) with a token
+    // the server never issued — so a guest could read and rewrite a real worker's schedule.
     continueGuestBtn?.addEventListener('click', () => {
-        if (selectedRole === 'terminal') {
-            state.user = { id: 1, name: 'Voice Terminal Operator', role: 'admin', phone: '9999999999', city: state.city };
-            state.token = 'master_admin_session_token';
-            switchPortal('terminal');
-            toast('Connected to GigSync Voice Terminal');
-        } else if (selectedRole === 'worker') {
-            state.user = { id: 57, name: 'Rumais', role: 'worker', phone: '7760782551', city: state.city, trade: 'Electrician', price: 300 };
-            state.token = 'guest_worker_token';
-            switchPortal('worker');
-            toast('Exploring as Rumais (Worker)');
-        } else {
-            state.user = { id: 999, name: 'Guest Customer', role: 'customer', phone: '9876543210', city: state.city };
-            state.token = 'guest_cust_token';
-            switchPortal('customer');
-            toast('Exploring as Guest Customer');
+        const authError = document.getElementById('gAuthError');
+        const cityNow = document.getElementById('gCitySelect')?.value || state.city;
+
+        if (selectedRole === 'terminal' || selectedRole === 'worker') {
+            // Both of these act on a real person's records, so both need a real sign-in.
+            if (authError) {
+                authError.textContent = selectedRole === 'terminal'
+                    ? 'The voice terminal needs an operator sign-in. Enter the operator mobile number and password above.'
+                    : 'Worker dashboards show real bookings and earnings, so please sign in with your registered mobile number.';
+                authError.classList.remove('hidden');
+            }
+            return;
         }
+
+        // A guest customer browses with no identity at all. The moment they want to book or
+        // chat, the AI asks for their number — we do not put words in their mouth by
+        // inventing '9876543210'.
+        state.user = { id: null, name: 'Guest', role: 'customer', phone: null, city: cityNow };
+        state.token = null;
+        localStorage.removeItem('gigsync_token');
+        updateActiveCity(cityNow);
+        switchPortal('customer');
+        toast('Browsing GigSync as a guest — sign in to book.');
     });
 
     // Dropdown Profile Toggles
@@ -756,50 +757,49 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Direct Portal Switchers in Navigation / Dropdowns
+    //
+    // Switching view must never switch IDENTITY. These handlers used to overwrite
+    // state.user with an invented person — including seed worker Rumais (7760782551) —
+    // so one tap made the signed-in visitor look like a real worker. A portal that shows
+    // someone's private data now requires being signed in as that someone.
+    function requireRole(role, portal, label) {
+        if (state.user && state.user.role === role) {
+            switchPortal(portal);
+            toast(`Switched to ${label}`);
+            return;
+        }
+        toast(`Sign in with your ${role === 'admin' ? 'operator' : role} account to open the ${label}.`);
+        switchPortal('gateway');
+        // The gateway's role picker uses 'terminal' for the admin operator.
+        applyRoleSelection(role === 'admin' ? 'terminal' : role);
+    }
+
     document.getElementById('switchPortalBtn')?.addEventListener('click', () => {
         userDropdownMenu?.classList.add('hidden');
-        if (!state.user || state.user.role !== 'worker') {
-            state.user = { id: 57, name: 'Rumais', role: 'worker', phone: '7760782551', city: state.city, trade: 'Electrician' };
-        }
-        switchPortal('worker');
-        toast('Switched to Worker Experience');
+        requireRole('worker', 'worker', 'Worker Dashboard');
     });
 
     document.getElementById('dropdownTerminalBtn')?.addEventListener('click', () => {
         userDropdownMenu?.classList.add('hidden');
-        switchPortal('terminal');
-        toast('Switched to Voice Terminal');
+        requireRole('admin', 'terminal', 'Voice Terminal');
     });
 
     document.getElementById('workerSwitchCustBtn')?.addEventListener('click', () => {
         workerDropdownMenu?.classList.add('hidden');
-        if (!state.user || state.user.role !== 'customer') {
-            state.user = { id: 999, name: 'Customer User', role: 'customer', phone: '9876543210', city: state.city };
-        }
-        switchPortal('customer');
-        toast('Switched to Customer Experience');
+        requireRole('customer', 'customer', 'Customer Experience');
     });
 
     document.getElementById('wDropdownTerminalBtn')?.addEventListener('click', () => {
         workerDropdownMenu?.classList.add('hidden');
-        switchPortal('terminal');
-        toast('Switched to Voice Terminal');
+        requireRole('admin', 'terminal', 'Voice Terminal');
     });
 
     document.getElementById('terminalSwitchCustBtn')?.addEventListener('click', () => {
-        if (!state.user || state.user.role !== 'customer') {
-            state.user = { id: 999, name: 'Customer User', role: 'customer', phone: '9876543210', city: state.city };
-        }
-        switchPortal('customer');
-        toast('Switched to Customer Experience');
+        requireRole('customer', 'customer', 'Customer Experience');
     });
 
     document.getElementById('terminalSwitchWorkerBtn')?.addEventListener('click', () => {
-        if (!state.user || state.user.role !== 'worker') {
-            state.user = { id: 57, name: 'Rumais', role: 'worker', phone: '7760782551', city: state.city, trade: 'Electrician' };
-        }
-        switchPortal('worker');
-        toast('Switched to Worker Experience');
+        requireRole('worker', 'worker', 'Worker Dashboard');
     });
 
     // Logout Handlers
@@ -853,9 +853,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const location = document.getElementById('newJobLocation')?.value.trim();
         const budget = document.getElementById('newJobBudget')?.value.trim();
 
+        // A booking has to belong to a real, reachable customer — the worker calls this
+        // number. It used to fall back to '9876543210', creating jobs nobody could deliver.
+        if (!state.user || !state.user.phone) {
+            toast('Please sign in with your mobile number before posting a job.');
+            return;
+        }
+
         const payload = {
-            customer_phone: state.user ? state.user.phone : '9876543210',
-            customer_name: state.user ? state.user.name : 'Customer',
+            customer_phone: state.user.phone,
+            customer_name: state.user.name,
             service,
             problem_description,
             location,
@@ -967,6 +974,94 @@ document.addEventListener('DOMContentLoaded', () => {
         openCreateJobModal();
     };
 
+    /* ======================================================================
+       LIVE UPDATES
+
+       Subscribes to /api/events, the server's change stream. When a worker edits
+       their hours — from this browser, from the customer chatbot, or from the
+       3.5mm voice handset — every open page is told and re-reads through the
+       normal API.
+
+       Before this, the specialist list showed whatever was fetched when the page
+       opened. A customer could be looking at "09:00 AM – 04:00 PM" seconds after
+       the worker had changed it on a phone call, and only a manual refresh would
+       correct it.
+
+       The event says WHAT changed, never the new values. The refresh is a real
+       read of the real datastore, so the screen cannot end up showing a value the
+       database does not hold.
+       ====================================================================== */
+
+    let liveStream = null;
+    let liveRefreshTimer = null;
+    const pendingLiveEntities = new Set();
+
+    function setLiveIndicator(connected) {
+        // Reflects a genuinely open stream — not an assumption that one exists.
+        document.querySelectorAll('[data-live-indicator]').forEach(el => {
+            el.classList.toggle('live-on', connected);
+            el.title = connected ? 'Live updates connected' : 'Live updates reconnecting…';
+        });
+    }
+
+    // A burst of writes (a job accepted, which also touches the worker) should cause
+    // one refresh, not three.
+    function scheduleLiveRefresh(entity) {
+        pendingLiveEntities.add(entity);
+        if (liveRefreshTimer) return;
+        liveRefreshTimer = setTimeout(() => {
+            liveRefreshTimer = null;
+            const entities = new Set(pendingLiveEntities);
+            pendingLiveEntities.clear();
+            applyLiveRefresh(entities);
+        }, 400);
+    }
+
+    function applyLiveRefresh(entities) {
+        const workerSideChanged = entities.has('worker') || entities.has('availability');
+        const jobChanged = entities.has('job');
+
+        // Only the surface actually on screen is re-read.
+        if (state.portal === 'customer') {
+            if (state.customerView === 'bookings' && jobChanged) loadCustomerBookings();
+            else if (workerSideChanged || jobChanged) loadCustomerHomeData();
+        } else if (state.portal === 'worker') {
+            if (state.workerView === 'bookings' && jobChanged) loadWorkerBookings();
+            else if (state.workerView === 'earnings' && jobChanged) loadWorkerEarnings();
+            else if (workerSideChanged || jobChanged) loadWorkerDashboardData();
+        } else if (state.portal === 'terminal') {
+            loadTerminalData();
+        }
+    }
+
+    function connectLiveUpdates() {
+        if (liveStream || typeof EventSource === 'undefined') return;
+
+        try {
+            liveStream = new EventSource(`${API_BASE}/api/events`);
+        } catch (err) {
+            console.warn('[GigSync] Live updates unavailable:', err.message);
+            return;
+        }
+
+        liveStream.addEventListener('ready', () => setLiveIndicator(true));
+
+        liveStream.addEventListener('change', (evt) => {
+            let change = null;
+            try { change = JSON.parse(evt.data); } catch (_) { return; }
+            if (!change || !change.entity) return;
+            scheduleLiveRefresh(change.entity);
+        });
+
+        liveStream.onerror = () => {
+            // EventSource reconnects on its own; the indicator just stops claiming
+            // the stream is live while it is down.
+            setLiveIndicator(false);
+        };
+    }
+
+    connectLiveUpdates();
+
     document.getElementById('refreshCustWorkersBtn')?.addEventListener('click', () => {
         toast('Refreshing feed...');
         loadCustomerHomeData();
@@ -1023,7 +1118,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('dropdownUserName') && (document.getElementById('dropdownUserName').textContent = name || '');
 
         // Save to backend if authenticated
-        if (state.token && state.token !== 'guest_cust_token' && state.token !== 'local_vault_token') {
+        if (state.token) {
             await apiFetch('/api/customers/me/profile', {
                 method: 'PATCH',
                 body: JSON.stringify({ name, city, area })
@@ -1175,7 +1270,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Fetch real worker profile if available (for real trade + availability)
         let workerProfile = null;
-        if (state.user && state.token && state.token !== 'guest_worker_token' && state.token !== 'instant_session_token') {
+        if (state.user && state.token) {
             const meRes = await apiFetch('/api/auth/me');
             if (meRes.ok && meRes.data.user) {
                 state.user = { ...state.user, ...meRes.data.user };
@@ -1429,7 +1524,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const workerId = state.user?.profile?.id || state.user?.id;
         let earningsData = null;
 
-        if (workerId && state.token && state.token !== 'guest_worker_token') {
+        if (workerId && state.token) {
             const eRes = await apiFetch(`/api/workers/${workerId}/earnings`);
             if (eRes.ok && eRes.data.earnings) {
                 earningsData = eRes.data.earnings;
@@ -2166,19 +2261,48 @@ document.addEventListener('DOMContentLoaded', () => {
         updateDiagnostic('diagStt', '🟢 Working (Transcribed)', 'ok');
         updateDiagnostic('diagAiResponse', '🟡 Generating...', 'working');
 
+        // Caller identity.
+        //
+        // On the 3.5mm terminal the operator states who is physically on the handset; that
+        // number is the only identity claim the server accepts from this client, and it
+        // only accepts it because the operator holds a verified admin session. Everywhere
+        // else the server takes the caller from the session and ignores what we send, so
+        // we deliberately do not invent a phone number here — a wrong number would read
+        // and edit the wrong worker's record.
+        const terminalCaller = state.portal === 'terminal'
+            ? (document.getElementById('terminalCallerPhone')?.value || '').replace(/\D/g, '')
+            : '';
+
+        if (state.portal === 'terminal' && terminalCaller.length !== 10) {
+            aiModalWaveBars?.classList.add('hidden');
+            updateDiagnostic('diagAiResponse', '🔴 No caller identified', 'err');
+            const warning = 'Enter the caller\'s 10-digit registered mobile number before starting the call.';
+            appendTerminalTranscript('GIGSYNC AI', warning);
+            appendAiDialogue('GIGSYNC AI', warning);
+            toast('⚠️ Identify the caller first (registered mobile number).');
+            return;
+        }
+
+        const payload = {
+            sessionId: state.sessionId,
+            city: state.city,
+            speechText
+        };
+        if (terminalCaller) payload.callerPhone = terminalCaller;
+        else if (state.user && state.user.phone) payload.callerPhone = state.user.phone;
+
         const res = await apiFetch('/api/ai/voice-call', {
             method: 'POST',
-            body: JSON.stringify({
-                sessionId: state.sessionId,
-                callerPhone: state.user ? state.user.phone : '9876543210',
-                callerRole: (state.portal === 'worker' || state.portal === 'terminal') ? 'worker' : 'customer',
-                callerName: state.user ? state.user.name : 'User',
-                city: state.city,
-                speechText
-            })
+            body: JSON.stringify(payload)
         });
 
         aiModalWaveBars?.classList.add('hidden');
+
+        // Show who the server actually resolved the caller to, so the operator can see at
+        // a glance whether the AI is talking to the record they intended.
+        if (res.ok && res.data && res.data.callerIdentity) {
+            renderTerminalCallerStatus(res.data.callerIdentity);
+        }
 
         if (res.ok && res.data.spokenResponse) {
             if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = '🔊 Responding...';
@@ -2207,9 +2331,72 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             if (aiVoiceStateLabel) aiVoiceStateLabel.textContent = 'Click microphone to speak';
             updateDiagnostic('diagAiResponse', '🔴 Failed', 'err');
-            toast('AI processing service unavailable.');
+            // Report what actually went wrong. A refused identity and a dead AI service are
+            // very different problems, and "service unavailable" hid both.
+            const reason = (res.data && res.data.message) || 'AI processing service unavailable.';
+            appendTerminalTranscript('GIGSYNC AI', reason);
+            appendAiDialogue('GIGSYNC AI', reason);
+            toast(`⚠️ ${reason}`);
         }
     }
+
+    // Renders the server-resolved caller identity onto the terminal's identity card.
+    function renderTerminalCallerStatus(identity) {
+        const el = document.getElementById('terminalCallerStatus');
+        if (!el || !identity) return;
+        if (identity.registeredWorker) {
+            el.textContent = `✅ ${identity.name} — registered worker (${identity.phone})`;
+            el.style.color = 'var(--gs-success, #16A34A)';
+        } else if (identity.role === 'admin') {
+            el.textContent = `🛠️ ${identity.name} — operator account (${identity.phone})`;
+            el.style.color = 'var(--gs-text-muted, #64748B)';
+        } else {
+            // Not an error: a genuinely new caller. The AI can register them on this call.
+            el.textContent = `🆕 ${identity.phone} — new caller, not registered yet`;
+            el.style.color = 'var(--gs-warning, #D97706)';
+        }
+    }
+
+    // "Identify Caller" — confirms whose record the AI will act on BEFORE the call starts.
+    document.getElementById('terminalIdentifyCallerBtn')?.addEventListener('click', async () => {
+        const el = document.getElementById('terminalCallerStatus');
+        const phone = (document.getElementById('terminalCallerPhone')?.value || '').replace(/\D/g, '');
+        if (phone.length !== 10) {
+            if (el) {
+                el.textContent = '⚠️ Enter a 10-digit mobile number';
+                el.style.color = 'var(--gs-warning, #D97706)';
+            }
+            return;
+        }
+        if (el) {
+            el.textContent = 'Looking up caller...';
+            el.style.color = 'var(--gs-text-muted, #64748B)';
+        }
+        const res = await apiFetch(`/api/ai/caller?phone=${encodeURIComponent(phone)}`);
+        if (res.ok && res.data && res.data.caller) {
+            renderTerminalCallerStatus(res.data.caller);
+            // A brand new caller is a real outcome, not an error — say so plainly.
+            if (!res.data.caller.registeredWorker) {
+                appendTerminalActivity(`Caller ${phone} is not a registered worker. The AI can register them on this call.`);
+            } else {
+                appendTerminalActivity(`Caller identified: ${res.data.caller.name} (${phone}).`);
+            }
+        } else if (el) {
+            el.textContent = `⚠️ ${(res.data && res.data.message) || 'Caller lookup failed.'}`;
+            el.style.color = 'var(--gs-danger, #DC2626)';
+        }
+    });
+
+    // Re-identify whenever the operator edits the number, so a stale name is never shown.
+    document.getElementById('terminalCallerPhone')?.addEventListener('input', () => {
+        const el = document.getElementById('terminalCallerStatus');
+        if (el) {
+            el.textContent = 'No caller identified yet';
+            el.style.color = 'var(--gs-text-muted, #64748B)';
+        }
+        // A new caller means a new conversation — never carry one worker's context into another's call.
+        state.sessionId = null;
+    });
 
     function appendAiDialogue(sender, text) {
         if (!aiModalTranscriptBox) return;
