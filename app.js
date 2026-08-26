@@ -699,7 +699,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const instantUser = {
                         id: Date.now(),
                         phone,
-                        name: selectedRole === 'worker' ? 'Ramesh Kumar (Worker)' : 'Customer User',
+                        name: selectedRole === 'worker' ? 'Rumais (Worker)' : 'Customer User',
                         role: selectedRole,
                         city,
                         trade: selectedRole === 'worker' ? trade : null,
@@ -725,10 +725,10 @@ document.addEventListener('DOMContentLoaded', () => {
             switchPortal('terminal');
             toast('Connected to GigSync Voice Terminal');
         } else if (selectedRole === 'worker') {
-            state.user = { id: 24, name: 'Ramesh Kumar', role: 'worker', phone: '9876543210', city: state.city, trade: 'Master Electrician', price: 300 };
+            state.user = { id: 57, name: 'Rumais', role: 'worker', phone: '7760782551', city: state.city, trade: 'Electrician', price: 300 };
             state.token = 'guest_worker_token';
             switchPortal('worker');
-            toast('Exploring as Ramesh Kumar (Worker)');
+            toast('Exploring as Rumais (Worker)');
         } else {
             state.user = { id: 999, name: 'Guest Customer', role: 'customer', phone: '9876543210', city: state.city };
             state.token = 'guest_cust_token';
@@ -759,7 +759,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('switchPortalBtn')?.addEventListener('click', () => {
         userDropdownMenu?.classList.add('hidden');
         if (!state.user || state.user.role !== 'worker') {
-            state.user = { id: 24, name: 'Ramesh Kumar', role: 'worker', phone: '9876543210', city: state.city, trade: 'Master Electrician' };
+            state.user = { id: 57, name: 'Rumais', role: 'worker', phone: '7760782551', city: state.city, trade: 'Electrician' };
         }
         switchPortal('worker');
         toast('Switched to Worker Experience');
@@ -796,7 +796,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('terminalSwitchWorkerBtn')?.addEventListener('click', () => {
         if (!state.user || state.user.role !== 'worker') {
-            state.user = { id: 24, name: 'Ramesh Kumar', role: 'worker', phone: '9876543210', city: state.city, trade: 'Master Electrician' };
+            state.user = { id: 57, name: 'Rumais', role: 'worker', phone: '7760782551', city: state.city, trade: 'Electrician' };
         }
         switchPortal('worker');
         toast('Switched to Worker Experience');
