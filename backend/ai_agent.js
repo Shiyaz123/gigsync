@@ -1422,11 +1422,15 @@ class ConversationSessionManager {
                 history: [],
                 workerDraft: {
                     name: null,
+                    job_role: null,
                     phone: cleanPhone,
-                    occupation: null,
-                    availabilityDate: null,
-                    startTime: null,
-                    endTime: null
+                    availability_date: null,
+                    start_time: null,
+                    end_time: null,
+                    start_display: null,
+                    end_display: null,
+                    last_asked_field: null,
+                    completed: false
                 },
                 context: {
                     pendingIntent: null,
@@ -1567,7 +1571,7 @@ function extractTradeAndService(text) {
         return 'AC & Appliances';
     }
     if (lower.includes('bike mechanic') || lower.includes('two wheeler') || lower.includes('scooter') || lower.includes('motorcycle') || lower.includes('puncture') || lower.includes('bike repair')) {
-        return 'Mechanics';
+        return 'Mechanic';
     }
     if (lower.includes('pipe leakage') || lower.includes('leakage repair') || lower.includes('pipe repair') || lower.includes('leaking tap') || lower.includes('tap leak')) {
         return 'Plumbing';
@@ -1596,7 +1600,7 @@ function extractTradeAndService(text) {
         return 'Driver Services';
     }
     if (lower.includes('mechanic') || lower.includes('mecanic') || lower.includes('makanic') || lower.includes('breakdown') || lower.includes('engine') || lower.includes('ಮೇಕಾನಿಕ್')) {
-        return 'Mechanics';
+        return 'Mechanic';
     }
     if (lower.includes('clean') || lower.includes('maid') || lower.includes('sweep') || lower.includes('wash') || lower.includes('deep clean') || lower.includes('ಕ್ಲೀನಿಂಗ್')) {
         return 'Home Cleaning';
@@ -1615,7 +1619,7 @@ function extractDateTimeEntities(text) {
     let date = null;
     let time = null;
 
-    // Date Matching
+    // Date Matching with Speech-to-Text Tolerance (tom, tmrw, today today, etc.)
     if (lower.includes('tomorrow morning')) {
         date = 'Tomorrow';
         time = 'Morning (10:00 AM)';
@@ -1645,9 +1649,9 @@ function extractDateTimeEntities(text) {
         date = 'Sunday';
     } else if (lower.includes('monday') || lower.includes('somavara')) {
         date = 'Monday';
-    } else if (lower.includes('tomorrow') || lower.includes('naale') || lower.includes('ನಾಳೆ') || lower.includes('kal')) {
+    } else if (/\b(tom|tmrw|tomorrow|tomorrow\s+tomorrow|naale|ನಾಳೆ|kal)\b/i.test(lower)) {
         date = 'Tomorrow';
-    } else if (lower.includes('today') || lower.includes('now') || lower.includes('immediately') || lower.includes('urgent') || lower.includes('ivathu') || lower.includes('ಇವತ್ತು') || lower.includes('aaj')) {
+    } else if (/\b(today|today\s+today|now|immediately|urgent|ivathu|ಇವತ್ತು|aaj)\b/i.test(lower)) {
         date = 'Today';
         if (lower.includes('now') || lower.includes('immediately') || lower.includes('urgent')) {
             time = 'Immediate';
@@ -1679,6 +1683,38 @@ function extractDateTimeEntities(text) {
         time: time || null
     };
 }
+// Helper to extract caller's name from natural utterances
+function extractCallerName(text) {
+    if (!text) return null;
+    const clean = text.trim();
+    const lower = clean.toLowerCase();
+
+    // 1. Explicit pattern: "My name is Sourav", "I am Rajesh", "This is Gopal", "Call me Asad"
+    const explicitMatch = clean.match(/\b(?:my name is|name is|this is|call me|i am|i'm|myself)\s+([A-Za-z]{2,20})\b/i);
+    if (explicitMatch) {
+        const candidate = explicitMatch[1].trim();
+        const nonNames = ['an', 'a', 'the', 'electrician', 'plumber', 'carpenter', 'mechanic', 'painter', 'mason', 'tailor', 'welder', 'driver', 'specialist', 'technician', 'available', 'free', 'ready', 'calling', 'here', 'worker', 'registered', 'looking'];
+        if (!nonNames.includes(candidate.toLowerCase())) {
+            return candidate.charAt(0).toUpperCase() + candidate.slice(1).toLowerCase();
+        }
+    }
+
+    // 2. Single or two-word standalone name: "Sourav", "Rajesh Kumar"
+    const words = clean.split(/\s+/);
+    if (words.length <= 2 && /^[A-Za-z\s]+$/.test(clean)) {
+        const nonNames = [
+            'hello', 'hi', 'hey', 'yes', 'no', 'ok', 'okay', 'sure', 'fine', 'thanks', 'thank you',
+            'electrician', 'plumber', 'carpenter', 'mechanic', 'painter', 'mason', 'tailor', 'welder', 'driver',
+            'specialist', 'technician', 'today', 'tomorrow', 'morning', 'evening', 'afternoon',
+            'booking', 'bookings', 'job', 'jobs', 'work', 'worker', 'available', 'unavailable'
+        ];
+        if (!nonNames.includes(lower)) {
+            return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+        }
+    }
+
+    return null;
+}
 
 // Helper to convert trade category to natural specialist noun (e.g. Electrical -> an electrician)
 function getTradePersonNoun(tradeCategory) {
@@ -1705,23 +1741,9 @@ function getTradePersonNoun(tradeCategory) {
 // Helper to extract start and end time range from natural utterances
 function extractTimeRange(text) {
     if (!text) return null;
-    const lower = text.toLowerCase();
+    let lower = text.toLowerCase().replace(/\ba\.m\.\b/g, 'am').replace(/\bp\.m\.\b/g, 'pm').replace(/\bo'clock\b/g, '');
 
-    // Match "10 in the morning until 6", "10 in the morning to 6 in the evening", etc.
-    if (lower.includes('in the morning') && (lower.includes('until') || lower.includes('to') || lower.includes('till'))) {
-        const m = lower.match(/(\d{1,2})\s*in the morning\s*(?:until|to|till)\s*(\d{1,2})/);
-        if (m) {
-            let sVal = parseInt(m[1]);
-            let eVal = parseInt(m[2]);
-            let sAmPm = 'AM';
-            let eAmPm = (eVal <= 11) ? 'PM' : 'AM';
-            const startTime = `${sVal < 10 ? '0' + sVal : sVal}:00 ${sAmPm}`;
-            const endTime = `${eVal < 10 ? '0' + eVal : eVal}:00 ${eAmPm}`;
-            return { startTime, endTime, startDisplay: `${sVal} ${sAmPm}`, endDisplay: `${eVal} ${eAmPm}` };
-        }
-    }
-
-    // Match "free today evening", "this evening", "evening"
+    // 1. Natural keywords without numbers
     if (lower.includes('evening') && !lower.match(/\d/)) {
         return { startTime: '05:00 PM', endTime: '09:00 PM', startDisplay: '5 PM', endDisplay: '9 PM' };
     }
@@ -1732,30 +1754,80 @@ function extractTimeRange(text) {
         return { startTime: '01:00 PM', endTime: '05:00 PM', startDisplay: '1 PM', endDisplay: '5 PM' };
     }
 
-    // Match variations: "6 to 5", "11 to 5", "11 to 5 o'clock", "11 am till 5 pm", "11 inda 5 varege", "from 11:00 to 17:00", "9 to 5", "9 AM to 5 PM", etc.
-    const rangeMatch = text.match(/(\d{1,2}(?::\d{2})?)\s*(?:am|pm|in the morning|in the evening)?\s*(?:to|till|until|inda|inda\s*te|\-)\s*(\d{1,2}(?::\d{2})?)\s*(?:am|pm|o'clock|varege|in the evening|in the afternoon)?/i);
+    // 2. Explicit or implicit range match:
+    // e.g. "9:00 to 10:00", "9 to 10", "9 am to 5 pm", "10 to 2", "2 pm to 6 pm", "5 to 5 to 10:00 am", "5 am to 10 am"
+    const rangeMatch = lower.match(/(\d{1,2}(?::\d{2})?)\s*(am|pm|in the morning|in the evening|in the afternoon)?(?:\s*(?:to|till|until|inda|inda\s*te|\-)\s*\d{1,2}(?::\d{2})?)*\s*(?:to|till|until|inda|inda\s*te|\-)\s*(\d{1,2}(?::\d{2})?)\s*(am|pm|in the morning|in the evening|in the afternoon|varege)?/i);
 
     if (rangeMatch) {
-        let sStr = rangeMatch[1];
-        let eStr = rangeMatch[2];
+        const sStr = rangeMatch[1];
+        const sExp = rangeMatch[2] || '';
+        const eStr = rangeMatch[3];
+        const eExp = rangeMatch[4] || '';
 
-        let sVal = parseInt(sStr);
-        let eVal = parseInt(eStr);
+        const sParts = sStr.split(':');
+        const eParts = eStr.split(':');
+        const sHour = parseInt(sParts[0], 10);
+        const sMin = sParts[1] || '00';
+        const eHour = parseInt(eParts[0], 10);
+        const eMin = eParts[1] || '00';
 
-        // Typical Indian trade shift heuristics: 5 to 11 is AM, 12 is PM, 1 to 4 is PM, 6 with eVal 5 is 6 AM to 5 PM
-        let sAmPm = (sVal >= 5 && sVal <= 11) ? 'AM' : ((sVal === 12 || (sVal >= 1 && sVal <= 4)) ? 'PM' : 'AM');
-        let eAmPm = (eVal >= 1 && eVal <= 11) ? 'PM' : ((eVal === 12) ? 'PM' : 'AM');
-        if (sVal === 12) sAmPm = 'PM';
+        let sAmPm = null;
+        let eAmPm = null;
 
-        if (lower.includes(sStr + ' am') || lower.includes(sStr + 'am') || lower.includes(sStr + ' in the morning')) sAmPm = 'AM';
-        if (lower.includes(sStr + ' pm') || lower.includes(sStr + 'pm') || lower.includes(sStr + ' in the afternoon') || lower.includes(sStr + ' in the evening')) sAmPm = 'PM';
-        if (lower.includes(eStr + ' am') || lower.includes(eStr + 'am')) eAmPm = 'AM';
-        if (lower.includes(eStr + ' pm') || lower.includes(eStr + 'pm') || lower.includes(eStr + ' in the evening') || lower.includes(eStr + ' in the afternoon')) eAmPm = 'PM';
+        // Check explicit start AM/PM
+        if (sExp.includes('am') || sExp.includes('morning') || lower.includes(sStr + ' am') || lower.includes(sStr + 'am')) sAmPm = 'AM';
+        else if (sExp.includes('pm') || sExp.includes('evening') || sExp.includes('afternoon') || lower.includes(sStr + ' pm') || lower.includes(sStr + 'pm')) sAmPm = 'PM';
 
-        const startTime = `${sVal < 10 ? '0' + sVal : sVal}:00 ${sAmPm}`;
-        const endTime = `${eVal < 10 ? '0' + eVal : eVal}:00 ${eAmPm}`;
-        const startDisplay = `${sVal} ${sAmPm}`;
-        const endDisplay = `${eVal} ${eAmPm}`;
+        // Check explicit end AM/PM
+        if (eExp.includes('am') || eExp.includes('morning') || lower.includes(eStr + ' am') || lower.includes(eStr + 'am')) eAmPm = 'AM';
+        else if (eExp.includes('pm') || eExp.includes('evening') || eExp.includes('afternoon') || lower.includes(eStr + ' pm') || lower.includes(eStr + 'pm')) eAmPm = 'PM';
+
+        // Deduce AM/PM if not explicitly given
+        if (!sAmPm && !eAmPm) {
+            if (sHour >= 5 && sHour <= 11) {
+                sAmPm = 'AM';
+                if (eHour === 12) {
+                    eAmPm = 'PM'; // noon
+                } else if (eHour > sHour && eHour <= 11) {
+                    // e.g. 5 to 10, 9 to 10, 8 to 11 -> both AM
+                    eAmPm = 'AM';
+                } else {
+                    // e.g. 9 to 5, 10 to 2, 8 to 4 -> crosses noon to PM
+                    eAmPm = 'PM';
+                }
+            } else if (sHour === 12) {
+                sAmPm = 'PM';
+                eAmPm = 'PM';
+            } else if (sHour >= 1 && sHour <= 5) {
+                sAmPm = 'PM';
+                eAmPm = 'PM';
+            } else {
+                sAmPm = 'AM';
+                eAmPm = (eHour > sHour && eHour <= 11) ? 'AM' : 'PM';
+            }
+        } else if (sAmPm && !eAmPm) {
+            if (sAmPm === 'AM') {
+                if (eHour > sHour && eHour <= 11) eAmPm = 'AM';
+                else eAmPm = 'PM';
+            } else {
+                eAmPm = 'PM';
+            }
+        } else if (!sAmPm && eAmPm) {
+            if (eAmPm === 'PM') {
+                if (sHour >= 6 && sHour <= 11) sAmPm = 'AM';
+                else sAmPm = 'PM';
+            } else {
+                sAmPm = 'AM';
+            }
+        }
+
+        const sHourPad = sHour < 10 ? '0' + sHour : String(sHour);
+        const eHourPad = eHour < 10 ? '0' + eHour : String(eHour);
+
+        const startTime = `${sHourPad}:${sMin} ${sAmPm}`;
+        const endTime = `${eHourPad}:${eMin} ${eAmPm}`;
+        const startDisplay = `${sHour}${sMin !== '00' ? ':' + sMin : ''} ${sAmPm}`;
+        const endDisplay = `${eHour}${eMin !== '00' ? ':' + eMin : ''} ${eAmPm}`;
 
         return { startTime, endTime, startDisplay, endDisplay };
     }
@@ -1778,20 +1850,20 @@ function extractPhoneNumber(text) {
     const digitsOnly = normalized.replace(/\D/g, '');
 
     // 3. Match 10-digit mobile number with or without +91 / 91 / 0 prefix
-    if (digitsOnly.length === 12 && digitsOnly.startsWith('91') && /^[6-9]/.test(digitsOnly.slice(2))) {
-        return digitsOnly.slice(2);
-    }
-    if (digitsOnly.length === 11 && digitsOnly.startsWith('0') && /^[6-9]/.test(digitsOnly.slice(1))) {
-        return digitsOnly.slice(1);
-    }
-    if (digitsOnly.length === 10 && /^[6-9]/.test(digitsOnly)) {
+    if (digitsOnly.length === 10 && /^[6-9]\d{9}$/.test(digitsOnly)) {
         return digitsOnly;
     }
+    if (digitsOnly.length === 11 && digitsOnly.startsWith('0') && /^[6-9]\d{9}$/.test(digitsOnly.slice(1))) {
+        return digitsOnly.slice(1);
+    }
+    if (digitsOnly.length === 12 && digitsOnly.startsWith('91') && /^[6-9]\d{9}$/.test(digitsOnly.slice(2))) {
+        return digitsOnly.slice(2);
+    }
     
-    // If digitsOnly contains a 10-digit substring starting with 6-9
-    const subMatch = digitsOnly.match(/[6-9]\d{9}/);
-    if (subMatch) {
-        return subMatch[0];
+    // Check embedded 10-digit sequence
+    const embeddedMatch = digitsOnly.match(/([6-9]\d{9})/);
+    if (embeddedMatch) {
+        return embeddedMatch[1];
     }
 
     return null;
@@ -1855,19 +1927,21 @@ function isWorkerIntent(text, currentRole = 'customer') {
 
 // Dedicated Simplified 3.5mm Worker Voice Agent Processor
 async function processWorker35mmTurn(session, text, actionsPerformed) {
-    session.workerDraft = session.workerDraft || {
-        name: null,
-        job_role: null,
-        phone: (session.callerPhone && /^[6-9]\d{9}$/.test(session.callerPhone)) ? session.callerPhone : null,
-        availability_date: null,
-        start_time: null,
-        end_time: null,
-        start_display: null,
-        end_display: null,
-        last_asked_field: null
-    };
-
+    if (!session.workerDraft || typeof session.workerDraft !== 'object') {
+        session.workerDraft = {};
+    }
     const draft = session.workerDraft;
+    if (draft.name === undefined) draft.name = null;
+    if (draft.job_role === undefined) draft.job_role = null;
+    if (draft.phone === undefined) draft.phone = (session.callerPhone && /^[6-9]\d{9}$/.test(session.callerPhone)) ? session.callerPhone : null;
+    if (draft.availability_date === undefined) draft.availability_date = null;
+    if (draft.start_time === undefined) draft.start_time = null;
+    if (draft.end_time === undefined) draft.end_time = null;
+    if (draft.start_display === undefined) draft.start_display = null;
+    if (draft.end_display === undefined) draft.end_display = null;
+    if (draft.last_asked_field === undefined) draft.last_asked_field = null;
+    if (draft.completed === undefined) draft.completed = false;
+    if (draft.awaiting_confirmation === undefined) draft.awaiting_confirmation = false;
     const lower = text.toLowerCase().trim();
 
     // 1. Gratitude & Call Ending
@@ -1881,8 +1955,8 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
         };
     }
 
-    // 2. Booking Inquiries ("Has anyone booked me?", "Do I have a booking?", "Am I booked?", "Does anyone need me?", "Do I have any jobs?")
-    if (/\b(booked me|have a booking|have any booking|have any bookings|am i booked|does anyone need me|do i have any jobs|check my bookings|my bookings|any bookings|when is my booking|who booked me|who is my customer)\b/i.test(lower)) {
+    // 2. Booking Inquiries (Matches ANY booking query phrase)
+    if (/\b(did\s+anyone\s+book\s+me|has\s+anyone\s+booked\s+me|anyone\s+book(ed)?\s+me|booked\s+me|book\s+me|have\s+(a\s+|any\s+)?booking|have\s+any\s+bookings|any\s+booking|any\s+bookings|am\s+i\s+booked|do\s+i\s+have\s+(a\s+|any\s+)?(job|booking|customer)|check\s+my\s+booking|my\s+booking|my\s+bookings|when\s+is\s+my\s+booking|who\s+booked\s+me|who\s+is\s+my\s+customer)\b/i.test(lower)) {
         const phone = draft.phone || session.callerPhone;
         if (!phone) {
             draft.last_asked_field = 'phone_for_booking';
@@ -1908,7 +1982,7 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
             const dateStr = b.requested_date || 'tomorrow';
             const timeStr = b.requested_time || '2 PM to 4 PM';
             return {
-                spokenResponse: `Yes. You have been booked ${dateStr.toLowerCase()} from ${timeStr}. The customer may contact you.`,
+                spokenResponse: `Yes. You are booked ${dateStr.toLowerCase()} from ${timeStr}. The customer may contact you.`,
                 detectedIntent: 'booking_inquiry',
                 toolExecuted: 'getWorkerBookings',
                 toolResult: { count: 1, bookings: activeBookings }
@@ -1917,7 +1991,7 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
             const b1 = activeBookings[0];
             const b2 = activeBookings[1];
             return {
-                spokenResponse: `You have ${activeBookings.length} bookings. One is ${b1.requested_date.toLowerCase()} from ${b1.requested_time}, and another is ${b2.requested_date.toLowerCase()} from ${b2.requested_time}. The customers may contact you.`,
+                spokenResponse: `Yes. You have ${activeBookings.length} bookings. ${b1.requested_date.toLowerCase()} from ${b1.requested_time} and ${b2.requested_date.toLowerCase()} from ${b2.requested_time}. The customers may contact you.`,
                 detectedIntent: 'booking_inquiry',
                 toolExecuted: 'getWorkerBookings',
                 toolResult: { count: activeBookings.length, bookings: activeBookings }
@@ -1962,7 +2036,63 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
         }
     }
 
-    // 4. Unrelated Question Handling
+    // 4. Awaiting Confirmation Response Check
+    if (draft.awaiting_confirmation) {
+        if (/^(yes|yeah|yep|sure|correct|right|okay|ok|done|ha|haudu|yes please|confirm|confirmed)\b/i.test(lower)) {
+            const writeResult = DB.registerOrUpdateWorker({
+                name: draft.name,
+                phone: draft.phone,
+                job_role: draft.job_role,
+                availability_date: draft.availability_date,
+                start_time: draft.start_time,
+                end_time: draft.end_time,
+                city: session.city || 'Ramanagara'
+            });
+
+            if (writeResult && writeResult.persisted) {
+                const savedWorker = DB.getWorkerByPhone(draft.phone);
+                const savedTrade = (savedWorker && savedWorker.trade) || draft.job_role;
+                const savedNoun = getTradePersonNoun(savedTrade);
+                const timeDisplay = `${draft.start_display || draft.start_time} to ${draft.end_display || draft.end_time}`;
+                actionsPerformed.push(`Saved worker details to database and Firebase for ${draft.name} (${draft.phone})`);
+                draft.last_asked_field = null;
+                draft.completed = true;
+                draft.awaiting_confirmation = false;
+                return {
+                    spokenResponse: `Done. Your details have been updated successfully. You are registered as ${savedNoun} and available ${draft.availability_date.toLowerCase()} from ${timeDisplay}.`,
+                    detectedIntent: 'worker_updated',
+                    toolExecuted: 'registerOrUpdateWorker',
+                    toolResult: writeResult
+                };
+            } else {
+                return {
+                    spokenResponse: "I couldn't save your details right now. Please try again.",
+                    detectedIntent: 'save_failed',
+                    toolExecuted: 'registerOrUpdateWorker',
+                    toolResult: writeResult
+                };
+            }
+        } else if (/^(no|nope|wrong|change|not correct|cancel)\b/i.test(lower)) {
+            draft.awaiting_confirmation = false;
+            draft.start_time = null;
+            draft.end_time = null;
+            draft.last_asked_field = 'time';
+            return {
+                spokenResponse: "No problem. What time are you available?",
+                detectedIntent: 'ask_time'
+            };
+        }
+    }
+
+    // 5. If registration was already completed, handle follow-up greetings:
+    if (draft.completed) {
+        if (/^(hello|hi|hey|namaskara|namaste)\b/i.test(lower) && lower.split(/\s+/).length <= 3) {
+            const nameGreet = draft.name ? `Hello ${draft.name}. How can I help you today?` : "Hello. How can I help you today?";
+            return { spokenResponse: nameGreet, detectedIntent: 'greeting' };
+        }
+    }
+
+    // 6. Unrelated Question Handling
     if (/\b(weather|recipe|news|joke|cricket|score|president|capital of|movie|song)\b/i.test(lower)) {
         return {
             spokenResponse: "I can help with your GigSync worker details and bookings.",
@@ -1970,7 +2100,15 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
         };
     }
 
-    // 5. Data Extraction
+    // 7. Generic Initial Greeting
+    if (/^(hello|hi|hey|namaskara|namaste)\b/i.test(lower) && lower.split(/\s+/).length <= 3 && !draft.name && !draft.job_role && !draft.phone && !draft.availability_date && !draft.start_time) {
+        return {
+            spokenResponse: "Hello. What is your name?",
+            detectedIntent: 'ask_name'
+        };
+    }
+
+    // 8. Data Extraction
     // Name
     const extractedName = extractCallerName(text);
     if (extractedName) {
@@ -1998,7 +2136,7 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
     if (extractedTrade) {
         draft.job_role = extractedTrade;
     } else if (draft.last_asked_field === 'job_role') {
-        const cleanTrade = text.replace(/^(i am an?|i do|i work as|my trade is|my work is)\s+/i, '').trim();
+        const cleanTrade = text.replace(/^(i am an?|i am|i do|i work as|my trade is|my work is)\s+/i, '').trim();
         const nonTrades = ['hello', 'hi', 'yes', 'no', 'ok', 'okay', 'tomorrow', 'today'];
         if (cleanTrade.length >= 3 && !nonTrades.includes(cleanTrade.toLowerCase())) {
             draft.job_role = cleanTrade.charAt(0).toUpperCase() + cleanTrade.slice(1).toLowerCase();
@@ -2018,15 +2156,16 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
         draft.end_display = range.endDisplay;
     }
 
-    // Check single word date (e.g. "Tomorrow", "Today", "Monday")
+    // Check single word date (e.g. "Tomorrow", "Today", "Monday", "tom", "tmrw")
     if (!draft.availability_date) {
-        const dateMatch = lower.match(/\b(tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+        const dateMatch = lower.match(/\b(tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|tom|tmrw)\b/i);
         if (dateMatch) {
-            draft.availability_date = dateMatch[1].charAt(0).toUpperCase() + dateMatch[1].slice(1).toLowerCase();
+            const dStr = dateMatch[1].toLowerCase();
+            draft.availability_date = (dStr === 'tom' || dStr === 'tmrw') ? 'Tomorrow' : (dStr.charAt(0).toUpperCase() + dStr.slice(1));
         }
     }
 
-    // 6. Check for Missing Information in Order & Prompt
+    // 9. Slot-Filling Check for Missing Fields (in order: Name -> Job Role -> Phone -> Date -> Time)
     // 1. Name
     if (!draft.name) {
         if (draft.last_asked_field === 'name') {
@@ -2036,9 +2175,8 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
             };
         }
         draft.last_asked_field = 'name';
-        const greeting = (session.history.length <= 1) ? "Hello. What is your name?" : "What is your name?";
         return {
-            spokenResponse: greeting,
+            spokenResponse: "What is your name?",
             detectedIntent: 'ask_name'
         };
     }
@@ -2103,37 +2241,15 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
         };
     }
 
-    // 6. ALL 6 PIECES OF INFORMATION ARE PRESENT -> SAVE IMMEDIATELY TO DATABASE & FIREBASE!
-    const writeResult = DB.registerOrUpdateWorker({
-        name: draft.name,
-        phone: draft.phone,
-        job_role: draft.job_role,
-        availability_date: draft.availability_date,
-        start_time: draft.start_time,
-        end_time: draft.end_time,
-        city: session.city || 'Ramanagara'
-    });
-
-    if (writeResult && writeResult.persisted) {
-        const timeDisplay = `${draft.start_display || draft.start_time} to ${draft.end_display || draft.end_time}`;
-        const personNoun = getTradePersonNoun(draft.job_role);
-        const resp = `Your details have been updated successfully. You are registered as ${personNoun} and available ${draft.availability_date.toLowerCase()} from ${timeDisplay}.`;
-        actionsPerformed.push(`Saved worker details to database and Firebase for ${draft.name} (${draft.phone})`);
-        draft.last_asked_field = null;
-        return {
-            spokenResponse: resp,
-            detectedIntent: 'worker_updated',
-            toolExecuted: 'registerOrUpdateWorker',
-            toolResult: writeResult
-        };
-    } else {
-        return {
-            spokenResponse: "I couldn't save your details right now. Please try again.",
-            detectedIntent: 'save_failed',
-            toolExecuted: 'registerOrUpdateWorker',
-            toolResult: writeResult
-        };
-    }
+    // 6. ALL 6 PIECES OF INFORMATION ARE PRESENT -> ASK CONFIRMATION
+    const timeDisplay = `${draft.start_display || draft.start_time} to ${draft.end_display || draft.end_time}`;
+    const personNoun = getTradePersonNoun(draft.job_role);
+    draft.awaiting_confirmation = true;
+    draft.last_asked_field = 'confirmation';
+    return {
+        spokenResponse: `Just to confirm, ${draft.name}, you are ${personNoun} and you are available ${draft.availability_date.toLowerCase()} from ${timeDisplay}. Is that correct?`,
+        detectedIntent: 'ask_confirmation'
+    };
 }
 
 // 5. Intelligent Multi-Turn Conversational Processor
