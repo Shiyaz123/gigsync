@@ -309,6 +309,8 @@ module.exports = async (req, res) => {
                 callerRole: identity.callerRole,
                 callerName: identity.callerName,
                 city: identity.city,
+                isVoiceCall: isVoice,
+                portal: body.portal,
                 speechText
             });
 

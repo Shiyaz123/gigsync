@@ -1047,6 +1047,53 @@ const DB = {
         };
     },
 
+    registerOrUpdateWorker({ name, phone, job_role, availability_date, start_time, end_time, city = 'Ramanagara' }) {
+        const cleanPhone = (phone || '').replace(/\D/g, '');
+        if (!cleanPhone || cleanPhone.length !== 10) {
+            return { success: false, persisted: false, error: 'A valid 10-digit phone number is required.' };
+        }
+
+        const trade = job_role || 'Skilled Specialist';
+        let worker = this.getWorkerByPhone(cleanPhone);
+        if (worker) {
+            this.updateWorkerProfile(worker.id, {
+                name: name || worker.name,
+                trade: trade,
+                city: city || worker.city || 'Ramanagara',
+                is_available: 1
+            });
+        } else {
+            this.registerWorkerProfile({
+                name: name || 'Worker',
+                phone: cleanPhone,
+                trade: trade,
+                city: city || 'Ramanagara'
+            });
+        }
+
+        const updatedWorker = this.getWorkerByPhone(cleanPhone);
+        let availabilityResult = null;
+        if (updatedWorker && availability_date && start_time && end_time) {
+            availabilityResult = this.setWorkerAvailabilitySlot({
+                workerId: updatedWorker.id,
+                workerPhone: cleanPhone,
+                trade: updatedWorker.trade,
+                dateStr: availability_date,
+                startTime: start_time,
+                endTime: end_time,
+                isAvailable: true
+            });
+        }
+
+        const persisted = Boolean(updatedWorker && updatedWorker.id);
+        return {
+            success: persisted,
+            persisted,
+            worker: updatedWorker,
+            availability: availabilityResult
+        };
+    },
+
     updateWorkerProfile(id, updates = {}) {
         if (!db) {
             const worker = memoryStore.workers.find(w => w.id === Number(id));
@@ -1422,15 +1469,23 @@ const DB = {
     },
 
     getJobsByWorker(workerIdOrPhone) {
+        if (!workerIdOrPhone) return [];
         if (!db) {
-            const clean = (workerIdOrPhone || '').replace(/\D/g, '');
+            const clean = String(workerIdOrPhone).replace(/\D/g, '');
             return memoryStore.jobs.filter(j => j.worker_phone === clean || String(j.worker_id) === String(workerIdOrPhone));
         }
-        if (typeof workerIdOrPhone === 'number' || (!isNaN(Number(workerIdOrPhone)) && workerIdOrPhone !== null && workerIdOrPhone !== '')) {
+        const cleanPhone = String(workerIdOrPhone).replace(/\D/g, '');
+        if (cleanPhone.length >= 10) {
+            const w = this.getWorkerByPhone(cleanPhone);
+            if (w) {
+                return db.prepare('SELECT * FROM jobs WHERE worker_phone = ? OR worker_id = ? ORDER BY created_at DESC').all(cleanPhone, w.id);
+            }
+            return db.prepare('SELECT * FROM jobs WHERE worker_phone = ? ORDER BY created_at DESC').all(cleanPhone);
+        }
+        if (typeof workerIdOrPhone === 'number' || (!isNaN(Number(workerIdOrPhone)) && Number(workerIdOrPhone) < 1000000)) {
             return db.prepare('SELECT * FROM jobs WHERE worker_id = ? ORDER BY created_at DESC').all(Number(workerIdOrPhone));
         }
-        const clean = (workerIdOrPhone || '').replace(/\D/g, '');
-        return db.prepare('SELECT * FROM jobs WHERE worker_phone = ? ORDER BY created_at DESC').all(clean);
+        return db.prepare('SELECT * FROM jobs WHERE worker_phone = ? ORDER BY created_at DESC').all(String(workerIdOrPhone));
     },
 
     getAvailableJobsForWorker(trade, city = 'Ramanagara') {
