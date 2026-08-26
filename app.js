@@ -1054,9 +1054,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         liveStream.onerror = () => {
-            // EventSource reconnects on its own; the indicator just stops claiming
-            // the stream is live while it is down.
             setLiveIndicator(false);
+            if (window.location.hostname.includes('vercel.app')) {
+                try { liveStream.close(); } catch(e){}
+            }
         };
     }
 
@@ -2422,9 +2423,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.user = res.data.user;
                 switchPortal(state.user.role === 'worker' ? 'worker' : (state.user.role === 'admin' ? 'terminal' : 'customer'));
             } else {
+                state.token = null;
+                localStorage.removeItem('gigsync_token');
                 switchPortal('gateway');
             }
         }).catch(() => {
+            state.token = null;
+            localStorage.removeItem('gigsync_token');
             switchPortal('gateway');
         });
     } else {

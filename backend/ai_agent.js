@@ -1044,12 +1044,13 @@ class GeminiConversationalBrain {
         const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         const tomorrow = new Date(now.getTime() + 86400000);
 
-        const identityBlock = `CALLER IDENTITY (from the verified session — never ask the caller to repeat their phone number):
-- Phone: ${session.callerPhone || '(unknown)'}
+        const hasVerifiedPhone = session.callerPhone && /^[6-9]\d{9}$/.test(session.callerPhone);
+        const identityBlock = `CALLER IDENTITY:
+- Phone: ${hasVerifiedPhone ? session.callerPhone : '(unknown - if registering or updating schedule, you MUST ask for their 10-digit mobile number)'}
 - Role: ${isWorkerCall ? 'worker' : 'customer'}
 - Registered GigSync worker account: ${isVerifiedWorker
     ? `YES — id ${workerRecord.id}, name "${workerRecord.name}", profession "${workerRecord.trade}", city ${workerRecord.city}`
-    : 'NO — there is no worker row for this phone number yet'}
+    : 'NO — unregistered / new caller'}
 - City: ${session.city || 'Ramanagara'}
 - Right now it is ${dayNames[now.getDay()]}, ${now.toDateString()}. "Today" = ${dayNames[now.getDay()]}, "Tomorrow" = ${dayNames[tomorrow.getDay()]}.`;
 
@@ -1088,12 +1089,12 @@ WHICH TOOL TO REACH FOR (map intent, not keywords):
 
 SLOT-FILLING & REGISTRATION RULES (DO NOT GUESS MISSING DATA):
 - A complete worker registration requires: (1) Full Name, (2) 10-digit Phone number, (3) Specific Trade/Profession, (4) Availability date (e.g. Today, Tomorrow), (5) Shift start and end times (e.g. 9 AM to 5 PM).
-- If the caller's Name is missing: ASK FOR IT: "Sure. What is your name?" (or "What is your name?").
+- If the caller's Name is missing: ASK FOR IT: "Sure. What is your name?"
 - If the caller's Profession/Trade is missing: ASK FOR IT: "What type of work do you do?"
-- If the caller's Phone number is missing: ASK FOR IT: "What is your 10-digit mobile number?"
+- If the caller's 10-digit Phone number is missing or unknown: YOU MUST ASK: "Thank you, [Name]. What is your 10-digit mobile number?"
 - If the caller's Working hours are missing: ASK FOR IT: "What hours are you available?"
-- NEVER invent, assume, or default a worker's name or profession (never use "Worker" or "General Helper").
-- When all details are present, read back and ask confirmation: "Got it. You are [Name], an [Trade], and you are available [Tomorrow] from [9 AM] to [5 PM]. Would you like me to register you as a GigSync worker?"
+- NEVER invent, assume, or default a worker's phone or name. NEVER attempt to register without a valid 10-digit phone number.
+- When all 5 details are present, read back and ask confirmation: "Got it. You are [Name], an [Trade], and you are available [Tomorrow] from [9 AM] to [5 PM]. Would you like me to register you as a GigSync worker?"
 - Only call registerWorkerProfile and updateWorkerAvailability with confirmed:true AFTER the caller confirms with "Yes".
 
 HONESTY RULES (these outrank sounding helpful):
@@ -1739,10 +1740,10 @@ function evaluateWorkerDraft(session, text, actionsPerformed) {
         return draft.name ? `Hello ${draft.name}. What type of work do you do?` : `What type of work do you do?`;
     }
 
-    if (!draft.phone) {
+    if (!draft.phone || !/^[6-9]\d{9}$/.test(draft.phone)) {
         session.context.pendingIntent = 'AWAITING_WORKER_PHONE';
         actionsPerformed.push('Prompted worker for missing phone');
-        return `Thank you. What phone number should I register you with?`;
+        return draft.name ? `Thank you, ${draft.name}. What is your 10-digit mobile number?` : `What is your 10-digit mobile number?`;
     }
 
     if (!draft.hasAvailability) {
@@ -1974,58 +1975,63 @@ class ContextAwareVoiceAgent {
                 detectedIntent = 'confirm_availability';
                 if (isAffirmative && session.context.pendingAvailabilityData) {
                     const avail = session.context.pendingAvailabilityData;
-                    
-                    if (avail.updateType === 'REGISTRATION_AND_AVAILABILITY' || avail.updateType === 'MULTIPLE_DETAILS') {
-                        await AI_TOOLS.registerWorkerProfile({
-                            name: avail.name || 'Worker',
-                            phone: avail.phone || session.callerPhone,
+                    const effectivePhone = avail.phone || session.callerPhone;
+
+                    if (!effectivePhone || !/^[6-9]\d{9}$/.test(effectivePhone)) {
+                        session.context.pendingIntent = 'AWAITING_WORKER_PHONE';
+                        spokenResponse = avail.name ? `I need your 10-digit mobile number to complete registration, ${avail.name}. What is your phone number?` : `I need your 10-digit mobile number to complete registration. What is your phone number?`;
+                        actionsPerformed.push('Prompted worker for missing 10-digit phone number');
+                    } else {
+                        if (avail.updateType === 'REGISTRATION_AND_AVAILABILITY' || avail.updateType === 'MULTIPLE_DETAILS') {
+                            await AI_TOOLS.registerWorkerProfile({
+                                name: avail.name || 'Worker',
+                                phone: effectivePhone,
+                                trade: avail.trade || 'Specialist',
+                                city: session.city
+                            });
+                            actionsPerformed.push(`Registered/updated worker profile for ${avail.name || 'Worker'} (${avail.trade})`);
+                        }
+
+                        toolExecuted = 'updateWorkerAvailability';
+                        toolResult = await AI_TOOLS.updateWorkerAvailability({
+                            workerPhone: effectivePhone,
                             trade: avail.trade || 'Specialist',
-                            city: session.city
+                            date: avail.date,
+                            startTime: avail.startTime,
+                            endTime: avail.endTime,
+                            isAvailable: avail.isAvailable !== false,
+                            confirmed: true
                         });
-                        actionsPerformed.push(`Registered/updated worker profile for ${avail.name || 'Worker'} (${avail.trade})`);
-                    }
-
-                    toolExecuted = 'updateWorkerAvailability';
-                    toolResult = await AI_TOOLS.updateWorkerAvailability({
-                        workerPhone: avail.phone || session.callerPhone,
-                        trade: avail.trade || 'Specialist',
-                        date: avail.date,
-                        startTime: avail.startTime,
-                        endTime: avail.endTime,
-                        isAvailable: avail.isAvailable !== false,
-                        // The worker just said yes to these exact details, which is what the
-                        // confirmation gate requires.
-                        confirmed: true
-                    });
-                    // Report what actually happened, not what we hoped would happen.
-                    if (toolResult && toolResult.persisted) {
-                        actionsPerformed.push(`Updated ${avail.date} availability (${avail.startTime} – ${avail.endTime}) in the database`);
-                        if (toolResult.firebase && toolResult.firebase.ok === true) {
-                            actionsPerformed.push('Mirrored the availability change to Firebase');
-                        } else if (toolResult.firebase && toolResult.firebase.ok === false) {
-                            actionsPerformed.push(`Firebase mirror failed: ${toolResult.firebase.message}`);
-                        }
-                    } else {
-                        actionsPerformed.push(`Could not save ${avail.date} availability — the database write did not persist`);
-                    }
-
-                    if (toolResult && toolResult.persisted) {
-                        const tradeNoun = (avail.tradeNoun || getTradePersonNoun(avail.trade)).replace(/^(an?)\s+/i, '');
-                        if (avail.updateType === 'AVAILABILITY_ONLY') {
-                            spokenResponse = `Done. Your availability has been updated to ${avail.date.toLowerCase()}, ${avail.startDisplay} to ${avail.endDisplay}.`;
-                        } else if (avail.updateType === 'MULTIPLE_DETAILS') {
-                            spokenResponse = `Done. Your worker profile and availability have been saved for ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
+                        
+                        if (toolResult && toolResult.persisted) {
+                            actionsPerformed.push(`Updated ${avail.date} availability (${avail.startTime} – ${avail.endTime}) in the database`);
+                            if (toolResult.firebase && toolResult.firebase.ok === true) {
+                                actionsPerformed.push('Mirrored the availability change to Firebase');
+                            } else if (toolResult.firebase && toolResult.firebase.ok === false) {
+                                actionsPerformed.push(`Firebase mirror failed: ${toolResult.firebase.message}`);
+                            }
                         } else {
-                            spokenResponse = `Done. Your worker profile has been registered and your availability has been saved for ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
+                            actionsPerformed.push(`Could not save ${avail.date} availability — the database write did not persist`);
                         }
-                    } else {
-                        spokenResponse = `Sorry, I couldn't update your details. Please try again.`;
-                    }
 
-                    session.context.pendingIntent = null;
-                    session.context.pendingAvailabilityData = null;
-                    session.context.workerDraft = null;
-                    session.context.lastActionCompleted = 'AVAILABILITY_UPDATED';
+                        if (toolResult && toolResult.persisted) {
+                            const tradeNoun = (avail.tradeNoun || getTradePersonNoun(avail.trade)).replace(/^(an?)\s+/i, '');
+                            if (avail.updateType === 'AVAILABILITY_ONLY') {
+                                spokenResponse = `Done. Your availability has been updated to ${avail.date.toLowerCase()}, ${avail.startDisplay} to ${avail.endDisplay}.`;
+                            } else if (avail.updateType === 'MULTIPLE_DETAILS') {
+                                spokenResponse = `Done. Your worker profile and availability have been saved for ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
+                            } else {
+                                spokenResponse = `Done. Your worker profile has been registered and your availability has been saved for ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
+                            }
+                        } else {
+                            spokenResponse = `Sorry, I couldn't update your details. Please tell me your 10-digit mobile number and available hours again.`;
+                        }
+
+                        session.context.pendingIntent = null;
+                        session.context.pendingAvailabilityData = null;
+                        session.context.workerDraft = null;
+                        session.context.lastActionCompleted = 'AVAILABILITY_UPDATED';
+                    }
                 } else if (isNegative) {
                     spokenResponse = `No problem, I haven't saved this to your schedule. Let me know if you need anything else.`;
                     session.context.pendingIntent = null;

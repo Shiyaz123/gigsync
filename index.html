@@ -66,13 +66,13 @@
                     <form id="gatewayAuthForm" class="auth-form">
                         <!-- Full Name (Register Only) -->
                         <div class="form-field hidden" id="gNameGroup">
-                            <label class="field-label">Full Name</label>
+                            <label class="field-label" for="gNameInput">Full Name</label>
                             <input type="text" id="gNameInput" class="field-input" placeholder="e.g. Ramesh Kumar / Kavya Rao">
                         </div>
 
                         <!-- Mobile Number -->
                         <div class="form-field" id="gPhoneGroup">
-                            <label class="field-label">Mobile Number</label>
+                            <label class="field-label" for="gPhoneInput">Mobile Number</label>
                             <div class="phone-input-wrap">
                                 <span class="phone-code">🇮🇳 +91</span>
                                 <input type="tel" id="gPhoneInput" class="field-input" placeholder="e.g. 9876543210">
@@ -81,14 +81,14 @@
 
                         <!-- Password -->
                         <div class="form-field" id="gPasswordGroup">
-                            <label class="field-label">Password</label>
+                            <label class="field-label" for="gPasswordInput">Password</label>
                             <input type="password" id="gPasswordInput" class="field-input" placeholder="Enter password">
                         </div>
 
                         <!-- Worker Profession Fields (Register Only) -->
                         <div id="gWorkerExtraFields" class="hidden">
                             <div class="form-field">
-                                <label class="field-label">Profession / Trade</label>
+                                <label class="field-label" for="gWorkerTradeSelect">Profession / Trade</label>
                                 <select id="gWorkerTradeSelect" class="field-input">
                                     <option value="Master Electrician">⚡ Electrician</option>
                                     <option value="Plumbing Specialist">🔧 Plumber</option>
@@ -102,7 +102,7 @@
                                 </select>
                             </div>
                             <div class="form-field">
-                                <label class="field-label">Standard Visiting Fee (₹)</label>
+                                <label class="field-label" for="gWorkerPriceInput">Standard Visiting Fee (₹)</label>
                                 <input type="number" id="gWorkerPriceInput" class="field-input" value="300">
                             </div>
                         </div>
@@ -110,7 +110,7 @@
                         <!-- Master Terminal Passcode (Voice Terminal Only) -->
                         <div id="gTerminalSecretGroup" class="hidden">
                             <div class="form-field">
-                                <label class="field-label" style="color:var(--gs-primary);font-weight:600">
+                                <label class="field-label" for="gTerminalSecretInput" style="color:var(--gs-primary);font-weight:600">
                                     <i class="fa-solid fa-key"></i> Terminal Security Key
                                 </label>
                                 <input type="password" id="gTerminalSecretInput" class="field-input" placeholder="Enter operator password">
@@ -120,7 +120,7 @@
 
                         <!-- City Selection -->
                         <div class="form-field" id="gCityGroup">
-                            <label class="field-label">City / Town</label>
+                            <label class="field-label" for="gCitySelect">City / Town</label>
                             <select id="gCitySelect" class="field-input">
                                 <option value="Ramanagara">Ramanagara (Karnataka)</option>
                                 <option value="Chitradurga">Chitradurga (Karnataka)</option>
@@ -720,7 +720,7 @@
             </div>
             <form id="createJobForm" class="modal-form">
                 <div class="form-field">
-                    <label class="field-label">Service Category</label>
+                    <label class="field-label" for="newJobServiceSelect">Service Category</label>
                     <select id="newJobServiceSelect" class="field-input" required>
                         <option value="Electrical">⚡ Electrical</option>
                         <option value="Plumbing">🔧 Plumbing</option>
@@ -733,28 +733,28 @@
                 </div>
 
                 <div class="form-field">
-                    <label class="field-label">Description</label>
+                    <label class="field-label" for="newJobDescription">Description</label>
                     <textarea id="newJobDescription" class="field-input" rows="3" placeholder="Describe what needs repair or installation..." required></textarea>
                 </div>
 
                 <div class="form-row-2">
                     <div class="form-field">
-                        <label class="field-label">Date</label>
+                        <label class="field-label" for="newJobDate">Date</label>
                         <input type="text" id="newJobDate" class="field-input" value="Today" required>
                     </div>
                     <div class="form-field">
-                        <label class="field-label">Time</label>
+                        <label class="field-label" for="newJobTime">Time</label>
                         <input type="text" id="newJobTime" class="field-input" value="Immediate" required>
                     </div>
                 </div>
 
                 <div class="form-row-2">
                     <div class="form-field">
-                        <label class="field-label">Location / Area</label>
+                        <label class="field-label" for="newJobLocation">Location / Area</label>
                         <input type="text" id="newJobLocation" class="field-input" value="Town Area" required>
                     </div>
                     <div class="form-field">
-                        <label class="field-label">Budget (₹)</label>
+                        <label class="field-label" for="newJobBudget">Budget (₹)</label>
                         <input type="text" id="newJobBudget" class="field-input" value="₹300" required>
                     </div>
                 </div>
@@ -775,7 +775,7 @@
             </div>
             <form id="workerAvailForm" class="modal-form">
                 <div class="form-field">
-                    <label class="field-label">Day</label>
+                    <label class="field-label" for="availDaySelect">Day</label>
                     <select id="availDaySelect" class="field-input">
                         <option value="Today">Today</option>
                         <option value="Tomorrow">Tomorrow</option>
@@ -791,11 +791,11 @@
 
                 <div class="form-row-2">
                     <div class="form-field">
-                        <label class="field-label">Start Time</label>
+                        <label class="field-label" for="availStartTimeInput">Start Time</label>
                         <input type="text" id="availStartTimeInput" class="field-input" value="09:00 AM">
                     </div>
                     <div class="form-field">
-                        <label class="field-label">End Time</label>
+                        <label class="field-label" for="availEndTimeInput">End Time</label>
                         <input type="text" id="availEndTimeInput" class="field-input" value="04:00 PM">
                     </div>
                 </div>
@@ -902,17 +902,17 @@
             </div>
             <form id="customerProfileForm" class="modal-form">
                 <div class="form-field">
-                    <label class="field-label">Full Name</label>
+                    <label class="field-label" for="custProfileName">Full Name</label>
                     <input type="text" id="custProfileName" class="field-input" placeholder="Your full name">
                 </div>
                 <div class="form-field">
-                    <label class="field-label">Mobile Number</label>
+                    <label class="field-label" for="custProfilePhone">Mobile Number</label>
                     <input type="text" id="custProfilePhone" class="field-input" readonly style="background:var(--gs-bg-alt);cursor:not-allowed;opacity:.7">
                     <small class="field-hint">Phone number cannot be changed</small>
                 </div>
                 <div class="form-row-2">
                     <div class="form-field">
-                        <label class="field-label">City</label>
+                        <label class="field-label" for="custProfileCity">City</label>
                         <select id="custProfileCity" class="field-input">
                             <option value="Ramanagara">Ramanagara</option>
                             <option value="Chitradurga">Chitradurga</option>
@@ -928,7 +928,7 @@
                         </select>
                     </div>
                     <div class="form-field">
-                        <label class="field-label">Area / Locality</label>
+                        <label class="field-label" for="custProfileArea">Area / Locality</label>
                         <input type="text" id="custProfileArea" class="field-input" placeholder="e.g. Town, Main Road">
                     </div>
                 </div>

@@ -396,6 +396,18 @@ module.exports = async (req, res) => {
         }
     }
 
+    // 10. GET /api/events (SSE Stream for Live Updates)
+    if (pathname.endsWith('/events') && req.method === 'GET') {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache, no-transform');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        if (typeof res.status === 'function') res.status(200);
+        else res.statusCode = 200;
+        res.write('event: ready\ndata: {}\n\n');
+        return res.end();
+    }
+
     // Default Fallback
     return sendJSON(res, { status: 'ok', message: 'GigSync Vercel API Gateway Active' });
 };
