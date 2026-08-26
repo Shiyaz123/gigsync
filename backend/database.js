@@ -3,15 +3,145 @@
    Dual Persistence: Instant Local SQLite + Real-Time Firebase Cloud Sync
    ========================================================================== */
 
-const { DatabaseSync } = require('node:sqlite');
+let DatabaseSync = null;
+try {
+    DatabaseSync = require('node:sqlite').DatabaseSync;
+} catch (e) {
+    DatabaseSync = null;
+}
+
 const path = require('node:path');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 
 const FirebaseSync = require('./firebase');
 
-const DB_PATH = path.join(__dirname, '..', 'gigsync.db');
-const db = new DatabaseSync(DB_PATH);
+let db = null;
+let useMemoryFallback = false;
+
+if (DatabaseSync) {
+    try {
+        const DB_PATH = path.join(__dirname, '..', 'gigsync.db');
+        try {
+            db = new DatabaseSync(DB_PATH);
+            db.exec('PRAGMA foreign_keys = ON;');
+        } catch (fileErr) {
+            // Read-only filesystem (e.g. Vercel serverless /var/task) -> try writable /tmp
+            const tmpPath = path.join('/tmp', 'gigsync.db');
+            try {
+                if (fs.existsSync(DB_PATH) && !fs.existsSync(tmpPath)) {
+                    fs.copyFileSync(DB_PATH, tmpPath);
+                }
+                db = new DatabaseSync(tmpPath);
+                db.exec('PRAGMA foreign_keys = ON;');
+            } catch (tmpErr) {
+                db = null;
+                useMemoryFallback = true;
+            }
+        }
+    } catch (e) {
+        db = null;
+        useMemoryFallback = true;
+    }
+} else {
+    useMemoryFallback = true;
+}
+
+// In-Memory Fallback Store (Used on Vercel Serverless if native SQLite is unavailable)
+const memoryStore = {
+    users: [
+        {
+            id: 1,
+            name: 'Master Platform Administrator',
+            phone: '9999999999',
+            email: 'shiyazabdulazeez@gmail.com',
+            role: 'admin',
+            password_hash: crypto.scryptSync('admin@gigsync2026', 'gigsync_salt_tier2', 32).toString('hex'),
+            city: 'Ramanagara',
+            area: 'Headquarters'
+        },
+        {
+            id: 2,
+            name: 'Ramesh Kumar',
+            phone: '9845063871',
+            email: 'ramesh.electrician@gmail.com',
+            role: 'worker',
+            password_hash: crypto.scryptSync('worker123', 'gigsync_salt_tier2', 32).toString('hex'),
+            city: 'Ramanagara',
+            area: 'Town'
+        }
+    ],
+    sessions: {},
+    workers: [
+        {
+            id: 1,
+            user_id: 2,
+            name: 'Ramesh Kumar',
+            phone: '9845063871',
+            trade: 'Master Electrician',
+            service: 'electrical',
+            skills: 'Wiring, MCB, Inverter, Fan',
+            tools: 'Multimeter, Drill machine',
+            rating: 5.0,
+            km: 1.5,
+            jobs_completed: 42,
+            price: 300,
+            is_available: 1,
+            is_verified: 1,
+            initials: 'RK',
+            city: 'Ramanagara',
+            area: 'Town',
+            service_areas: 'Ramanagara, Nearby Areas',
+            about: '12+ years experience in domestic and commercial electrical maintenance.'
+        },
+        {
+            id: 2,
+            user_id: 3,
+            name: 'Suresh Gowda',
+            phone: '9845088219',
+            trade: 'Certified Plumber',
+            service: 'plumbing',
+            skills: 'Pipe Fitting, Leakages, Tap Repair',
+            tools: 'Pipe Wrench, Thread Tape',
+            rating: 4.9,
+            km: 2.1,
+            jobs_completed: 38,
+            price: 300,
+            is_available: 1,
+            is_verified: 1,
+            initials: 'SG',
+            city: 'Ramanagara',
+            area: 'Town',
+            service_areas: 'Ramanagara, Nearby Areas',
+            about: 'Specialist in bathroom fittings, pipe leakages, and overhead tank installations.'
+        },
+        {
+            id: 3,
+            user_id: 4,
+            name: 'Manjunath K',
+            phone: '9845091234',
+            trade: 'Professional Carpenter',
+            service: 'carpentry',
+            skills: 'Furniture repair, Doors, Locks',
+            tools: 'Wood Saw, Drill, Chisels',
+            rating: 4.8,
+            km: 3.0,
+            jobs_completed: 25,
+            price: 350,
+            is_available: 1,
+            is_verified: 1,
+            initials: 'MK',
+            city: 'Ramanagara',
+            area: 'Town',
+            service_areas: 'Ramanagara, Nearby Areas',
+            about: 'Woodwork specialist for furniture repairs, custom fittings, and door locks.'
+        }
+    ],
+    customers: [],
+    jobs: [],
+    availability: {},
+    callLogs: []
+};
 
 // Helper for unique Job IDs (e.g. GS-1048)
 function generateJobId() {
@@ -31,7 +161,9 @@ function verifyPassword(password, hash) {
 
 // Initialize Database Tables
 function initDatabase() {
-    db.exec(`
+    if (!db) return;
+    try {
+        db.exec(`
         PRAGMA foreign_keys = ON;
 
         CREATE TABLE IF NOT EXISTS users (
@@ -156,6 +288,9 @@ function initDatabase() {
             VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run('Master Platform Administrator', adminPhone, 'shiyazabdulazeez@gmail.com', 'admin', pHash, 'Ramanagara', 'Headquarters');
         console.log('✅ [Database] Default Master Admin provisioned: 9999999999 / admin@gigsync2026');
+    }
+    } catch (e) {
+        console.warn('[Database Init Exception]:', e.message);
     }
 }
 
