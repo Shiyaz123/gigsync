@@ -13,3 +13,4 @@ __pycache__/
 *.db-journal
 
 .vercel
+.claude/

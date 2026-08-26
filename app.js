@@ -2336,63 +2336,41 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Renders the server-resolved caller identity onto the terminal's identity card.
+    // Renders the conversational caller identity onto the terminal's identity card.
     function renderTerminalCallerStatus(identity) {
         const el = document.getElementById('terminalCallerStatus');
-        if (!el || !identity) return;
-        if (identity.registeredWorker) {
-            el.textContent = `✅ ${identity.name} — registered worker (${identity.phone})`;
-            el.style.color = 'var(--gs-success, #16A34A)';
-        } else if (identity.role === 'admin') {
-            el.textContent = `🛠️ ${identity.name} — operator account (${identity.phone})`;
-            el.style.color = 'var(--gs-text-muted, #64748B)';
-        } else {
-            // Not an error: a genuinely new caller. The AI can register them on this call.
-            el.textContent = `🆕 ${identity.phone} — new caller, not registered yet`;
-            el.style.color = 'var(--gs-warning, #D97706)';
-        }
-    }
-
-    // "Identify Caller" — confirms whose record the AI will act on BEFORE the call starts.
-    document.getElementById('terminalIdentifyCallerBtn')?.addEventListener('click', async () => {
-        const el = document.getElementById('terminalCallerStatus');
-        const phone = (document.getElementById('terminalCallerPhone')?.value || '').replace(/\D/g, '');
-        if (phone.length !== 10) {
-            if (el) {
-                el.textContent = '⚠️ Enter a 10-digit mobile number';
-                el.style.color = 'var(--gs-warning, #D97706)';
+        const badge = document.getElementById('terminalCallerBadge');
+        if (!el) return;
+        if (!identity || !identity.phone || identity.phone === 'anonymous') {
+            el.textContent = 'New caller — phone number not provided yet';
+            el.style.color = 'var(--gs-text-main, #1E293B)';
+            if (badge) {
+                badge.innerHTML = `<i class="fa-solid fa-circle" style="font-size:7px; color:#F59E0B;"></i> New Caller`;
+                badge.style.background = '#FEF3C7';
+                badge.style.color = '#B45309';
             }
             return;
         }
-        if (el) {
-            el.textContent = 'Looking up caller...';
-            el.style.color = 'var(--gs-text-muted, #64748B)';
-        }
-        const res = await apiFetch(`/api/ai/caller?phone=${encodeURIComponent(phone)}`);
-        if (res.ok && res.data && res.data.caller) {
-            renderTerminalCallerStatus(res.data.caller);
-            // A brand new caller is a real outcome, not an error — say so plainly.
-            if (!res.data.caller.registeredWorker) {
-                appendTerminalActivity(`Caller ${phone} is not a registered worker. The AI can register them on this call.`);
-            } else {
-                appendTerminalActivity(`Caller identified: ${res.data.caller.name} (${phone}).`);
-            }
-        } else if (el) {
-            el.textContent = `⚠️ ${(res.data && res.data.message) || 'Caller lookup failed.'}`;
-            el.style.color = 'var(--gs-danger, #DC2626)';
-        }
-    });
 
-    // Re-identify whenever the operator edits the number, so a stale name is never shown.
-    document.getElementById('terminalCallerPhone')?.addEventListener('input', () => {
-        const el = document.getElementById('terminalCallerStatus');
-        if (el) {
-            el.textContent = 'No caller identified yet';
-            el.style.color = 'var(--gs-text-muted, #64748B)';
+        if (identity.registeredWorker) {
+            el.innerHTML = `<span style="color:var(--gs-muted);">Caller:</span> <strong>${identity.name}</strong> &nbsp;|&nbsp; <span style="color:var(--gs-muted);">Phone:</span> <strong>${identity.phone}</strong>`;
+            el.style.color = 'var(--gs-text-main, #1E293B)';
+            if (badge) {
+                badge.innerHTML = `<i class="fa-solid fa-circle-check" style="font-size:10px; color:#16A34A;"></i> Existing Worker`;
+                badge.style.background = '#DCFCE7';
+                badge.style.color = '#15803D';
+            }
+        } else {
+            const callerName = identity.name && identity.name !== 'Caller' ? identity.name : 'New Worker';
+            el.innerHTML = `<span style="color:var(--gs-muted);">Caller:</span> <strong>${callerName}</strong> &nbsp;|&nbsp; <span style="color:var(--gs-muted);">Phone:</span> <strong>${identity.phone}</strong>`;
+            el.style.color = 'var(--gs-text-main, #1E293B)';
+            if (badge) {
+                badge.innerHTML = `<i class="fa-solid fa-user-plus" style="font-size:10px; color:#2563EB;"></i> New Worker`;
+                badge.style.background = '#EFF6FF';
+                badge.style.color = '#1D4ED8';
+            }
         }
-        // A new caller means a new conversation — never carry one worker's context into another's call.
-        state.sessionId = null;
-    });
+    }
 
     function appendAiDialogue(sender, text) {
         if (!aiModalTranscriptBox) return;

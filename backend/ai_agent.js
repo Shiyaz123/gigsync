@@ -78,25 +78,37 @@ async function awaitFirebase(dbResult) {
 // 1. Definition of Real Database Tools (No Assumptions, No Fabricated Records)
 const AI_TOOLS = {
     // 1. Register or Update Worker Profile in Verified Database & Firebase
-    async registerWorkerProfile({ name, phone, trade = 'Skilled Specialist', city = 'Ramanagara', area = 'Town', tools = 'Standard tool kit', price = 300, experienceYears = 2 }) {
+    async registerWorkerProfile({ name, phone, trade, city = 'Ramanagara', area = 'Town', tools = 'Standard tool kit', price = 300, experienceYears = 2, confirmed = false }) {
         const cleanPhone = (phone || '').replace(/\D/g, '');
         if (cleanPhone.length !== 10) {
             return {
                 status: 'error',
                 persisted: false,
-                message: 'A valid 10-digit phone number is required before a worker record can be created. Ask the caller for it.'
+                message: 'A valid 10-digit phone number is required before a worker record can be created. Ask the caller: "What is your phone number?"'
             };
         }
-        if (!name || String(name).trim().length < 2) {
-            return { status: 'error', persisted: false, message: 'A worker name is required. Ask the caller for it.' };
+        if (!name || String(name).trim().length < 2 || ['worker', 'user', 'caller'].includes(String(name).toLowerCase())) {
+            return { status: 'error', persisted: false, message: 'A worker name is required. Ask the caller: "What is your name?"' };
+        }
+        if (!trade || ['skilled specialist', 'general helper', 'specialist', 'worker', 'general labour'].includes(String(trade).toLowerCase().trim())) {
+            return { status: 'error', persisted: false, message: 'A specific profession/trade (e.g. Electrician, Plumber, Carpenter, Mechanic) is required. Ask the caller: "What type of work do you do?"' };
+        }
+
+        if (!confirmed) {
+            return {
+                status: 'confirmation_required',
+                persisted: false,
+                pendingRegistration: { name: name.trim(), phone: cleanPhone, trade: trade.trim(), city },
+                message: `NOT SAVED YET. Ask the caller to confirm registration: "Got it. You are ${name.trim()}, an ${trade.trim()}. Would you like me to register you as a GigSync worker?" If they say yes, call registerWorkerProfile again with confirmed: true.`
+            };
         }
 
         const existingBefore = DB.getWorkerByPhone(cleanPhone);
 
         const res = DB.registerWorkerProfile({
-            name,
+            name: name.trim(),
             phone: cleanPhone,
-            trade,
+            trade: trade.trim(),
             city,
             area,
             tools,
@@ -692,15 +704,16 @@ const AI_TOOLS = {
 const GEMINI_TOOLS_DECLARATIONS = [
     {
         name: 'registerWorkerProfile',
-        description: 'Register or update a worker profile and trade skills in the verified database and sync with Firebase.',
+        description: 'Register a new worker profile. Both name, 10-digit phone number, and specific trade/profession are REQUIRED. NOTHING IS SAVED until you call this with confirmed:true, after reading back and confirming with the caller.',
         parameters: {
             type: 'OBJECT',
             properties: {
                 name: { type: 'STRING', description: 'Full name of the worker e.g. Rajesh' },
                 phone: { type: 'STRING', description: '10-digit mobile number e.g. 7012280695' },
-                trade: { type: 'STRING', description: 'Trade profession e.g. Electrical, Plumbing, Carpentry, Mechanics' },
+                trade: { type: 'STRING', description: 'Specific trade profession e.g. Electrician, Plumber, Carpenter, Mechanic' },
                 city: { type: 'STRING', description: 'City/town in Karnataka e.g. Ramanagara' },
-                experienceYears: { type: 'NUMBER', description: 'Years of experience' }
+                experienceYears: { type: 'NUMBER', description: 'Years of experience' },
+                confirmed: { type: 'BOOLEAN', description: 'Set true ONLY after the caller confirmed. Leave false on first call.' }
             },
             required: ['name', 'phone', 'trade']
         }
@@ -1073,6 +1086,16 @@ WHICH TOOL TO REACH FOR (map intent, not keywords):
 - Job finished / I'm done                                            -> completeJob
 - On my way / arrived / started / can't take it / cancel             -> updateJobStatusByWorker
 
+SLOT-FILLING & REGISTRATION RULES (DO NOT GUESS MISSING DATA):
+- A complete worker registration requires: (1) Full Name, (2) 10-digit Phone number, (3) Specific Trade/Profession, (4) Availability date (e.g. Today, Tomorrow), (5) Shift start and end times (e.g. 9 AM to 5 PM).
+- If the caller's Name is missing: ASK FOR IT: "Sure. What is your name?" (or "What is your name?").
+- If the caller's Profession/Trade is missing: ASK FOR IT: "What type of work do you do?"
+- If the caller's Phone number is missing: ASK FOR IT: "What is your 10-digit mobile number?"
+- If the caller's Working hours are missing: ASK FOR IT: "What hours are you available?"
+- NEVER invent, assume, or default a worker's name or profession (never use "Worker" or "General Helper").
+- When all details are present, read back and ask confirmation: "Got it. You are [Name], an [Trade], and you are available [Tomorrow] from [9 AM] to [5 PM]. Would you like me to register you as a GigSync worker?"
+- Only call registerWorkerProfile and updateWorkerAvailability with confirmed:true AFTER the caller confirms with "Yes".
+
 HONESTY RULES (these outrank sounding helpful):
 - Never invent a name, hour, date, customer, amount, rating or job. If it is not in a tool result,
   you do not know it.
@@ -1082,13 +1105,17 @@ HONESTY RULES (these outrank sounding helpful):
   offer to register them — do not pretend to read their data.
 - If a tool returns status:"needs_disambiguation", read out the choices and ask which job they mean.
 - BEFORE any write (availability, profile change, registration, job status), read the exact details
-  back and ask for a yes: "Got it — tomorrow, 10 AM to 6 PM. Shall I save that?" Only skip that
+  back and ask for a yes: "Got it — you're [Name], [an Electrician], available [Tomorrow] from [9 AM] to [5 PM]. Shall I save that?" Only skip that
   question if the worker has already said yes to those same details earlier in this call. Never save
   something they have not agreed to.
 - If a tool returns status:"confirmation_required", NOTHING has been saved. Read the details in its
   message back to the worker and ask them to confirm. Do not tell them it is done. When they say yes,
   call the same tool again with the same values plus confirmed:true. If they change a detail, use the
   new value and confirm again.
+- AFTER EVERY SUCCESSFUL WORKER REGISTRATION OR UPDATE, YOU MUST EXPLICITLY CONFIRM THE UPDATED DETAILS TO THE WORKER:
+  * For new worker registration + availability: "Done. Your worker profile has been registered as an [trade] and your availability has been saved for [day] from [start] to [end]."
+  * For availability change only: "Done. Your availability has been updated to [day], [start] to [end]."
+  * For profession change: "Done. Your profession has been updated to [trade]."
 - For writes, only say "Done" when the result has persisted:true. If persisted is false, say plainly
   that it did not save. If persisted is true but firebase.ok is false, their change IS saved — tell
   them it is saved. Do not read out technical causes; a worker on a phone call does not need to hear
@@ -1680,16 +1707,16 @@ function evaluateWorkerDraft(session, text, actionsPerformed) {
         return `Sure. What is your name?`;
     }
 
-    if (!draft.phone) {
-        session.context.pendingIntent = 'AWAITING_WORKER_PHONE';
-        actionsPerformed.push('Prompted worker for missing phone');
-        return draft.name ? `Thanks, ${draft.name}. What is your phone number?` : `Thanks. What is your phone number?`;
-    }
-
     if (!draft.trade) {
         session.context.pendingIntent = 'AWAITING_WORKER_TRADE';
         actionsPerformed.push('Prompted worker for missing trade');
-        return `What type of work do you do?`;
+        return draft.name ? `Hello ${draft.name}. What type of work do you do?` : `What type of work do you do?`;
+    }
+
+    if (!draft.phone) {
+        session.context.pendingIntent = 'AWAITING_WORKER_PHONE';
+        actionsPerformed.push('Prompted worker for missing phone');
+        return `Thank you. What phone number should I register you with?`;
     }
 
     if (!draft.hasAvailability) {
@@ -1717,7 +1744,12 @@ function evaluateWorkerDraft(session, text, actionsPerformed) {
         updateType: (!existingWorker ? 'REGISTRATION_AND_AVAILABILITY' : 'MULTIPLE_DETAILS')
     };
     actionsPerformed.push(`Prepared complete worker details for confirmation`);
-    return `Got it. You're ${draft.name}, ${article} ${tradeNoun}, available ${draft.date.toLowerCase()} from ${draft.startDisplay} to ${draft.endDisplay}. Shall I save these details?`;
+
+    if (!existingWorker) {
+        return `Got it. You are ${draft.name}, ${article} ${tradeNoun}, and you are available ${draft.date.toLowerCase()} from ${draft.startDisplay} to ${draft.endDisplay}. Would you like me to register you as a GigSync worker?`;
+    } else {
+        return `Got it. You are ${draft.name}, ${article} ${tradeNoun}, available ${draft.date.toLowerCase()} from ${draft.startDisplay} to ${draft.endDisplay}. Shall I save these details?`;
+    }
 }
 
 // 5. Intelligent Multi-Turn Conversational Processor
@@ -1848,11 +1880,28 @@ class ContextAwareVoiceAgent {
                 detectedIntent = 'provide_worker_name';
                 session.context.workerDraft = session.context.workerDraft || {};
                 const candidateName = extractCallerName(text) || text.replace(/^(my name is|name is|i am|i'm|it's|its|this is|call me|hesaru|ಹೆಸರು)\s+/i, '').trim().replace(/[^a-zA-Z\s]/g, '').trim().split(/\s+/)[0];
-                if (candidateName && candidateName.length >= 2) {
+                if (candidateName && candidateName.length >= 2 && !['yes', 'no', 'ok', 'okay', 'sure', 'ha'].includes(candidateName.toLowerCase())) {
                     session.context.workerDraft.name = candidateName.charAt(0).toUpperCase() + candidateName.slice(1).toLowerCase();
+                    session.context.pendingIntent = null;
+                    spokenResponse = evaluateWorkerDraft(session, text, actionsPerformed);
+                } else {
+                    spokenResponse = `Sorry, I didn't catch that. What is your name?`;
+                    actionsPerformed.push('Requested name again');
                 }
-                session.context.pendingIntent = null;
-                spokenResponse = evaluateWorkerDraft(session, text, actionsPerformed);
+            }
+
+            else if (session.context.pendingIntent === 'AWAITING_WORKER_TRADE') {
+                detectedIntent = 'provide_worker_trade';
+                session.context.workerDraft = session.context.workerDraft || {};
+                const candidateTrade = extractTradeAndService(text);
+                if (candidateTrade) {
+                    session.context.workerDraft.trade = candidateTrade;
+                    session.context.pendingIntent = null;
+                    spokenResponse = evaluateWorkerDraft(session, text, actionsPerformed);
+                } else {
+                    spokenResponse = `I still need to know your type of work. Are you an electrician, plumber, carpenter, or another type of worker?`;
+                    actionsPerformed.push('Clarified trade with suggestions');
+                }
             }
 
             else if (session.context.pendingIntent === 'AWAITING_WORKER_PHONE') {
@@ -1862,35 +1911,33 @@ class ContextAwareVoiceAgent {
                 if (candidatePhone && candidatePhone.length === 10) {
                     session.context.workerDraft.phone = candidatePhone;
                     session.callerPhone = candidatePhone;
+                    session.context.pendingIntent = null;
+                    spokenResponse = evaluateWorkerDraft(session, text, actionsPerformed);
+                } else {
+                    spokenResponse = `I need your 10-digit mobile number. Please say it again.`;
+                    actionsPerformed.push('Requested 10-digit phone number again');
                 }
-                session.context.pendingIntent = null;
-                spokenResponse = evaluateWorkerDraft(session, text, actionsPerformed);
-            }
-
-            else if (session.context.pendingIntent === 'AWAITING_WORKER_TRADE') {
-                detectedIntent = 'provide_worker_trade';
-                session.context.workerDraft = session.context.workerDraft || {};
-                const candidateTrade = extractTradeAndService(text);
-                if (candidateTrade) {
-                    session.context.workerDraft.trade = candidateTrade;
-                }
-                session.context.pendingIntent = null;
-                spokenResponse = evaluateWorkerDraft(session, text, actionsPerformed);
             }
 
             else if (session.context.pendingIntent === 'AWAITING_WORKER_AVAILABILITY') {
                 detectedIntent = 'provide_worker_availability';
                 session.context.workerDraft = session.context.workerDraft || {};
-                const range = extractTimeRange(text);
-                const { date } = extractDateTimeEntities(text);
-                session.context.workerDraft.date = date || 'Tomorrow';
-                session.context.workerDraft.startTime = range.startTime;
-                session.context.workerDraft.endTime = range.endTime;
-                session.context.workerDraft.startDisplay = range.startDisplay;
-                session.context.workerDraft.endDisplay = range.endDisplay;
-                session.context.workerDraft.hasAvailability = true;
-                session.context.pendingIntent = null;
-                spokenResponse = evaluateWorkerDraft(session, text, actionsPerformed);
+                const hasAvail = text.match(/\d/) || /morning|evening|afternoon|today|tomorrow|naale/i.test(text);
+                if (hasAvail) {
+                    const range = extractTimeRange(text);
+                    const { date } = extractDateTimeEntities(text);
+                    session.context.workerDraft.date = date || 'Tomorrow';
+                    session.context.workerDraft.startTime = range.startTime;
+                    session.context.workerDraft.endTime = range.endTime;
+                    session.context.workerDraft.startDisplay = range.startDisplay;
+                    session.context.workerDraft.endDisplay = range.endDisplay;
+                    session.context.workerDraft.hasAvailability = true;
+                    session.context.pendingIntent = null;
+                    spokenResponse = evaluateWorkerDraft(session, text, actionsPerformed);
+                } else {
+                    spokenResponse = `What hours are you available? For example, 9 AM to 5 PM tomorrow.`;
+                    actionsPerformed.push('Requested hours again');
+                }
             }
 
             else if (session.context.pendingIntent === 'CONFIRM_UPDATE_AVAILABILITY' && (isAffirmative || isNegative)) {
@@ -1937,10 +1984,9 @@ class ContextAwareVoiceAgent {
                         if (avail.updateType === 'AVAILABILITY_ONLY') {
                             spokenResponse = `Done. Your availability has been updated to ${avail.date.toLowerCase()}, ${avail.startDisplay} to ${avail.endDisplay}.`;
                         } else if (avail.updateType === 'MULTIPLE_DETAILS') {
-                            spokenResponse = `Done. Your details have been updated:\nName: ${avail.name}\nProfession: ${tradeNoun.charAt(0).toUpperCase() + tradeNoun.slice(1)}\nAvailability: ${avail.date}, ${avail.startDisplay} to ${avail.endDisplay}.`;
+                            spokenResponse = `Done. Your worker profile and availability have been saved for ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
                         } else {
-                            const article = /^[aeiou]/i.test(tradeNoun) ? 'an' : 'a';
-                            spokenResponse = `Done. Your details have been updated successfully. You're registered as ${article} ${tradeNoun} and available ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
+                            spokenResponse = `Done. Your worker profile has been registered and your availability has been saved for ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
                         }
                     } else {
                         spokenResponse = `Sorry, I couldn't update your details. Please try again.`;
