@@ -705,6 +705,13 @@ const DB = {
         };
     },
 
+    getWorkerAvailability(workerIdOrPhone, dateStr = null) {
+        const schedule = this.getWorkerSchedule(workerIdOrPhone);
+        const slots = schedule ? schedule.availabilitySlots : [];
+        if (!dateStr) return slots;
+        return slots.filter(s => s.date_str && s.date_str.toLowerCase() === dateStr.toLowerCase());
+    },
+
     checkScheduleConflict(workerId, requestedDate, requestedTime) {
         const conflict = db.prepare(`
             SELECT * FROM jobs

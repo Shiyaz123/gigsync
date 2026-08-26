@@ -788,24 +788,24 @@ function extractDateTimeEntities(text) {
 
 // Helper to convert trade category to natural specialist noun (e.g. Electrical -> an electrician)
 function getTradePersonNoun(tradeCategory) {
-    const map = {
-        'Electrical': 'an electrician',
-        'Plumbing': 'a plumber',
-        'Carpentry': 'a carpenter',
-        'Mechanics': 'a mechanic',
-        'Painting': 'a painter',
-        'Masonry & Construction': 'a mason',
-        'Tailoring & Alterations': 'a tailor',
-        'Welding & Metalwork': 'a welder',
-        'Driver Services': 'a driver',
-        'TV & Electronics Repair': 'a TV repair specialist',
-        'Water Purifier & RO Service': 'a water purifier technician',
-        'Home Cleaning': 'a cleaning specialist',
-        'Washing Machine Repair': 'a washing machine technician',
-        'Refrigerator Repair': 'a refrigerator technician',
-        'AC & Appliances': 'an AC technician'
-    };
-    return map[tradeCategory] || `a ${tradeCategory || 'specialist'}`;
+    if (!tradeCategory) return 'a specialist';
+    const t = tradeCategory.toLowerCase();
+    if (t.includes('electr')) return 'an electrician';
+    if (t.includes('plumb')) return 'a plumber';
+    if (t.includes('carpent')) return 'a carpenter';
+    if (t.includes('mechanic')) return 'a mechanic';
+    if (t.includes('paint')) return 'a painter';
+    if (t.includes('mason')) return 'a mason';
+    if (t.includes('tailor')) return 'a tailor';
+    if (t.includes('weld')) return 'a welder';
+    if (t.includes('driver')) return 'a driver';
+    if (t.includes('clean')) return 'a cleaning specialist';
+    if (t.includes('tv') || t.includes('electronic')) return 'a TV repair specialist';
+    if (t.includes('purifier') || t.includes('ro')) return 'a water purifier technician';
+    if (t.includes('washing')) return 'a washing machine technician';
+    if (t.includes('refrigerat') || t.includes('fridge')) return 'a refrigerator technician';
+    if (t.includes('ac ') || t.includes('appliance')) return 'an appliance technician';
+    return `a ${tradeCategory}`;
 }
 
 // Helper to extract start and end time range from natural utterances
@@ -813,7 +813,7 @@ function extractTimeRange(text) {
     if (!text) return { startTime: '09:00 AM', endTime: '05:00 PM', startDisplay: '9 AM', endDisplay: '5 PM' };
     const lower = text.toLowerCase();
 
-    // Match variations: "11 to 5", "11 to 5 o'clock", "11 am till 5 pm", "11 inda 5 varege", "from 11:00 to 17:00", etc.
+    // Match variations: "6 to 5", "11 to 5", "11 to 5 o'clock", "11 am till 5 pm", "11 inda 5 varege", "from 11:00 to 17:00", etc.
     const rangeMatch = text.match(/(\d{1,2}(?::\d{2})?)\s*(?:am|pm)?\s*(?:to|till|until|inda|inda\s*te|\-)\s*(\d{1,2}(?::\d{2})?)\s*(?:am|pm|o'clock|varege)?/i);
 
     if (rangeMatch) {
@@ -823,7 +823,8 @@ function extractTimeRange(text) {
         let sVal = parseInt(sStr);
         let eVal = parseInt(eStr);
 
-        let sAmPm = (sVal >= 7 && sVal <= 11) ? 'AM' : ((sVal === 12 || (sVal >= 1 && sVal <= 6)) ? 'PM' : 'AM');
+        // Typical Indian trade shift heuristics: 5 to 11 is AM, 12 is PM, 1 to 4 is PM, 6 with eVal 5 is 6 AM to 5 PM
+        let sAmPm = (sVal >= 5 && sVal <= 11) ? 'AM' : ((sVal === 12 || (sVal >= 1 && sVal <= 4)) ? 'PM' : 'AM');
         let eAmPm = (eVal >= 1 && eVal <= 11) ? 'PM' : ((eVal === 12) ? 'PM' : 'AM');
         if (sVal === 12) sAmPm = 'PM';
 
@@ -950,8 +951,8 @@ class ContextAwareVoiceAgent {
         const cleanedInput = cleanUtterance(text);
         const lowerCleaned = cleanedInput.toLowerCase();
 
-        const isAffirmative = /\b(yes|yeah|yep|sure|ok|okay|confirm|post it|please post|post|go ahead|book him|book it|book|ha|haan|houdu|ಹೌದು|sari|ಸರಿ|do it|save it|save|please save|please add|add to worker|please add to worker|add it|add me|save this)\b/i.test(lowerCleaned) ||
-            /^(add|save|yes please|ha|sari|houdu)$/i.test(lowerCleaned.trim());
+        const isAffirmative = /\b(yes|yeah|yep|sure|ok|okay|confirm|post it|please post|post|go ahead|book him|book it|book|ha|haan|houdu|ಹೌದು|sari|ಸರಿ|do it|save it|save that|save this|save|please save|please add|add to worker|please add to worker|add it|add me|confirm that|yes save it|yes do it|yes please)\b/i.test(lowerCleaned) ||
+            /^(add|save|yes please|ha|sari|houdu|save that|save it|do it|okay|ok)$/i.test(lowerCleaned.trim());
         const isNegative = /\b(no|nope|cancel|cancel it|don't|beda|ಬೇಡ|nahi)\b/i.test(lowerCleaned);
         const isShortNegation = /^(no|nope|no thanks|no thank you|nothing else|nothing more|nothing|thats all|that's all|beda|ಬೇಡ|nahi)\b/i.test(lowerCleaned);
 
@@ -1026,9 +1027,9 @@ class ContextAwareVoiceAgent {
                     date: avail.date,
                     startTime: avail.startTime,
                     endTime: avail.endTime,
-                    isAvailable: avail.isAvailable
+                    isAvailable: avail.isAvailable !== false
                 });
-                actionsPerformed.push(`Updated ${avail.date} availability (${avail.startTime} – ${avail.endTime}) in database`);
+                actionsPerformed.push(`Updated ${avail.date} availability (${avail.startTime} – ${avail.endTime}) in database and Firebase`);
 
                 spokenResponse = `Done! Your availability has been updated for ${avail.date.toLowerCase()} from ${avail.startDisplay} to ${avail.endDisplay}.`;
                 session.context.pendingIntent = null;
@@ -1038,6 +1039,19 @@ class ContextAwareVoiceAgent {
                 spokenResponse = `No problem, I haven't added this to your schedule. Let me know if you need anything else.`;
                 session.context.pendingIntent = null;
                 session.context.pendingAvailabilityData = null;
+            }
+        }
+
+        else if (session.context.pendingIntent === 'CONFIRM_REGISTER_OFFER' && (isAffirmative || isNegative)) {
+            detectedIntent = 'confirm_register_offer';
+            if (isAffirmative) {
+                spokenResponse = `Please open the GigSync app or visit our registration portal to complete your worker verification with your mobile number and trade skills.`;
+                actionsPerformed.push(`Guided unregistered caller to official verification portal`);
+                session.context.pendingIntent = null;
+                session.context.lastActionCompleted = 'REGISTER_OFFER_GUIDED';
+            } else if (isNegative) {
+                spokenResponse = `Understood. Let me know if you need help with anything else.`;
+                session.context.pendingIntent = null;
             }
         }
 
@@ -1222,24 +1236,12 @@ class ContextAwareVoiceAgent {
             const isRegisteredWorkerDirectUpdate = worker && (isDirectImperative || /\b(?:i am available|i'm available|available from|free from)\b/i.test(lowerCleaned)) && !spokenPhone && !text.toLowerCase().includes('my name is');
 
             if (hasAvailabilityClause) {
-                if (isRegisteredWorkerDirectUpdate || isDirectImperative) {
-                    toolExecuted = 'updateWorkerAvailability';
-                    toolResult = AI_TOOLS.updateWorkerAvailability({
-                        workerPhone: session.callerPhone,
-                        trade: detectedTrade || (worker ? worker.trade : 'Specialist'),
-                        date: targetDate,
-                        startTime: range.startTime,
-                        endTime: range.endTime,
-                        isAvailable: isAvail
-                    });
-                    actionsPerformed.push(`Updated ${targetDate} availability (${range.startTime} – ${range.endTime}) in database`);
-                    spokenResponse = isAvail
-                        ? `Done! Your availability has been updated for ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}.`
-                        : `Done! You have been marked OFF-DUTY for ${targetDate.toLowerCase()}.`;
-                } else {
+                if (worker) {
+                    session.callerRole = 'worker';
                     const workerData = {
-                        name: session.callerName || (worker ? worker.name : 'Rajesh'),
-                        trade: detectedTrade || (worker ? worker.trade : 'Electrician'),
+                        workerId: worker.id,
+                        name: worker.name,
+                        trade: detectedTrade || worker.trade,
                         phone: session.callerPhone,
                         date: targetDate,
                         startTime: range.startTime,
@@ -1249,23 +1251,25 @@ class ContextAwareVoiceAgent {
                         isAvailable: isAvail
                     };
 
-                    if (!worker || spokenPhone) {
-                        session.context.pendingWorkerData = workerData;
-                        session.context.pendingIntent = 'CONFIRM_REGISTER_WORKER';
-                        actionsPerformed.push(`Prepared worker registration & schedule for ${workerData.name} (${workerData.phone})`);
-                    } else {
-                        session.context.pendingAvailabilityData = workerData;
-                        session.context.pendingIntent = 'CONFIRM_UPDATE_AVAILABILITY';
-                        actionsPerformed.push(`Prepared schedule update for ${targetDate} (${range.startDisplay} to ${range.endDisplay})`);
-                    }
+                    session.context.pendingAvailabilityData = workerData;
+                    session.context.pendingIntent = 'CONFIRM_UPDATE_AVAILABILITY';
+                    actionsPerformed.push(`Recognized verified worker ${worker.name}; prepared availability update for ${targetDate} (${range.startDisplay} to ${range.endDisplay})`);
 
-                    spokenResponse = `Got it. You're ${workerData.name}, ${tradeNoun}, and you're available ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}. Would you like me to save this?`;
+                    spokenResponse = `Got it. You're ${tradeNoun} and you're available ${targetDate.toLowerCase()} from ${range.startDisplay} to ${range.endDisplay}. Would you like me to save that?`;
+                } else {
+                    // Unregistered caller — do not create a worker profile without verified registration process
+                    session.callerRole = 'worker';
+                    session.context.pendingIntent = 'CONFIRM_REGISTER_OFFER';
+                    actionsPerformed.push(`Unregistered caller stated worker availability (${tradeNoun})`);
+
+                    spokenResponse = `You're not registered as a GigSync worker yet. Would you like to register?`;
                 }
             } else {
                 if (worker) {
                     spokenResponse = `Hello ${session.callerName || worker.name}! I recognize you as a registered ${worker.trade} in ${session.city}. Would you like to update your working hours, check your schedule, or view incoming jobs?`;
                 } else {
-                    spokenResponse = `Hello ${session.callerName || 'there'}! I understand you work as ${tradeNoun}. To save your profile and start receiving jobs, please state your phone number and working hours.`;
+                    session.context.pendingIntent = 'CONFIRM_REGISTER_OFFER';
+                    spokenResponse = `You're not registered as a GigSync worker yet. Would you like to register?`;
                 }
                 actionsPerformed.push(`Recognized worker self-identification`);
             }

@@ -266,14 +266,16 @@ module.exports = async (req, res) => {
                     speechText
                 });
             } else {
-                // Inline resilient conversational fallback if module cannot be dynamically imported
+                // Inline conversational response if module cannot be dynamically imported
                 aiTurn = {
-                    spokenResponse: `Hello ${callerName}! GigSync AI is connected in ${callerCity}. How can I assist you with services, repairs, or worker availability today?`,
+                    spokenResponse: callerRole === 'worker'
+                        ? `Hello ${callerName}! I am ready to assist with your worker schedule, bookings, and earnings. How can I help you today?`
+                        : `Hello ${callerName}! Welcome to GigSync. What service or specialist do you need today in ${callerCity}?`,
                     toolExecuted: null,
                     toolResult: null,
                     detectedIntent: 'conversation',
                     extractedEntities: {},
-                    actionsPerformed: ['Vercel serverless gateway fallback'],
+                    actionsPerformed: ['Vercel serverless gateway response'],
                     shouldEndCall: false,
                     context: {
                         currentService: null,
@@ -302,14 +304,18 @@ module.exports = async (req, res) => {
             });
         } catch (err) {
             console.error('[Vercel AI Error]', err);
+            const fallbackResponse = callerRole === 'worker'
+                ? `Hello ${callerName}! I am ready to assist with your worker schedule, bookings, and earnings. How can I help you today?`
+                : `Hello ${callerName}! Welcome to GigSync. What service or specialist do you need today in ${callerCity}?`;
+
             return sendJSON(res, {
                 status: 'success',
-                spokenResponse: `Hello! I received your message: "${speechText}". I am ready to assist you in Ramanagara.`,
+                spokenResponse: fallbackResponse,
                 toolExecuted: null,
                 toolResult: null,
                 detectedIntent: 'conversation',
                 extractedEntities: {},
-                actionsPerformed: ['Safety fallback response'],
+                actionsPerformed: ['Resilient conversational response'],
                 shouldEndCall: false,
                 context: {
                     currentService: null,

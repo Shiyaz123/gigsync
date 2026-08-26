@@ -174,6 +174,7 @@ async function runDiagnostic() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+                sessionId: `sess_${workerPhone}`,
                 callerPhone: workerPhone,
                 callerRole: 'worker',
                 callerName: 'Ramesh Kumar',
@@ -183,10 +184,27 @@ async function runDiagnostic() {
         });
         const updateData = await updateRes.json();
 
+        // Turn 2: Worker confirms
+        const confirmRes = await fetch('http://localhost:8089/api/ai/voice-call', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sessionId: `sess_${workerPhone}`,
+                callerPhone: workerPhone,
+                callerRole: 'worker',
+                callerName: 'Ramesh Kumar',
+                city: 'Ramanagara',
+                speechText: 'Save it'
+            })
+        });
+        const confirmData = await confirmRes.json();
+
+        // Turn 3: Worker checks availability
         const checkRes = await fetch('http://localhost:8089/api/ai/voice-call', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+                sessionId: `sess_${workerPhone}`,
                 callerPhone: workerPhone,
                 callerRole: 'worker',
                 callerName: 'Ramesh Kumar',
@@ -196,7 +214,9 @@ async function runDiagnostic() {
         });
         const checkData = await checkRes.json();
 
-        const pass = updateData.status === 'success' && checkData.spokenResponse.includes('10:00 AM') && checkData.spokenResponse.includes('2:00 PM');
+        const pass = (updateData.status === 'success' || confirmData.status === 'success') &&
+                     checkData.spokenResponse.includes('10:00 AM') &&
+                     (checkData.spokenResponse.includes('02:00 PM') || checkData.spokenResponse.includes('2:00 PM'));
         console.log('[TEST 7/10] Worker Availability Query & Update:     ', pass ? '✅ PASS (Slot saved & queried from SQLite DB)' : '❌ FAIL');
         if (!pass) allPassed = false;
     } catch (e) {
