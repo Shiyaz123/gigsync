@@ -80,114 +80,13 @@ const memoryStore = {
             password_hash: crypto.scryptSync('admin@gigsync2026', 'gigsync_salt_tier2', 32).toString('hex'),
             city: 'Ramanagara',
             area: 'Headquarters'
-        },
-        {
-            id: 2,
-            name: 'Rumais',
-            phone: '7760782551',
-            email: 'rumais.electrician@gmail.com',
-            role: 'worker',
-            password_hash: crypto.scryptSync('worker123', 'gigsync_salt_tier2', 32).toString('hex'),
-            city: 'Ramanagara',
-            area: 'Town'
-        },
-        {
-            id: 3,
-            name: 'Saqib',
-            phone: '8073280683',
-            email: 'saqib.plumber@gmail.com',
-            role: 'worker',
-            password_hash: crypto.scryptSync('worker123', 'gigsync_salt_tier2', 32).toString('hex'),
-            city: 'Ramanagara',
-            area: 'Town'
-        },
-        {
-            id: 4,
-            name: 'Shaik Mohammed Anas',
-            phone: '9743191097',
-            email: 'anas.mechanic@gmail.com',
-            role: 'worker',
-            password_hash: crypto.scryptSync('worker123', 'gigsync_salt_tier2', 32).toString('hex'),
-            city: 'Ramanagara',
-            area: 'Town'
         }
     ],
     sessions: {},
-    workers: [
-        {
-            id: 1,
-            user_id: 2,
-            name: 'Rumais',
-            phone: '7760782551',
-            trade: 'Electrician',
-            service: 'electrical',
-            skills: 'Wiring, MCB, Inverter, Appliances',
-            tools: 'Multimeter, Drill, Insulated Tool Kit',
-            rating: 4.8,
-            km: 1.2,
-            jobs_completed: 28,
-            experience_years: 4,
-            price: 300,
-            is_available: 1,
-            is_verified: 1,
-            initials: 'RM',
-            city: 'Ramanagara',
-            area: 'Town',
-            service_areas: 'Ramanagara, Nearby Areas',
-            about: 'Specialist electrician serving Ramanagara.'
-        },
-        {
-            id: 2,
-            user_id: 3,
-            name: 'Saqib',
-            phone: '8073280683',
-            trade: 'Plumber',
-            service: 'plumbing',
-            skills: 'Pipe Fitting, Leakages, Tap & Tank Repair',
-            tools: 'Pipe Wrench, Thread Tape, Cutting Tools',
-            rating: 4.7,
-            km: 1.8,
-            jobs_completed: 34,
-            experience_years: 5,
-            price: 300,
-            is_available: 1,
-            is_verified: 1,
-            initials: 'SQ',
-            city: 'Ramanagara',
-            area: 'Town',
-            service_areas: 'Ramanagara, Nearby Areas',
-            about: 'Certified plumber for installations and repairs in Ramanagara.'
-        },
-        {
-            id: 3,
-            user_id: 4,
-            name: 'Shaik Mohammed Anas',
-            phone: '9743191097',
-            trade: 'Mechanic',
-            service: 'mechanics',
-            skills: 'Vehicle Maintenance, Diagnostics, Breakdown Support',
-            tools: 'Complete Mechanical Tool Kit, Diagnostic Gauge',
-            rating: 4.9,
-            km: 2.0,
-            jobs_completed: 45,
-            experience_years: 6,
-            price: 350,
-            is_available: 1,
-            is_verified: 1,
-            initials: 'SA',
-            city: 'Ramanagara',
-            area: 'Town',
-            service_areas: 'Ramanagara, Nearby Areas',
-            about: 'Experienced mechanic in Ramanagara.'
-        }
-    ],
+    workers: [],
     customers: [],
     jobs: [],
-    availability: {
-        '7760782551': [{ id: 1, worker_id: 1, worker_phone: '7760782551', trade: 'Electrician', date_str: 'Tomorrow', start_time: '09:00 AM', end_time: '04:00 PM', is_available: 1, notes: 'Standard shift' }],
-        '8073280683': [{ id: 2, worker_id: 2, worker_phone: '8073280683', trade: 'Plumber', date_str: 'Today', start_time: '10:00 AM', end_time: '05:00 PM', is_available: 1, notes: 'Standard shift' }],
-        '9743191097': [{ id: 3, worker_id: 3, worker_phone: '9743191097', trade: 'Mechanic', date_str: 'Tomorrow', start_time: '11:00 AM', end_time: '06:00 PM', is_available: 1, notes: 'Standard shift' }]
-    },
+    availability: {},
     callLogs: []
 };
 
@@ -343,138 +242,7 @@ function initDatabase() {
         `).run('Master Platform Administrator', adminPhone, 'shiyazabdulazeez@gmail.com', 'admin', pHash, 'Ramanagara', 'Headquarters');
     }
 
-    // --------------------------------------------------------------------------
-    // SEED / TEST RECORDS — kept strictly separate from production data.
-    //
-    // These 3 rows exist so the app has something to demo with. They are NOT
-    // production records and nothing in the app logic may depend on them.
-    // Production data (workers who registered by voice, chat or signup) is never
-    // touched here. The old code deleted every worker whose phone was not one of
-    // the 3 seeds on EVERY process start, which silently destroyed every worker
-    // created through the voice pipeline. That purge now only runs when it is
-    // explicitly asked for: GIGSYNC_SEED_RESET=1
-    // --------------------------------------------------------------------------
-    const seedReset = process.env.GIGSYNC_SEED_RESET === '1';
-
-    if (seedReset) {
-        console.warn('⚠️  [Database] GIGSYNC_SEED_RESET=1 — deleting ALL worker records except the 3 seed test phones.');
-        db.prepare(`DELETE FROM workers WHERE phone NOT IN ('7760782551', '8073280683', '9743191097')`).run();
-        db.prepare(`DELETE FROM users WHERE role = 'worker' AND phone NOT IN ('7760782551', '8073280683', '9743191097')`).run();
-        db.prepare(`DELETE FROM worker_availability WHERE worker_phone NOT IN ('7760782551', '8073280683', '9743191097')`).run();
-        db.prepare(`DELETE FROM jobs WHERE worker_phone IS NOT NULL AND worker_phone NOT IN ('7760782551', '8073280683', '9743191097')`).run();
-    }
-
-    // Seed the 3 test workers
-    const seedWorkers = [
-        {
-            name: 'Rumais',
-            phone: '7760782551',
-            email: 'rumais.electrician@gmail.com',
-            trade: 'Electrician',
-            service: 'electrical',
-            skills: 'Wiring, MCB, Inverter, Appliances',
-            tools: 'Multimeter, Drill, Insulated Tool Kit',
-            rating: 4.8,
-            price: 300,
-            initials: 'RM',
-            city: 'Ramanagara',
-            area: 'Town',
-            about: 'Specialist electrician serving Ramanagara.',
-            slotDate: 'Tomorrow',
-            slotStart: '09:00 AM',
-            slotEnd: '04:00 PM'
-        },
-        {
-            name: 'Saqib',
-            phone: '8073280683',
-            email: 'saqib.plumber@gmail.com',
-            trade: 'Plumber',
-            service: 'plumbing',
-            skills: 'Pipe Fitting, Leakages, Tap & Tank Repair',
-            tools: 'Pipe Wrench, Thread Tape, Cutting Tools',
-            rating: 4.7,
-            price: 300,
-            initials: 'SQ',
-            city: 'Ramanagara',
-            area: 'Town',
-            about: 'Certified plumber for installations and repairs in Ramanagara.',
-            slotDate: 'Today',
-            slotStart: '10:00 AM',
-            slotEnd: '05:00 PM'
-        },
-        {
-            name: 'Shaik Mohammed Anas',
-            phone: '9743191097',
-            email: 'anas.mechanic@gmail.com',
-            trade: 'Mechanic',
-            service: 'mechanics',
-            skills: 'Vehicle Maintenance, Diagnostics, Breakdown Support',
-            tools: 'Complete Mechanical Tool Kit, Diagnostic Gauge',
-            rating: 4.9,
-            price: 350,
-            initials: 'SA',
-            city: 'Ramanagara',
-            area: 'Town',
-            about: 'Experienced mechanic in Ramanagara.',
-            slotDate: 'Tomorrow',
-            slotStart: '11:00 AM',
-            slotEnd: '06:00 PM'
-        }
-    ];
-
-    for (const w of seedWorkers) {
-        // Upsert User
-        let u = db.prepare('SELECT * FROM users WHERE phone = ?').get(w.phone);
-        if (!u) {
-            const pHash = hashPassword('worker123');
-            const res = db.prepare(`
-                INSERT INTO users (name, phone, email, role, password_hash, city, area)
-                VALUES (?, ?, ?, 'worker', ?, ?, ?)
-            `).run(w.name, w.phone, w.email, pHash, w.city, w.area);
-            u = { id: Number(res.lastInsertRowid) };
-        } else if (seedReset) {
-            db.prepare(`UPDATE users SET name = ?, email = ? WHERE id = ?`).run(w.name, w.email, u.id);
-        }
-
-        // Upsert Worker (Strictly 1 Record Per Person)
-        let workerRow = db.prepare('SELECT * FROM workers WHERE phone = ?').get(w.phone);
-        if (!workerRow) {
-            const wRes = db.prepare(`
-                INSERT INTO workers (
-                    user_id, name, phone, trade, service, skills, tools, rating, km, jobs_completed,
-                    experience_years, price, is_available, is_verified, initials, city, area, service_areas, about
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.5, 25, 4, ?, 1, 1, ?, ?, ?, 'Ramanagara, Nearby Areas', ?)
-            `).run(u.id, w.name, w.phone, w.trade, w.service, w.skills, w.tools, w.rating, w.price, w.initials, w.city, w.area, w.about);
-            workerRow = { id: Number(wRes.lastInsertRowid) };
-        } else if (seedReset) {
-            // Only overwrite a live record when a seed reset was explicitly requested —
-            // otherwise a worker who changed their trade by voice would be reverted on restart.
-            db.prepare(`
-                UPDATE workers SET name = ?, trade = ?, service = ?, rating = ?, price = ?, is_available = 1, is_verified = 1
-                WHERE id = ?
-            `).run(w.name, w.trade, w.service, w.rating, w.price, workerRow.id);
-        }
-
-        // Give a seed worker one starter availability slot ONLY if they have none at all.
-        // Never delete slots the worker set themselves through the voice or chat agent.
-        const existingSlots = db.prepare(
-            `SELECT COUNT(*) AS c FROM worker_availability WHERE worker_phone = ?`
-        ).get(w.phone);
-        if (seedReset) {
-            db.prepare(`DELETE FROM worker_availability WHERE worker_phone = ?`).run(w.phone);
-        }
-        if (seedReset || !existingSlots || existingSlots.c === 0) {
-            db.prepare(`
-                INSERT INTO worker_availability (worker_id, worker_phone, trade, date_str, start_time, end_time, is_available, notes)
-                VALUES (?, ?, ?, ?, ?, ?, 1, 'Seed test record — standard shift')
-            `).run(workerRow.id, w.phone, w.trade, w.slotDate, w.slotStart, w.slotEnd);
-        }
-    }
-
-    const liveWorkerCount = db.prepare(
-        `SELECT COUNT(*) AS c FROM workers WHERE phone NOT IN ('7760782551', '8073280683', '9743191097')`
-    ).get();
-    console.log(`✅ [Database] Seed test workers present (Rumais, Saqib, Shaik Mohammed Anas). Real (non-seed) worker records preserved: ${liveWorkerCount ? liveWorkerCount.c : 0}`);
+    console.log('✅ [Database] Initialized clean database tables with zero dummy workers or bookings.');
     } catch (e) {
         console.warn('[Database Init Exception]:', e.message);
     }
@@ -1390,6 +1158,21 @@ const DB = {
             return job;
         }
 
+        let validCustomerId = null;
+        if (jobData.customer_id) {
+            try {
+                const custRow = db.prepare('SELECT id FROM customers WHERE id = ? OR user_id = ?').get(jobData.customer_id, jobData.customer_id);
+                if (custRow) validCustomerId = custRow.id;
+            } catch(e){}
+        }
+        let validWorkerId = null;
+        if (jobData.worker_id) {
+            try {
+                const wRow = db.prepare('SELECT id FROM workers WHERE id = ?').get(jobData.worker_id);
+                if (wRow) validWorkerId = wRow.id;
+            } catch(e){}
+        }
+
         const stmt = db.prepare(`
             INSERT INTO jobs (
                 id, customer_id, customer_phone, customer_name,
@@ -1402,10 +1185,10 @@ const DB = {
 
         stmt.run(
             jobId,
-            jobData.customer_id || null,
+            validCustomerId,
             jobData.customer_phone,
             jobData.customer_name || 'Customer',
-            jobData.worker_id || null,
+            validWorkerId,
             jobData.worker_phone || null,
             jobData.worker_name || 'Finding nearby specialists...',
             jobData.service,
@@ -1721,6 +1504,33 @@ const DB = {
         if (memoryStore.voice_sessions) {
             delete memoryStore.voice_sessions[sessionId];
         }
+    },
+
+    // Clear ALL application data for clean production reset
+    clearAllApplicationData() {
+        if (db) {
+            const tablesToClear = ['workers', 'worker_availability', 'jobs', 'customers', 'call_logs', 'voice_sessions'];
+            for (const tbl of tablesToClear) {
+                try { db.prepare(`DELETE FROM ${tbl}`).run(); } catch(e){}
+            }
+            try { db.prepare(`DELETE FROM users WHERE role <> 'admin'`).run(); } catch(e){}
+            try { db.exec('VACUUM'); } catch(e){}
+        }
+        memoryStore.workers = [];
+        memoryStore.availability = {};
+        memoryStore.jobs = [];
+        memoryStore.customers = [];
+        memoryStore.reviews = [];
+        memoryStore.callLogs = [];
+        memoryStore.voice_sessions = {};
+        memoryStore.users = memoryStore.users.filter(u => u.role === 'admin');
+
+        FirebaseSync.clearAllData().catch(e => console.warn('[Firebase Clear Error]:', e));
+        emitChange('worker', { action: 'CLEARED' });
+        emitChange('job', { action: 'CLEARED' });
+        emitChange('availability', { action: 'CLEARED' });
+
+        return { success: true, message: 'Clean production dataset ready. Zero workers, zero jobs.' };
     },
 
     // Trigger complete sync of all SQLite records to Firebase

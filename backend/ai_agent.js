@@ -1955,9 +1955,14 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
         };
     }
 
-    // 2. Booking Inquiries (Matches ANY booking query phrase)
-    if (/\b(did\s+anyone\s+book\s+me|has\s+anyone\s+booked\s+me|anyone\s+book(ed)?\s+me|booked\s+me|book\s+me|have\s+(a\s+|any\s+)?booking|have\s+any\s+bookings|any\s+booking|any\s+bookings|am\s+i\s+booked|do\s+i\s+have\s+(a\s+|any\s+)?(job|booking|customer)|check\s+my\s+booking|my\s+booking|my\s+bookings|when\s+is\s+my\s+booking|who\s+booked\s+me|who\s+is\s+my\s+customer)\b/i.test(lower)) {
-        const phone = draft.phone || session.callerPhone;
+    // 2. Booking Inquiries (Matches ANY booking query phrase or follow-up phone number)
+    const isBookingQuery = /\b(did\s+anyone\s+book\s+me|has\s+anyone\s+booked\s+me|anyone\s+book(ed)?\s+me|booked\s+me|book\s+me|have\s+(a\s+|any\s+)?booking|have\s+any\s+bookings|any\s+booking|any\s+bookings|am\s+i\s+booked|do\s+i\s+have\s+(a\s+|any\s+)?(job|booking|customer)|check\s+my\s+booking|my\s+booking|my\s+bookings|when\s+is\s+my\s+booking|who\s+booked\s+me|who\s+is\s+my\s+customer)\b/i.test(lower);
+    const isWaitingForBookingPhone = draft.last_asked_field === 'phone_for_booking';
+
+    if (isBookingQuery || isWaitingForBookingPhone) {
+        const inlinePhone = extractPhoneNumber(text);
+        if (inlinePhone) draft.phone = inlinePhone;
+        const phone = draft.phone || (session.callerPhone && session.callerPhone !== 'anonymous' ? session.callerPhone : null);
         if (!phone) {
             draft.last_asked_field = 'phone_for_booking';
             return {
@@ -1965,6 +1970,7 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
                 detectedIntent: 'ask_phone_for_booking'
             };
         }
+        draft.last_asked_field = null;
 
         const allJobs = DB.getJobsByWorker(phone) || [];
         const activeBookings = allJobs.filter(j => ['Confirmed', 'Requested', 'Accepted', 'In Progress', 'On the Way'].includes(j.status));
@@ -1972,7 +1978,7 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
 
         if (activeBookings.length === 0) {
             return {
-                spokenResponse: "You don't have any bookings at the moment.",
+                spokenResponse: "You don't have any bookings yet.",
                 detectedIntent: 'booking_inquiry',
                 toolExecuted: 'getWorkerBookings',
                 toolResult: { count: 0 }
@@ -1981,8 +1987,9 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
             const b = activeBookings[0];
             const dateStr = b.requested_date || 'tomorrow';
             const timeStr = b.requested_time || '2 PM to 4 PM';
+            const serviceStr = b.service ? ('an ' + b.service.toLowerCase() + ' repair') : 'a service request';
             return {
-                spokenResponse: `Yes. You are booked ${dateStr.toLowerCase()} from ${timeStr}. The customer may contact you.`,
+                spokenResponse: `Yes. You have a booking ${dateStr.toLowerCase()} from ${timeStr} for ${serviceStr}. The customer may contact you regarding the job.`,
                 detectedIntent: 'booking_inquiry',
                 toolExecuted: 'getWorkerBookings',
                 toolResult: { count: 1, bookings: activeBookings }

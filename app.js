@@ -891,29 +891,32 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadCustomerHomeData() {
         // Update user display
         if (state.user) {
-            const initials = state.user.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+            const initials = state.user.name ? state.user.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : 'KR';
             document.getElementById('userInitials') && (document.getElementById('userInitials').textContent = initials);
-            document.getElementById('userDisplayName') && (document.getElementById('userDisplayName').textContent = state.user.name);
-            document.getElementById('dropdownUserName') && (document.getElementById('dropdownUserName').textContent = state.user.name);
+            document.getElementById('userDisplayName') && (document.getElementById('userDisplayName').textContent = state.user.name || 'Customer');
+            document.getElementById('dropdownUserName') && (document.getElementById('dropdownUserName').textContent = state.user.name || 'Customer');
         }
 
-        // Fetch Real Workers & Jobs
+        // Fetch Real Workers & User's Own Bookings
+        const custPhone = state.user?.phone || '';
+        const jobsUrl = custPhone ? `/api/jobs?phone=${encodeURIComponent(custPhone)}` : '/api/jobs';
         const [wRes, jRes] = await Promise.all([
             apiFetch(`/api/workers?city=${encodeURIComponent(state.city)}`),
-            apiFetch('/api/jobs')
+            apiFetch(jobsUrl)
         ]);
 
         const workers = (wRes.ok && wRes.data.workers) ? wRes.data.workers : [];
-        const jobs = (jRes.ok && jRes.data.jobs) ? jRes.data.jobs : [];
+        const allJobs = (jRes.ok && jRes.data.jobs) ? jRes.data.jobs : [];
+        const jobs = custPhone ? allJobs.filter(j => j.customer_phone === custPhone) : [];
         state.workers = workers;
         state.jobs = jobs;
 
-        // Render Active/Upcoming Bookings
+        // Render Active/Upcoming Bookings (Belonging only to this customer)
         const activeBookings = jobs.filter(j => j.status !== 'Completed' && j.status !== 'Cancelled');
         const activeListEl = document.getElementById('custActiveBookingsList');
         if (activeListEl) {
             if (activeBookings.length === 0) {
-                activeListEl.innerHTML = `<div class="empty-placeholder"><p>No active bookings right now.</p></div>`;
+                activeListEl.innerHTML = `<div class="empty-placeholder"><p>No bookings yet.</p></div>`;
             } else {
                 activeListEl.innerHTML = activeBookings.slice(0, 3).map(j => `
                     <div class="booking-card">
@@ -942,7 +945,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 workersGridEl.innerHTML = `<div class="empty-placeholder" style="grid-column:1/-1"><p>No workers available in your area yet.</p></div>`;
             } else {
                 workersGridEl.innerHTML = workers.map(w => {
-                    const initials = w.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                    const initials = (w.name || 'W').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                    const safeName = (w.name || 'Specialist').replace(/'/g, "\\'");
+                    const safeTrade = (w.trade || 'Service').replace(/'/g, "\\'");
+                    const safeHours = (w.availability_hours || '09:00 AM – 05:00 PM').replace(/'/g, "\\'");
                     return `
                         <div class="worker-card">
                             <div class="worker-card-head">
@@ -958,7 +964,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <span><i class="fa-solid fa-clock"></i> ${w.availability_hours || 'Available'}</span>
                                 <span><strong>₹${w.price || 300}</strong></span>
                             </div>
-                            <button type="button" class="btn btn-outline btn-sm btn-block" onclick="window._bookWorkerDirect('${w.name}', '${w.trade}')">
+                            <button type="button" class="btn btn-outline btn-sm btn-block" onclick="window._bookWorkerDirect(${w.id || 'null'}, '${safeName}', '${w.phone || ''}', '${safeTrade}', ${w.price || 300}, '${safeHours}')">
                                 Book Specialist
                             </button>
                         </div>
@@ -968,10 +974,56 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    window._bookWorkerDirect = function(name, trade) {
-        document.getElementById('newJobServiceSelect') && (document.getElementById('newJobServiceSelect').value = trade.includes('Electrician') ? 'Electrical' : (trade.includes('Plumb') ? 'Plumbing' : 'Carpentry'));
-        document.getElementById('newJobDescription') && (document.getElementById('newJobDescription').value = `Direct booking request for ${name}`);
-        openCreateJobModal();
+    // Direct Instant Booking: Status becomes immediately 'Confirmed' without extra confirmation modal
+    window._bookWorkerDirect = async function(workerId, workerName, workerPhone, workerTrade, price, availHours) {
+        let custPhone = state.user?.phone || '';
+        let custName = state.user?.name || '';
+
+        if (!custPhone) {
+            custPhone = prompt('Please enter your 10-digit mobile number to book:');
+            if (!custPhone || !/^[6-9]\d{9}$/.test(custPhone.trim().replace(/\D/g, ''))) {
+                toast('A valid 10-digit mobile number is required.');
+                return;
+            }
+            custPhone = custPhone.trim().replace(/\D/g, '');
+            custName = prompt('Please enter your name:') || 'Customer';
+            if (state.user) {
+                state.user.phone = custPhone;
+                state.user.name = custName;
+            }
+        }
+
+        toast(`Booking ${workerName}...`);
+
+        const payload = {
+            customer_phone: custPhone,
+            customer_name: custName || 'Customer',
+            worker_id: workerId || null,
+            worker_name: workerName,
+            worker_phone: workerPhone || null,
+            service: workerTrade,
+            problem_description: `Direct booking for ${workerName} (${workerTrade})`,
+            location: state.user?.area || 'Town Area',
+            city: state.city || 'Ramanagara',
+            requested_date: 'Tomorrow',
+            requested_time: availHours || '09:00 AM – 05:00 PM',
+            budget: `₹${price || 300}`,
+            status: 'Confirmed',
+            payment_method: 'Cash'
+        };
+
+        const res = await apiFetch('/api/jobs', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+            toast(`✅ Booking confirmed for ${workerName}!`);
+            loadCustomerHomeData();
+            if (state.customerView === 'bookings') loadCustomerBookings();
+        } else {
+            toast('Failed to create booking.');
+        }
     };
 
     /* ======================================================================
@@ -1134,8 +1186,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Load Customer My Bookings View
     async function loadCustomerBookings(filter = 'all') {
-        const res = await apiFetch('/api/jobs');
-        const jobs = (res.ok && res.data.jobs) ? res.data.jobs : state.jobs;
+        const custPhone = state.user?.phone || '';
+        if (!custPhone) {
+            const listEl = document.getElementById('custFullBookingsList');
+            if (listEl) listEl.innerHTML = `<div class="empty-placeholder"><p>No bookings yet.</p></div>`;
+            return;
+        }
+
+        const res = await apiFetch(`/api/jobs?phone=${encodeURIComponent(custPhone)}`);
+        const allJobs = (res.ok && res.data.jobs) ? res.data.jobs : [];
+        const jobs = allJobs.filter(j => j.customer_phone === custPhone);
         state.jobs = jobs;
 
         let filtered = jobs;
@@ -1151,7 +1211,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!listEl) return;
 
         if (filtered.length === 0) {
-            listEl.innerHTML = `<div class="empty-placeholder"><p>No bookings found for filter "${filter}".</p></div>`;
+            listEl.innerHTML = `<div class="empty-placeholder"><p>No bookings yet.</p></div>`;
             return;
         }
 
@@ -1170,7 +1230,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <span class="status-pill ${j.status.toLowerCase().replace(/\s+/g, '-')}">
                         <span class="status-indicator"></span> ${j.status}
                     </span>
-                    ${j.status !== 'Completed' ? `<button type="button" class="btn btn-outline btn-sm" onclick="window._cancelJob('${j.id}')">Cancel</button>` : ''}
+                    ${j.status !== 'Completed' && j.status !== 'Cancelled' ? `<button type="button" class="btn btn-outline btn-sm" onclick="window._cancelJob('${j.id}')">Cancel</button>` : ''}
                 </div>
             </div>
         `).join('');
@@ -1304,12 +1364,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (_) {}
 
-        const res = await apiFetch('/api/jobs');
+        const workerPhone = state.user?.phone || '';
+        const jobsUrl = workerPhone ? `/api/jobs?worker_phone=${encodeURIComponent(workerPhone)}` : '/api/jobs';
+        const res = await apiFetch(jobsUrl);
         const allJobs = (res.ok && res.data.jobs) ? res.data.jobs : [];
-        // Filter jobs relevant to this worker
-        const workerPhone = state.user?.phone;
-        const jobs = allJobs.filter(j => !workerPhone || j.worker_phone === workerPhone || j.worker_phone === null && j.status === 'Requested');
-        state.jobs = allJobs;
+        // Filter jobs strictly relevant to this worker
+        const jobs = workerPhone ? allJobs.filter(j => j.worker_phone === workerPhone || (j.worker_phone === null && j.status === 'Requested')) : [];
+        state.jobs = jobs;
 
         // Availability Display — show slot or 'On Duty' from database schedule
         const availBadge = document.getElementById('workerAvailBadge');
@@ -1476,8 +1537,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Load Worker Bookings View
     async function loadWorkerBookings(filter = 'all') {
-        const res = await apiFetch('/api/jobs');
-        const jobs = (res.ok && res.data.jobs) ? res.data.jobs : state.jobs;
+        const workerPhone = state.user?.phone || '';
+        const jobsUrl = workerPhone ? `/api/jobs?worker_phone=${encodeURIComponent(workerPhone)}` : '/api/jobs';
+        const res = await apiFetch(jobsUrl);
+        const allJobs = (res.ok && res.data.jobs) ? res.data.jobs : [];
+        const jobs = workerPhone ? allJobs.filter(j => j.worker_phone === workerPhone) : [];
         state.jobs = jobs;
 
         let filtered = jobs;
@@ -1489,7 +1553,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!listEl) return;
 
         if (filtered.length === 0) {
-            listEl.innerHTML = `<div class="empty-placeholder"><p>No bookings found for "${filter}".</p></div>`;
+            listEl.innerHTML = `<div class="empty-placeholder"><p>No bookings yet.</p></div>`;
             return;
         }
 

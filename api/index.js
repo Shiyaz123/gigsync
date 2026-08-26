@@ -228,14 +228,34 @@ module.exports = async (req, res) => {
 
     // 6. GET & POST /api/jobs
     if (pathname.endsWith('/jobs') && req.method === 'GET') {
+        const authSession = getAuthSession(req);
+        const phone = query.phone || query.customer_phone || null;
+        const workerPhone = query.worker_phone || null;
         let jobs = [];
+        let opportunities = [];
         try {
-            jobs = DB.getAllJobs();
+            if (authSession && authSession.role === 'worker') {
+                const worker = DB.getWorkerByUserId(authSession.user_id) || DB.getWorkerByPhone(authSession.phone);
+                if (worker) {
+                    jobs = DB.getJobsByWorker(worker.phone || worker.id);
+                    opportunities = DB.getAvailableJobsForWorker(worker.trade, worker.city);
+                }
+            } else if (authSession && authSession.role === 'customer') {
+                jobs = DB.getJobsByCustomer(authSession.phone);
+            } else if (phone) {
+                jobs = DB.getJobsByCustomer(phone);
+            } else if (workerPhone) {
+                jobs = DB.getJobsByWorker(workerPhone);
+            } else if (authSession && authSession.role === 'admin') {
+                jobs = DB.getAllJobs();
+            } else {
+                jobs = [];
+            }
         } catch (err) {
             console.error('[Vercel Jobs Error]', err);
             return sendJSON(res, { status: 'error', message: 'Could not load jobs right now.' }, 503);
         }
-        return sendJSON(res, { status: 'success', count: jobs.length, jobs, opportunities: [] });
+        return sendJSON(res, { status: 'success', count: jobs.length, jobs, opportunities });
     }
     if (pathname.endsWith('/jobs') && req.method === 'POST') {
         const body = await parseBody(req);
@@ -247,21 +267,25 @@ module.exports = async (req, res) => {
         if (customerPhone.length !== 10) {
             return sendJSON(res, { status: 'error', message: 'A 10-digit customer mobile number is required to create a job.' }, 400);
         }
-        if (!body.problem_description) {
-            return sendJSON(res, { status: 'error', message: 'Please describe the problem so a specialist knows what to bring.' }, 400);
+        if (!body.problem_description && !body.worker_id && !body.worker_name) {
+            return sendJSON(res, { status: 'error', message: 'Please describe the problem or select a specialist.' }, 400);
         }
 
         try {
             const created = DB.createJob({
                 customer_phone: customerPhone,
                 customer_name: body.customer_name || 'Customer',
-                service: body.service || 'Electrical',
-                problem_description: body.problem_description,
+                worker_id: body.worker_id || null,
+                worker_phone: body.worker_phone || null,
+                worker_name: body.worker_name || 'Finding nearby specialists...',
+                service: body.service || 'Specialist Visit',
+                problem_description: body.problem_description || `Direct booking for ${body.worker_name || 'specialist'}`,
                 location: body.location || 'Town Area',
                 city: body.city || 'Ramanagara',
                 requested_date: body.requested_date || 'Today',
                 requested_time: body.requested_time || 'Immediate',
-                budget: body.budget || null
+                budget: body.budget || null,
+                status: body.status || (body.worker_id ? 'Confirmed' : 'Requested')
             });
             if (!created) {
                 return sendJSON(res, { status: 'error', message: 'The job could not be saved. Please try again.' }, 500);
@@ -273,7 +297,22 @@ module.exports = async (req, res) => {
         }
     }
 
-    // 7. GET /api/call-logs
+    // 7. POST /api/admin/clear-data
+    if (pathname.endsWith('/admin/clear-data') && req.method === 'POST') {
+        try {
+            const clearRes = DB.clearAllApplicationData();
+            return sendJSON(res, {
+                status: 'success',
+                message: 'Clean production data reset complete. Database and Firestore cleared.',
+                ...clearRes
+            });
+        } catch (err) {
+            console.error('[Vercel Clear Data Error]', err);
+            return sendJSON(res, { status: 'error', message: 'Could not clear data.' }, 500);
+        }
+    }
+
+    // 8. GET /api/call-logs
     if (pathname.endsWith('/call-logs') && req.method === 'GET') {
         // getAllCallLogs, not getCallLogs — the old name did not exist on DB, so this
         // endpoint silently returned only the calls handled by the current warm lambda.

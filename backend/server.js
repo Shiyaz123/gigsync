@@ -368,23 +368,29 @@ const server = http.createServer(async (req, res) => {
         const session = getAuthSession(req);
         const status = parsedUrl.query.status || null;
         const city = parsedUrl.query.city || null;
-        const phone = parsedUrl.query.phone || null;
+        const phone = parsedUrl.query.phone || parsedUrl.query.customer_phone || null;
+        const workerPhone = parsedUrl.query.worker_phone || null;
 
         let jobs = [];
         let availableOpportunities = [];
 
         if (session && session.role === 'worker') {
-            const worker = DB.getWorkerByUserId(session.user_id);
+            const worker = DB.getWorkerByUserId(session.user_id) || DB.getWorkerByPhone(session.phone);
             if (worker) {
-                jobs = DB.getJobsByWorker(worker.id);
+                jobs = DB.getJobsByWorker(worker.phone || worker.id);
                 availableOpportunities = DB.getAvailableJobsForWorker(worker.trade, worker.city);
             }
         } else if (session && session.role === 'customer') {
             jobs = DB.getJobsByCustomer(session.phone);
         } else if (phone) {
             jobs = DB.getJobsByCustomer(phone);
-        } else {
+        } else if (workerPhone) {
+            jobs = DB.getJobsByWorker(workerPhone);
+        } else if (session && session.role === 'admin') {
             jobs = DB.getAllJobs({ status, city });
+        } else {
+            // Unauthenticated / generic query without phone returns ZERO jobs — never leak other customers' bookings!
+            jobs = [];
         }
 
         return sendJSON(res, {
@@ -428,7 +434,7 @@ const server = http.createServer(async (req, res) => {
             requested_date: body.requested_date || 'Today',
             requested_time: body.requested_time || 'Immediate',
             budget: body.budget || '₹350',
-            status: body.worker_id ? 'Confirmed' : 'Requested',
+            status: body.status || (body.worker_id ? 'Confirmed' : 'Requested'),
             payment_method: body.payment_method || 'Cash'
         });
 
@@ -506,6 +512,16 @@ const server = http.createServer(async (req, res) => {
             status: 'success',
             message: 'All local workers and jobs synchronized to Cloud Firestore collections.',
             ...syncResult
+        });
+    }
+
+    // POST /api/admin/clear-data (Clean Production Data Reset)
+    if (pathname === '/api/admin/clear-data' && req.method === 'POST') {
+        const clearRes = DB.clearAllApplicationData();
+        return sendJSON(res, {
+            status: 'success',
+            message: 'Clean production data reset complete. Database and Firestore cleared.',
+            ...clearRes
         });
     }
 

@@ -284,6 +284,66 @@ const FirebaseSync = {
             console.warn('[Firebase Sync] Availability sync failed:', e.message);
             return { status: 'error', ok: false, message: e.message, collection: 'worker_availability', documentId: docId };
         }
+    },
+
+    // 5. Clean / Delete Collections in Firestore
+    async listDocuments(collection) {
+        if (!firebaseConfig.projectId) return [];
+        const apiKeyParam = firebaseConfig.apiKey ? `?key=${encodeURIComponent(firebaseConfig.apiKey)}` : '';
+        const pathName = `/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/${collection}${apiKeyParam}`;
+        return new Promise(resolve => {
+            const req = https.request({
+                hostname: 'firestore.googleapis.com',
+                port: 443,
+                path: pathName,
+                method: 'GET'
+            }, (res) => {
+                let d = '';
+                res.on('data', c => d += c);
+                res.on('end', () => {
+                    try {
+                        const parsed = JSON.parse(d);
+                        resolve(parsed.documents || []);
+                    } catch (e) {
+                        resolve([]);
+                    }
+                });
+            });
+            req.on('error', () => resolve([]));
+            req.end();
+        });
+    },
+
+    async deleteDocument(collection, docId) {
+        return firestoreRequest(collection, docId, 'DELETE');
+    },
+
+    async clearCollection(collection) {
+        if (localSnapshotStore[collection]) localSnapshotStore[collection] = {};
+        const docs = await this.listDocuments(collection);
+        if (Array.isArray(docs)) {
+            for (const doc of docs) {
+                if (doc && doc.name) {
+                    const parts = doc.name.split('/');
+                    const docId = parts[parts.length - 1];
+                    await this.deleteDocument(collection, docId).catch(() => {});
+                }
+            }
+        }
+    },
+
+    async clearAllData() {
+        localSnapshotStore.workers = {};
+        localSnapshotStore.customers = {};
+        localSnapshotStore.jobs = {};
+        localSnapshotStore.worker_availability = {};
+        await Promise.allSettled([
+            this.clearCollection('workers'),
+            this.clearCollection('worker_availability'),
+            this.clearCollection('jobs'),
+            this.clearCollection('customers')
+        ]);
+        return { status: 'success', message: 'Cleared Firestore dummy test data' };
     }
 };
 
