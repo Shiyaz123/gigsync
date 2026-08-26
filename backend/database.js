@@ -21,22 +21,43 @@ let useMemoryFallback = false;
 
 if (DatabaseSync) {
     try {
-        const DB_PATH = path.join(__dirname, '..', 'gigsync.db');
-        try {
-            db = new DatabaseSync(DB_PATH);
-            db.exec('PRAGMA foreign_keys = ON;');
-        } catch (fileErr) {
-            // Read-only filesystem (e.g. Vercel serverless /var/task) -> try writable /tmp
+        let dbFile = path.join(__dirname, '..', 'gigsync.db');
+        const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NOW_REGION);
+        
+        if (isServerless) {
             const tmpPath = path.join('/tmp', 'gigsync.db');
             try {
-                if (fs.existsSync(DB_PATH) && !fs.existsSync(tmpPath)) {
-                    fs.copyFileSync(DB_PATH, tmpPath);
+                if (fs.existsSync(dbFile) && !fs.existsSync(tmpPath)) {
+                    fs.copyFileSync(dbFile, tmpPath);
+                }
+                dbFile = tmpPath;
+            } catch (_) {}
+        }
+
+        try {
+            db = new DatabaseSync(dbFile);
+            db.exec('PRAGMA foreign_keys = ON;');
+            db.exec('CREATE TABLE IF NOT EXISTS _health_check (id INTEGER PRIMARY KEY);');
+        } catch (writeErr) {
+            // Read-only filesystem detected -> copy to /tmp and retry
+            try {
+                const tmpPath = path.join('/tmp', 'gigsync.db');
+                const srcPath = path.join(__dirname, '..', 'gigsync.db');
+                if (fs.existsSync(srcPath)) {
+                    fs.copyFileSync(srcPath, tmpPath);
                 }
                 db = new DatabaseSync(tmpPath);
                 db.exec('PRAGMA foreign_keys = ON;');
+                db.exec('CREATE TABLE IF NOT EXISTS _health_check (id INTEGER PRIMARY KEY);');
             } catch (tmpErr) {
-                db = null;
-                useMemoryFallback = true;
+                // If /tmp also fails, use in-memory SQLite database
+                try {
+                    db = new DatabaseSync(':memory:');
+                    db.exec('PRAGMA foreign_keys = ON;');
+                } catch (_) {
+                    db = null;
+                    useMemoryFallback = true;
+                }
             }
         }
     } catch (e) {
