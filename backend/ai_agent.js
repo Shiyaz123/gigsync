@@ -1044,10 +1044,10 @@ const GEMINI_TOOLS_DECLARATIONS = [
 const GEMINI_MODEL_CHAIN = (() => {
     const preferred = (process.env.GEMINI_MODEL || '').trim();
     const chain = [
+        'gemini-3.6-flash',
         'gemini-3.5-flash',
         'gemini-3.5-flash-lite',
-        'gemini-3.1-flash-lite',
-        'gemini-3.6-flash'
+        'gemini-3.1-flash-lite'
     ];
     if (preferred) chain.unshift(preferred);
     return chain.filter((m, i) => chain.indexOf(m) === i);
