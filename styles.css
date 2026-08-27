@@ -1868,3 +1868,298 @@ button {
         width: 100%;
     }
 }
+/* ==========================================================================
+   SCHEDULING ENGINE — Availability Modal, Calendar, Conflict Modal
+   ========================================================================== */
+
+/* ---- Availability modal ---- */
+.avail-modal-card { max-width: 480px; width: 92vw; }
+
+.avail-pattern-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 0 24px 12px;
+    border-bottom: 1px solid var(--gs-border);
+    margin: 0 -24px 20px;
+}
+.avail-tab {
+    flex: 1;
+    padding: 8px 4px;
+    border-radius: 10px;
+    border: 1.5px solid var(--gs-border);
+    background: transparent;
+    color: var(--gs-muted);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .18s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+}
+.avail-tab.active {
+    background: var(--gs-primary);
+    border-color: var(--gs-primary);
+    color: #fff;
+}
+
+/* ---- Day-of-week chip row ---- */
+.avail-dow-row { margin-bottom: 16px; }
+.dow-chips {
+    display: flex;
+    gap: 6px;
+    justify-content: space-between;
+}
+.dow-chip {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 1.5px solid var(--gs-border);
+    background: transparent;
+    color: var(--gs-text-secondary);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all .15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.dow-chip.active {
+    background: var(--gs-primary);
+    border-color: var(--gs-primary);
+    color: #fff;
+}
+.dow-chip:hover:not(.active) {
+    border-color: var(--gs-primary);
+    color: var(--gs-primary);
+}
+
+/* ---- Saved slots list ---- */
+.avail-current-slots {
+    background: var(--gs-surface);
+    border: 1px solid var(--gs-border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+}
+.avail-slots-list { display: flex; flex-direction: column; gap: 6px; }
+.avail-slot-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+}
+.avail-slot-pat {
+    background: var(--gs-primary-soft, rgba(37,99,235,.1));
+    color: var(--gs-primary);
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.avail-slot-info { color: var(--gs-text-secondary); }
+
+/* ---- Conflict resolution modal ---- */
+.conflict-modal-card { max-width: 500px; width: 92vw; }
+.conflict-modal-desc {
+    font-size: 13.5px;
+    color: var(--gs-text-secondary);
+    margin: 0 0 16px;
+    line-height: 1.5;
+}
+.conflict-jobs-list { display: flex; flex-direction: column; gap: 10px; }
+.conflict-job-card {
+    border: 1px solid var(--gs-border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    transition: opacity .2s;
+}
+.conflict-job-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 13px;
+    color: var(--gs-text-secondary);
+}
+.conflict-job-info strong {
+    font-size: 14px;
+    color: var(--gs-text-main);
+    font-weight: 700;
+}
+.conflict-job-btns { display: flex; gap: 6px; }
+
+/* ---- Customer calendar modal ---- */
+.calendar-modal-card { max-width: 440px; width: 92vw; }
+
+.mini-cal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+.cal-nav-btn {
+    background: var(--gs-surface);
+    border: 1px solid var(--gs-border);
+    border-radius: 8px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--gs-text-secondary);
+    transition: all .15s;
+}
+.cal-nav-btn:hover { background: var(--gs-primary); color: #fff; border-color: var(--gs-primary); }
+.cal-month-label {
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--gs-text-main);
+}
+.mini-cal-dow-labels {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--gs-muted);
+    margin-bottom: 4px;
+}
+.mini-cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    margin-bottom: 16px;
+}
+.cal-cell {
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--gs-text-main);
+    cursor: pointer;
+    position: relative;
+    transition: all .15s;
+}
+.cal-cell:hover:not(.cal-past) { background: var(--gs-primary-soft, rgba(37,99,235,.1)); color: var(--gs-primary); }
+.cal-cell.cal-today { font-weight: 800; color: var(--gs-primary); }
+.cal-cell.cal-selected { background: var(--gs-primary); color: #fff; font-weight: 700; }
+.cal-cell.cal-past { color: var(--gs-border); cursor: default; }
+.cal-cell.cal-empty { cursor: default; }
+.cal-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--gs-primary);
+    position: absolute;
+    bottom: 4px;
+}
+.cal-cell.cal-selected .cal-dot { background: #fff; }
+
+.cal-selected-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gs-primary);
+    margin-bottom: 10px;
+}
+.cal-workers-heading {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--gs-muted);
+    margin: 0 0 8px;
+}
+.cal-workers-panel { max-height: 220px; overflow-y: auto; }
+.cal-workers-list { display: flex; flex-direction: column; gap: 6px; }
+.cal-worker-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1.5px solid var(--gs-border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all .15s;
+}
+.cal-worker-card:hover,
+.cal-worker-card.selected {
+    border-color: var(--gs-primary);
+    background: var(--gs-primary-soft, rgba(37,99,235,.06));
+}
+.cal-worker-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.cal-worker-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--gs-primary);
+    color: #fff;
+    font-weight: 700;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.cal-worker-info > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 13px;
+    color: var(--gs-text-secondary);
+}
+.cal-worker-info strong {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--gs-text-main);
+}
+.cal-worker-rating {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gs-text-secondary);
+    white-space: nowrap;
+}
+.verified-badge-sm {
+    background: #10b981;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 4px;
+    padding: 1px 4px;
+}
+
+/* btn-danger-ghost utility */
+.btn-danger-ghost {
+    background: transparent;
+    border: 1.5px solid #ef4444;
+    color: #ef4444;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s;
+}
+.btn-danger-ghost:hover { background: #ef4444; color: #fff; }

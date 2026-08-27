@@ -208,6 +208,10 @@ function initDatabase() {
             end_time TEXT NOT NULL,
             is_available INTEGER DEFAULT 1,
             notes TEXT,
+            pattern TEXT NOT NULL DEFAULT 'once',
+            days_of_week TEXT NOT NULL DEFAULT '[]',
+            range_start TEXT,
+            range_end TEXT,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
         );
@@ -243,6 +247,14 @@ function initDatabase() {
     }
 
     console.log('✅ [Database] Initialized clean database tables with zero dummy workers or bookings.');
+
+    // Non-destructive migration: add pattern columns to existing worker_availability rows
+    const existingCols = db.prepare(`PRAGMA table_info(worker_availability)`).all().map(c => c.name);
+    if (!existingCols.includes('pattern'))    db.exec(`ALTER TABLE worker_availability ADD COLUMN pattern TEXT NOT NULL DEFAULT 'once'`);
+    if (!existingCols.includes('days_of_week')) db.exec(`ALTER TABLE worker_availability ADD COLUMN days_of_week TEXT NOT NULL DEFAULT '[]'`);
+    if (!existingCols.includes('range_start')) db.exec(`ALTER TABLE worker_availability ADD COLUMN range_start TEXT`);
+    if (!existingCols.includes('range_end'))   db.exec(`ALTER TABLE worker_availability ADD COLUMN range_end TEXT`);
+
     } catch (e) {
         console.warn('[Database Init Exception]:', e.message);
     }
@@ -934,7 +946,11 @@ const DB = {
     },
 
     // ---------------- SCHEDULE & CONFLICT CHECK ----------------
-    setWorkerAvailabilitySlot({ workerId, workerPhone, trade, dateStr, startTime, endTime, isAvailable = true, notes = '' }) {
+    setWorkerAvailabilitySlot({ workerId, workerPhone, trade, dateStr, startTime, endTime, isAvailable = true, notes = '',
+                                  pattern = 'once', daysOfWeek = [], rangeStart = null, rangeEnd = null } = {}, options = {}) {
+        // Merge top-level fields into options so the SQLite branch can read them uniformly
+        options = { pattern, daysOfWeek, rangeStart: rangeStart || dateStr, rangeEnd, ...options };
+
         let worker = null;
         if (workerId) worker = this.getWorkerById(workerId);
         else if (workerPhone) worker = this.getWorkerByPhone(workerPhone);
@@ -990,28 +1006,41 @@ const DB = {
             };
         }
 
-        // Upsert on (worker_phone, date_str): one authoritative slot per worker per day.
-        const existingSlot = db.prepare(
-            `SELECT * FROM worker_availability WHERE worker_phone = ? AND LOWER(date_str) = LOWER(?) ORDER BY id DESC LIMIT 1`
-        ).get(phone, dateStr);
+        // Upsert on (worker_phone, date_str + pattern): allows multiple pattern rows per worker.
+        // For 'once' slots we still upsert by date_str so edits overwrite rather than stack.
+        const _pat = options.pattern || 'once';
+        const _dow = JSON.stringify(options.daysOfWeek || []);
+        const _rs  = options.rangeStart || dateStr;
+        const _re  = options.rangeEnd || null;
+
+        let existingSlot = null;
+        if (_pat === 'once') {
+            existingSlot = db.prepare(
+                `SELECT * FROM worker_availability WHERE worker_phone = ? AND LOWER(date_str) = LOWER(?) AND pattern = 'once' ORDER BY id DESC LIMIT 1`
+            ).get(phone, dateStr);
+        }
 
         let slotId;
         if (existingSlot) {
             db.prepare(`
                 UPDATE worker_availability
-                SET worker_id = ?, trade = ?, date_str = ?, start_time = ?, end_time = ?, is_available = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+                SET worker_id = ?, trade = ?, date_str = ?, start_time = ?, end_time = ?, is_available = ?, notes = ?,
+                    pattern = ?, days_of_week = ?, range_start = ?, range_end = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            `).run(wId, wTrade, dateStr, startTime, endTime, isAvailable ? 1 : 0, notes, existingSlot.id);
+            `).run(wId, wTrade, dateStr, startTime, endTime, isAvailable ? 1 : 0, notes,
+                   _pat, _dow, _rs, _re, existingSlot.id);
             slotId = existingSlot.id;
-            // Remove any older duplicates for the same day left behind by the previous insert-only code.
             db.prepare(
-                `DELETE FROM worker_availability WHERE worker_phone = ? AND LOWER(date_str) = LOWER(?) AND id <> ?`
+                `DELETE FROM worker_availability WHERE worker_phone = ? AND LOWER(date_str) = LOWER(?) AND pattern = 'once' AND id <> ?`
             ).run(phone, dateStr, existingSlot.id);
         } else {
             const runRes = db.prepare(`
-                INSERT INTO worker_availability (worker_id, worker_phone, trade, date_str, start_time, end_time, is_available, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(wId, phone, wTrade, dateStr, startTime, endTime, isAvailable ? 1 : 0, notes);
+                INSERT INTO worker_availability
+                    (worker_id, worker_phone, trade, date_str, start_time, end_time, is_available, notes,
+                     pattern, days_of_week, range_start, range_end)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(wId, phone, wTrade, dateStr, startTime, endTime, isAvailable ? 1 : 0, notes,
+                   _pat, _dow, _rs, _re);
             slotId = Number(runRes.lastInsertRowid);
         }
 
@@ -1109,6 +1138,208 @@ const DB = {
         if (!dateStr) return slots;
         return slots.filter(s => s.date_str && s.date_str.toLowerCase() === dateStr.toLowerCase());
     },
+
+    /* -----------------------------------------------------------------------
+       PATTERN EXPANSION & DATE-BASED AVAILABILITY
+       ----------------------------------------------------------------------- */
+
+    /**
+     * Expands a single availability row (which may be a pattern) into every
+     * concrete ISO date string it covers within [fromDate, toDate].
+     * Both dates are JS Date objects or ISO strings.
+     */
+    expandAvailabilityPattern(slot, fromDate, toDate) {
+        const from = new Date(fromDate);
+        const to   = new Date(toDate);
+        const dates = [];
+
+        if (!slot || !slot.start_time || !slot.end_time) return dates;
+
+        const pat = slot.pattern || 'once';
+
+        if (pat === 'once') {
+            // Single concrete date — just check it falls in the window
+            const d = new Date(slot.date_str);
+            if (!isNaN(d) && d >= from && d <= to) dates.push(slot.date_str);
+            return dates;
+        }
+
+        // Build an iteration range bounded by [rangeStart, rangeEnd ∩ toDate]
+        const rangeStart = new Date(slot.range_start || slot.date_str);
+        const rangeEnd   = slot.range_end ? new Date(slot.range_end) : to;
+        const itStart    = rangeStart > from ? rangeStart : from;
+        const itEnd      = rangeEnd < to     ? rangeEnd   : to;
+
+        // Parse days_of_week — stored as JSON array of day numbers (0=Sun … 6=Sat)
+        let dow = [];
+        try { dow = JSON.parse(slot.days_of_week || '[]'); } catch (_) {}
+
+        const cur = new Date(itStart);
+        while (cur <= itEnd) {
+            const curDay = cur.getDay(); // 0=Sun
+            if (pat === 'daily' || (pat === 'weekly' && dow.includes(curDay))) {
+                const y = cur.getFullYear();
+                const m = String(cur.getMonth() + 1).padStart(2, '0');
+                const d2 = String(cur.getDate()).padStart(2, '0');
+                dates.push(`${y}-${m}-${d2}`);
+            }
+            cur.setDate(cur.getDate() + 1);
+        }
+        return dates;
+    },
+
+    /**
+     * Returns all workers who have availability covering the given ISO date
+     * in the given city.  Used by the customer calendar booking flow.
+     */
+    getWorkersAvailableOnDate(dateStr, city = null) {
+        const from = new Date(dateStr);
+        const to   = new Date(dateStr);
+
+        if (!db) {
+            const results = [];
+            for (const w of memoryStore.workers) {
+                if (city && w.city !== city) continue;
+                const slots = memoryStore.availability[w.phone] || [];
+                const covers = slots.some(s => {
+                    if (!s.is_available) return false;
+                    return this.expandAvailabilityPattern(s, from, to).includes(dateStr);
+                });
+                if (covers) results.push(w);
+            }
+            return results;
+        }
+
+        const allSlots = db.prepare(`
+            SELECT wa.*, w.name AS worker_name, w.trade, w.price, w.rating, w.city,
+                   w.phone AS worker_phone_col, w.id AS worker_id_col, w.is_verified
+            FROM worker_availability wa
+            JOIN workers w ON wa.worker_id = w.id
+            WHERE wa.is_available = 1
+              ${city ? 'AND w.city = ?' : ''}
+            ORDER BY wa.updated_at DESC
+        `).all(...(city ? [city] : []));
+
+        const workerIds = new Set();
+        const results   = [];
+
+        for (const s of allSlots) {
+            if (workerIds.has(s.worker_id)) continue;
+            const covered = this.expandAvailabilityPattern(s, from, to);
+            if (covered.includes(dateStr)) {
+                workerIds.add(s.worker_id);
+                results.push({
+                    id:           s.worker_id_col,
+                    name:         s.worker_name,
+                    phone:        s.worker_phone_col,
+                    trade:        s.trade,
+                    price:        s.price,
+                    rating:       s.rating,
+                    city:         s.city,
+                    is_verified:  s.is_verified,
+                    start_time:   s.start_time,
+                    end_time:     s.end_time,
+                    availability_hours: `${s.start_time} – ${s.end_time}`
+                });
+            }
+        }
+        return results;
+    },
+
+    /**
+     * Given a worker and a proposed new set of availability slots, return all
+     * currently confirmed/accepted jobs that are no longer covered by the new
+     * pattern.  Caller uses this to show the conflict modal.
+     *
+     * proposedSlots: array of { pattern, daysOfWeek, rangeStart, rangeEnd, startTime, endTime }
+     * lookAheadDays: how far into the future to check (default 90)
+     */
+    getConflictingJobsForAvailabilityChange(workerId, proposedSlots = [], lookAheadDays = 90) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const cutoff = new Date(today);
+        cutoff.setDate(cutoff.getDate() + lookAheadDays);
+
+        // Build the set of all dates covered by the NEW availability pattern
+        const coveredDates = new Set();
+        for (const ps of proposedSlots) {
+            const syntheticSlot = {
+                pattern:      ps.pattern || 'once',
+                days_of_week: JSON.stringify(ps.daysOfWeek || []),
+                range_start:  ps.rangeStart,
+                range_end:    ps.rangeEnd || null,
+                date_str:     ps.rangeStart,
+                start_time:   ps.startTime,
+                end_time:     ps.endTime,
+                is_available: 1
+            };
+            const dates = this.expandAvailabilityPattern(syntheticSlot, today, cutoff);
+            dates.forEach(d => coveredDates.add(d));
+        }
+
+        // Find upcoming booked jobs for this worker whose date is NOT covered
+        let bookedJobs = [];
+        if (!db) {
+            bookedJobs = memoryStore.jobs.filter(j =>
+                j.worker_id === Number(workerId) &&
+                ['Confirmed', 'Accepted', 'On the Way'].includes(j.status)
+            );
+        } else {
+            bookedJobs = db.prepare(`
+                SELECT * FROM jobs
+                WHERE worker_id = ?
+                  AND status IN ('Confirmed', 'Accepted', 'On the Way')
+                ORDER BY requested_date ASC
+            `).all(Number(workerId));
+        }
+
+        return bookedJobs.filter(j => {
+            // Only flag future jobs
+            const jDate = new Date(j.requested_date);
+            if (isNaN(jDate) || jDate < today) return false;
+            // Flag if the job date is NOT in the new covered set
+            return !coveredDates.has(j.requested_date);
+        });
+    },
+
+    /**
+     * Worker resolves one conflicting job:
+     *   canWork = true  → job stays Confirmed (no action needed)
+     *   canWork = false → job is cancelled (from worker's side), cleared of worker,
+     *                     reposted as Requested for other workers, and customer is notified
+     *                     via the live change stream.
+     */
+    resolveAvailabilityConflict(jobId, canWork) {
+        if (canWork) return { jobId, action: 'kept' };
+
+        const job = this.getJobById(jobId);
+        if (!job) return { jobId, action: 'not_found' };
+
+        if (!db) {
+            job.status       = 'Cancelled (Worker)';
+            job.worker_id    = null;
+            job.worker_phone = null;
+            job.worker_name  = 'Reposted — finding new specialist';
+            emitChange('job', { jobId: job.id, status: job.status, customerPhone: job.customer_phone, workerId: null });
+            FirebaseSync.syncJob(job).catch(() => {});
+            return { jobId, action: 'cancelled_and_reposted', job };
+        }
+
+        db.prepare(`
+            UPDATE jobs
+            SET status = 'Requested',
+                worker_id = NULL,
+                worker_phone = NULL,
+                worker_name = 'Reposted — finding new specialist'
+            WHERE id = ?
+        `).run(jobId);
+
+        const updated = this.getJobById(jobId);
+        emitChange('job', { jobId, status: 'Requested', customerPhone: job.customer_phone, workerId: null });
+        FirebaseSync.syncJob(updated).catch(() => {});
+        return { jobId, action: 'cancelled_and_reposted', job: updated };
+    },
+
 
     checkScheduleConflict(workerId, requestedDate, requestedTime) {
         // Helper to parse time to minutes from midnight.

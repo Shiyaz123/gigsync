@@ -1367,32 +1367,433 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Worker Availability Edit Modal
+    // =========================================================================
+    // WORKER AVAILABILITY MODAL — Pattern-based scheduling
+    // =========================================================================
+
     const workerAvailModal = document.getElementById('workerAvailModal');
-    document.getElementById('openEditAvailModalBtn')?.addEventListener('click', () => workerAvailModal?.classList.remove('hidden'));
+    document.getElementById('openEditAvailModalBtn')?.addEventListener('click', () => {
+        workerAvailModal?.classList.remove('hidden');
+        _refreshAvailSlotsList();
+    });
     document.getElementById('closeAvailModalBtn')?.addEventListener('click', () => workerAvailModal?.classList.add('hidden'));
 
-    document.getElementById('workerAvailForm')?.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const day = document.getElementById('availDaySelect')?.value;
-        const start = document.getElementById('availStartTimeInput')?.value.trim();
-        const end = document.getElementById('availEndTimeInput')?.value.trim();
+    // Set today as minimum date for the start date picker
+    (function() {
+        const today = new Date().toISOString().split('T')[0];
+        const rs = document.getElementById('availRangeStart');
+        if (rs) { rs.value = today; rs.min = today; }
+        const re = document.getElementById('availRangeEnd');
+        if (re) re.min = today;
+    })();
 
-        const hoursText = `${start} – ${end}`;
-        document.getElementById('workerTodayHoursLabel') && (document.getElementById('workerTodayHoursLabel').textContent = hoursText);
-        toast(`Availability updated for ${day}: ${hoursText}`);
-        workerAvailModal?.classList.add('hidden');
+    // ---- Pattern tab switching ----
+    let _availPattern = 'once';
+    document.querySelectorAll('#availPatternTabs .avail-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('#availPatternTabs .avail-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            _availPattern = tab.dataset.pattern;
 
-        await apiFetch(`/api/workers/${state.user ? state.user.id : 1}/availability`, {
-            method: 'POST',
-            body: JSON.stringify({
-                date: day,
-                startTime: start,
-                endTime: end,
-                isAvailable: true
-            })
+            const dowRow      = document.getElementById('availDowRow');
+            const endDateFld  = document.getElementById('availEndDateField');
+            const startLbl    = document.getElementById('availStartDateLabel');
+
+            if (_availPattern === 'weekly') {
+                dowRow?.classList.remove('hidden');
+                endDateFld?.classList.remove('hidden');
+                if (startLbl) startLbl.textContent = 'From';
+            } else if (_availPattern === 'daily') {
+                dowRow?.classList.add('hidden');
+                endDateFld?.classList.remove('hidden');
+                if (startLbl) startLbl.textContent = 'From';
+            } else {
+                dowRow?.classList.add('hidden');
+                endDateFld?.classList.add('hidden');
+                if (startLbl) startLbl.textContent = 'Date';
+            }
         });
     });
+
+    // ---- Day-of-week chip toggle ----
+    const _selectedDow = new Set();
+    document.querySelectorAll('#availDowChips .dow-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            const d = parseInt(chip.dataset.day, 10);
+            if (_selectedDow.has(d)) {
+                _selectedDow.delete(d);
+                chip.classList.remove('active');
+            } else {
+                _selectedDow.add(d);
+                chip.classList.add('active');
+            }
+        });
+    });
+
+    // ---- Refresh saved slots list ----
+    async function _refreshAvailSlotsList() {
+        const listEl = document.getElementById('availSlotsList');
+        if (!listEl) return;
+        try {
+            const r = await apiFetch('/api/workers/me/schedule');
+            const slots = r.ok ? (r.data?.availabilitySlots || []) : [];
+            if (slots.length === 0) {
+                listEl.innerHTML = '<em style="color:var(--gs-muted);font-size:13px">No slots saved yet.</em>';
+                return;
+            }
+            listEl.innerHTML = slots.slice(0, 5).map(s => {
+                const pat = s.pattern || 'once';
+                const patLabel = pat === 'weekly' ? '🔁 Weekly' : pat === 'daily' ? '☀️ Daily' : '📅 Once';
+                let dateLabel = s.date_str;
+                if (s.range_end) dateLabel += ` → ${s.range_end}`;
+                let dowLabel = '';
+                if (pat === 'weekly') {
+                    try {
+                        const days = JSON.parse(s.days_of_week || '[]');
+                        const names = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                        dowLabel = ' · ' + days.map(d => names[d]).join(', ');
+                    } catch (_) {}
+                }
+                return `<div class="avail-slot-row">
+                    <span class="avail-slot-pat">${patLabel}</span>
+                    <span class="avail-slot-info">${dateLabel}${dowLabel} · ${s.start_time}–${s.end_time}</span>
+                </div>`;
+            }).join('');
+        } catch (_) {}
+    }
+
+    // ---- Form submit: save + conflict check ----
+    document.getElementById('workerAvailForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const rangeStart = document.getElementById('availRangeStart')?.value;
+        const rangeEnd   = document.getElementById('availRangeEnd')?.value || null;
+        const startTime  = document.getElementById('availStartTimeSelect')?.value;
+        const endTime    = document.getElementById('availEndTimeSelect')?.value;
+
+        if (!rangeStart || !startTime || !endTime) {
+            toast('Please fill in all required fields.');
+            return;
+        }
+
+        if (_availPattern === 'weekly' && _selectedDow.size === 0) {
+            toast('Please select at least one day of the week.');
+            return;
+        }
+
+        const saveBtn = document.getElementById('saveAvailBtn');
+        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+
+        const payload = {
+            pattern:      _availPattern,
+            daysOfWeek:   [..._selectedDow],
+            rangeStart,
+            rangeEnd,
+            range_start:  rangeStart,
+            range_end:    rangeEnd,
+            date_str:     rangeStart,
+            start_time:   startTime,
+            end_time:     endTime,
+            is_available: true
+        };
+
+        // 1. Save the availability
+        const saveRes = await apiFetch('/api/workers/me/availability', {
+            method: 'PATCH', body: JSON.stringify(payload)
+        });
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Availability'; }
+
+        if (!saveRes.ok) {
+            toast('❌ Failed to save availability.');
+            return;
+        }
+
+        toast('✅ Availability saved!');
+        _refreshAvailSlotsList();
+        workerAvailModal?.classList.add('hidden');
+
+        // Update badge
+        const badge = document.getElementById('workerAvailBadge');
+        if (badge) { badge.textContent = `🟢 Available (${startTime} – ${endTime})`; badge.className = 'avail-badge available'; }
+        const label = document.getElementById('workerTodayHoursLabel');
+        if (label) label.textContent = `${startTime} – ${endTime}`;
+
+        // 2. Pre-flight conflict check
+        const slotsParam = encodeURIComponent(JSON.stringify([payload]));
+        const cfRes = await apiFetch(`/api/workers/me/availability/conflicts?slots=${slotsParam}`);
+        if (!cfRes.ok) return;
+        const conflicts = cfRes.data?.conflicts || [];
+        if (conflicts.length === 0) return;
+
+        // 3. Show conflict modal
+        _showConflictModal(conflicts);
+    });
+
+    // ---- Conflict resolution modal ----
+    const _conflictDecisions = new Map(); // jobId → canWork bool
+
+    function _showConflictModal(conflicts) {
+        const modal  = document.getElementById('workerConflictModal');
+        const listEl = document.getElementById('conflictJobsList');
+        if (!modal || !listEl) return;
+
+        _conflictDecisions.clear();
+        // Default all to canWork=true (worker keeps the job unless they say no)
+        conflicts.forEach(j => _conflictDecisions.set(j.id, true));
+
+        listEl.innerHTML = conflicts.map(j => `
+            <div class="conflict-job-card" id="cfCard_${j.id}">
+                <div class="conflict-job-info">
+                    <strong>${j.service}</strong>
+                    <span>${j.requested_date} · ${j.requested_time}</span>
+                    <span>${j.customer_name || 'Customer'}</span>
+                </div>
+                <div class="conflict-job-btns">
+                    <button type="button" class="btn btn-primary btn-sm cf-yes" data-job="${j.id}">
+                        ✅ I can work it
+                    </button>
+                    <button type="button" class="btn btn-danger-ghost btn-sm cf-no" data-job="${j.id}">
+                        ❌ Cannot work
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+        // Wire up yes/no
+        listEl.querySelectorAll('.cf-yes').forEach(btn => {
+            btn.addEventListener('click', () => {
+                _conflictDecisions.set(btn.dataset.job, true);
+                const card = document.getElementById(`cfCard_${btn.dataset.job}`);
+                if (card) { card.style.opacity = '0.6'; card.querySelector('.cf-yes').style.outline = '2px solid var(--gs-primary)'; }
+            });
+        });
+        listEl.querySelectorAll('.cf-no').forEach(btn => {
+            btn.addEventListener('click', () => {
+                _conflictDecisions.set(btn.dataset.job, false);
+                const card = document.getElementById(`cfCard_${btn.dataset.job}`);
+                if (card) { card.style.opacity = '0.6'; card.querySelector('.cf-no').style.outline = '2px solid var(--gs-danger, #ef4444)'; }
+            });
+        });
+
+        modal.classList.remove('hidden');
+    }
+
+    document.getElementById('conflictDoneBtn')?.addEventListener('click', async () => {
+        const modal = document.getElementById('workerConflictModal');
+        const decisions = [..._conflictDecisions.entries()].map(([jobId, canWork]) => ({ jobId, canWork }));
+
+        const res = await apiFetch('/api/workers/me/availability/resolve', {
+            method: 'POST', body: JSON.stringify({ decisions })
+        });
+
+        modal?.classList.add('hidden');
+
+        const cancelled = decisions.filter(d => !d.canWork).length;
+        if (cancelled > 0) {
+            toast(`📢 ${cancelled} job${cancelled > 1 ? 's' : ''} reposted for other workers. Customer notified.`);
+        }
+        toast('✅ Decisions saved.');
+        loadWorkerDashboardData();
+    });
+
+    // =========================================================================
+    // CUSTOMER CALENDAR BOOKING FLOW
+    // =========================================================================
+
+    let _calYear, _calMonth;
+    let _calSelectedDate = null;
+    let _calSelectedWorker = null;
+    let _calCustomerPhone = '';
+    let _calCustomerName  = '';
+
+    function _openCalendarModal() {
+        const modal = document.getElementById('customerCalendarModal');
+        if (!modal) return;
+        const now = new Date();
+        _calYear  = now.getFullYear();
+        _calMonth = now.getMonth();
+        _calSelectedDate   = null;
+        _calSelectedWorker = null;
+        _renderCalendar();
+        // Hide worker panel + time row initially
+        document.getElementById('calWorkersPanel')?.classList.add('hidden');
+        document.getElementById('calTimeRow')?.classList.add('hidden');
+        document.getElementById('calSelectedDateLabel')?.classList.add('hidden');
+        modal.classList.remove('hidden');
+    }
+
+    document.getElementById('openCalendarBookingBtn')?.addEventListener('click', _openCalendarModal);
+    document.getElementById('closeCalendarModalBtn')?.addEventListener('click', () => {
+        document.getElementById('customerCalendarModal')?.classList.add('hidden');
+    });
+    document.getElementById('calPrevMonthBtn')?.addEventListener('click', () => {
+        _calMonth--;
+        if (_calMonth < 0) { _calMonth = 11; _calYear--; }
+        _renderCalendar();
+    });
+    document.getElementById('calNextMonthBtn')?.addEventListener('click', () => {
+        _calMonth++;
+        if (_calMonth > 11) { _calMonth = 0; _calYear++; }
+        _renderCalendar();
+    });
+
+    function _renderCalendar() {
+        const grid  = document.getElementById('miniCalGrid');
+        const label = document.getElementById('calMonthLabel');
+        if (!grid) return;
+
+        const now    = new Date();
+        const month  = new Date(_calYear, _calMonth, 1);
+        const names  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        if (label) label.textContent = `${names[_calMonth]} ${_calYear}`;
+
+        const firstDow = month.getDay(); // 0=Sun
+        const daysInMonth = new Date(_calYear, _calMonth + 1, 0).getDate();
+
+        let html = '';
+        // Empty leading cells
+        for (let i = 0; i < firstDow; i++) html += '<div class="cal-cell cal-empty"></div>';
+
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dateStr = `${_calYear}-${String(_calMonth + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+            const cellDate = new Date(_calYear, _calMonth, d);
+            const isPast   = cellDate < new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const isToday  = d === now.getDate() && _calMonth === now.getMonth() && _calYear === now.getFullYear();
+            const isSelected = dateStr === _calSelectedDate;
+            // Check if customer has a booking on this date
+            const hasBkg = (state.jobs || []).some(j => j.requested_date === dateStr && j.status !== 'Cancelled');
+
+            let cls = 'cal-cell';
+            if (isPast)     cls += ' cal-past';
+            if (isToday)    cls += ' cal-today';
+            if (isSelected) cls += ' cal-selected';
+
+            html += `<div class="${cls}" data-date="${dateStr}" ${isPast ? 'disabled' : ''}>
+                ${d}
+                ${hasBkg ? '<span class="cal-dot"></span>' : ''}
+            </div>`;
+        }
+        grid.innerHTML = html;
+
+        // Wire date click
+        grid.querySelectorAll('.cal-cell:not(.cal-empty):not(.cal-past)').forEach(cell => {
+            cell.addEventListener('click', () => _calSelectDate(cell.dataset.date));
+        });
+    }
+
+    async function _calSelectDate(dateStr) {
+        _calSelectedDate   = dateStr;
+        _calSelectedWorker = null;
+        _renderCalendar(); // re-render so selected cell highlights
+
+        // Show loading state
+        const panel    = document.getElementById('calWorkersPanel');
+        const listEl   = document.getElementById('calWorkersList');
+        const dateLabel = document.getElementById('calSelectedDateLabel');
+        const dateText  = document.getElementById('calDateText');
+        const timeRow   = document.getElementById('calTimeRow');
+
+        if (dateText) dateText.textContent = new Date(dateStr + 'T00:00:00').toDateString();
+        dateLabel?.classList.remove('hidden');
+        panel?.classList.remove('hidden');
+        timeRow?.classList.add('hidden');
+        if (listEl) listEl.innerHTML = '<div style="text-align:center;padding:16px;color:var(--gs-muted)"><i class="fa-solid fa-spinner fa-spin"></i> Finding specialists…</div>';
+
+        const city = state.city || 'Ramanagara';
+        const res = await apiFetch(`/api/workers/available?date=${dateStr}&city=${encodeURIComponent(city)}`);
+        const workers = res.ok ? (res.data?.workers || []) : [];
+
+        if (workers.length === 0) {
+            listEl.innerHTML = '<p style="color:var(--gs-muted);text-align:center;padding:12px;font-size:13px">No specialists available on this date. Try another date.</p>';
+            return;
+        }
+
+        listEl.innerHTML = workers.map(w => `
+            <div class="cal-worker-card" data-worker-id="${w.id}" data-worker-phone="${w.phone || ''}" data-worker-name="${w.name}" data-worker-trade="${w.trade}" data-worker-price="${w.price || 300}" data-avail-hours="${w.availability_hours || ''}">
+                <div class="cal-worker-info">
+                    <div class="cal-worker-avatar">${w.name ? w.name.split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase() : '??'}</div>
+                    <div>
+                        <strong>${w.name}</strong>
+                        <span>${w.trade} · ₹${w.price || 300}</span>
+                        <span style="font-size:11px;color:var(--gs-muted)">${w.availability_hours || ''}</span>
+                    </div>
+                </div>
+                <div class="cal-worker-rating">
+                    <i class="fa-solid fa-star" style="color:#f59e0b;font-size:12px"></i> ${w.rating || '5.0'}
+                    ${w.is_verified ? '<span class="verified-badge-sm">✓</span>' : ''}
+                </div>
+            </div>
+        `).join('');
+
+        // Wire worker selection
+        listEl.querySelectorAll('.cal-worker-card').forEach(card => {
+            card.addEventListener('click', () => {
+                listEl.querySelectorAll('.cal-worker-card').forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+                _calSelectedWorker = {
+                    id:    card.dataset.workerId,
+                    phone: card.dataset.workerPhone,
+                    name:  card.dataset.workerName,
+                    trade: card.dataset.workerTrade,
+                    price: card.dataset.workerPrice,
+                    availHours: card.dataset.availHours
+                };
+                timeRow?.classList.remove('hidden');
+            });
+        });
+    }
+
+    // Confirm calendar booking
+    document.getElementById('calConfirmBookingBtn')?.addEventListener('click', async () => {
+        if (!_calSelectedDate || !_calSelectedWorker) {
+            toast('Please select a date and specialist.');
+            return;
+        }
+
+        // Ensure we have customer phone
+        _calCustomerPhone = state.user?.phone || _calCustomerPhone;
+        _calCustomerName  = state.user?.name  || _calCustomerName;
+        if (!_calCustomerPhone) {
+            const ph = prompt('Please enter your 10-digit mobile number:');
+            if (!ph || !/^[6-9]\d{9}$/.test(ph.trim().replace(/\D/g,''))) {
+                toast('A valid mobile number is required.'); return;
+            }
+            _calCustomerPhone = ph.trim().replace(/\D/g,'');
+            _calCustomerName  = prompt('Your name:') || 'Customer';
+        }
+
+        const time = document.getElementById('calTimeSelect')?.value || '10:00 AM';
+
+        const payload = {
+            customer_phone:      _calCustomerPhone,
+            customer_name:       _calCustomerName,
+            worker_id:           _calSelectedWorker.id   || null,
+            worker_phone:        _calSelectedWorker.phone || null,
+            worker_name:         _calSelectedWorker.name,
+            service:             _calSelectedWorker.trade,
+            problem_description: `Calendar booking for ${_calSelectedWorker.name} (${_calSelectedWorker.trade})`,
+            location:            state.user?.area || 'Town Area',
+            city:                state.city || 'Ramanagara',
+            requested_date:      _calSelectedDate,
+            requested_time:      time,
+            budget:              `₹${_calSelectedWorker.price || 300}`,
+            status:              'Confirmed',
+            payment_method:      'Cash'
+        };
+
+        const res = await apiFetch('/api/jobs', { method: 'POST', body: JSON.stringify(payload) });
+        document.getElementById('customerCalendarModal')?.classList.add('hidden');
+
+        if (res.ok) {
+            toast(`✅ Booking confirmed with ${_calSelectedWorker.name} on ${_calSelectedDate} at ${time}!`);
+            loadCustomerHomeData();
+            if (state.customerView === 'bookings') loadCustomerBookings();
+        } else {
+            toast('❌ ' + (res.data?.message || 'Booking failed. Try another time.'));
+        }
+    });
+
+
 
     // Load Worker Dashboard Data
     async function loadWorkerDashboardData() {

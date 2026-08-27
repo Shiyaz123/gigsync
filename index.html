@@ -246,8 +246,14 @@
                                 <h2>Available Specialists</h2>
                                 <p class="section-subtext">Verified local professionals on-duty in <span class="text-city-dynamic">Ramanagara</span></p>
                             </div>
-                            <button type="button" class="btn-text-link" id="refreshCustWorkersBtn"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                            <div style="display:flex;gap:8px;align-items:center">
+                                <button type="button" class="btn btn-outline btn-sm" id="openCalendarBookingBtn">
+                                    <i class="fa-solid fa-calendar-days"></i> Book by Date
+                                </button>
+                                <button type="button" class="btn-text-link" id="refreshCustWorkersBtn"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                            </div>
                         </div>
+
 
                         <div class="workers-card-grid" id="custWorkersGrid">
                             <!-- Populated dynamically from SQLite DB -->
@@ -766,46 +772,173 @@
         </div>
     </div>
 
-    <!-- 2. EDIT WORKER AVAILABILITY MODAL (WORKER) -->
+    <!-- 2. EDIT WORKER AVAILABILITY MODAL (WORKER) — Pattern-based scheduling -->
     <div id="workerAvailModal" class="modal-backdrop hidden">
-        <div class="modal-card">
+        <div class="modal-card avail-modal-card">
             <div class="modal-header">
-                <h3>Set Availability</h3>
+                <h3><i class="fa-solid fa-calendar-check"></i> Set Availability</h3>
                 <button type="button" class="modal-close-btn" id="closeAvailModalBtn"><i class="fa-solid fa-xmark"></i></button>
             </div>
-            <form id="workerAvailForm" class="modal-form">
-                <div class="form-field">
-                    <label class="field-label" for="availDaySelect">Day</label>
-                    <select id="availDaySelect" class="field-input">
-                        <option value="Today">Today</option>
-                        <option value="Tomorrow">Tomorrow</option>
-                        <option value="Monday">Monday</option>
-                        <option value="Tuesday">Tuesday</option>
-                        <option value="Wednesday">Wednesday</option>
-                        <option value="Thursday">Thursday</option>
-                        <option value="Friday">Friday</option>
-                        <option value="Saturday">Saturday</option>
-                        <option value="Sunday">Sunday</option>
-                    </select>
+
+            <!-- Pattern Type Tabs -->
+            <div class="avail-pattern-tabs" id="availPatternTabs">
+                <button type="button" class="avail-tab active" data-pattern="once">
+                    <i class="fa-solid fa-calendar-day"></i> Once
+                </button>
+                <button type="button" class="avail-tab" data-pattern="weekly">
+                    <i class="fa-solid fa-rotate"></i> Weekly
+                </button>
+                <button type="button" class="avail-tab" data-pattern="daily">
+                    <i class="fa-solid fa-sun"></i> Daily
+                </button>
+            </div>
+
+            <form id="workerAvailForm" class="modal-form avail-form-body">
+
+                <!-- Day-of-week chip row (shown only for Weekly) -->
+                <div id="availDowRow" class="avail-dow-row hidden">
+                    <span class="field-label" style="margin-bottom:8px;display:block">Days of Week</span>
+                    <div class="dow-chips" id="availDowChips">
+                        <button type="button" class="dow-chip" data-day="0">S</button>
+                        <button type="button" class="dow-chip" data-day="1">M</button>
+                        <button type="button" class="dow-chip" data-day="2">T</button>
+                        <button type="button" class="dow-chip" data-day="3">W</button>
+                        <button type="button" class="dow-chip" data-day="4">T</button>
+                        <button type="button" class="dow-chip" data-day="5">F</button>
+                        <button type="button" class="dow-chip" data-day="6">S</button>
+                    </div>
                 </div>
 
+                <!-- Date range / single date -->
+                <div class="form-row-2" id="availDateRangeRow">
+                    <div class="form-field" id="availStartDateField">
+                        <label class="field-label" for="availRangeStart" id="availStartDateLabel">Date</label>
+                        <input type="date" id="availRangeStart" class="field-input" required>
+                    </div>
+                    <div class="form-field hidden" id="availEndDateField">
+                        <label class="field-label" for="availRangeEnd">Until (optional)</label>
+                        <input type="date" id="availRangeEnd" class="field-input">
+                    </div>
+                </div>
+
+                <!-- Hours -->
                 <div class="form-row-2">
                     <div class="form-field">
-                        <label class="field-label" for="availStartTimeInput">Start Time</label>
-                        <input type="text" id="availStartTimeInput" class="field-input" value="09:00 AM">
+                        <label class="field-label" for="availStartTimeSelect">Start Time</label>
+                        <select id="availStartTimeSelect" class="field-input">
+                            <option value="06:00 AM">06:00 AM</option>
+                            <option value="07:00 AM">07:00 AM</option>
+                            <option value="08:00 AM">08:00 AM</option>
+                            <option value="09:00 AM" selected>09:00 AM</option>
+                            <option value="10:00 AM">10:00 AM</option>
+                            <option value="11:00 AM">11:00 AM</option>
+                            <option value="12:00 PM">12:00 PM</option>
+                            <option value="01:00 PM">01:00 PM</option>
+                            <option value="02:00 PM">02:00 PM</option>
+                        </select>
                     </div>
                     <div class="form-field">
-                        <label class="field-label" for="availEndTimeInput">End Time</label>
-                        <input type="text" id="availEndTimeInput" class="field-input" value="04:00 PM">
+                        <label class="field-label" for="availEndTimeSelect">End Time</label>
+                        <select id="availEndTimeSelect" class="field-input">
+                            <option value="12:00 PM">12:00 PM</option>
+                            <option value="01:00 PM">01:00 PM</option>
+                            <option value="02:00 PM">02:00 PM</option>
+                            <option value="03:00 PM">03:00 PM</option>
+                            <option value="04:00 PM">04:00 PM</option>
+                            <option value="05:00 PM" selected>05:00 PM</option>
+                            <option value="06:00 PM">06:00 PM</option>
+                            <option value="07:00 PM">07:00 PM</option>
+                            <option value="08:00 PM">08:00 PM</option>
+                        </select>
                     </div>
                 </div>
 
-                <button type="submit" class="btn btn-primary btn-block">
-                    Save Availability
+                <!-- Current saved slots preview -->
+                <div class="avail-current-slots" id="availCurrentSlots">
+                    <span class="field-label" style="margin-bottom:6px;display:block">Saved Schedule</span>
+                    <div id="availSlotsList" class="avail-slots-list"><em style="color:var(--gs-muted);font-size:13px">No slots saved yet.</em></div>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block" id="saveAvailBtn">
+                    <i class="fa-solid fa-floppy-disk"></i> Save Availability
                 </button>
             </form>
         </div>
     </div>
+
+    <!-- 2b. CONFLICT RESOLUTION MODAL (WORKER — shown after availability edit) -->
+    <div id="workerConflictModal" class="modal-backdrop hidden">
+        <div class="modal-card conflict-modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-triangle-exclamation" style="color:#f59e0b"></i> Affected Bookings</h3>
+            </div>
+            <p class="conflict-modal-desc">
+                You have booked jobs that fall on dates no longer covered by your new schedule.
+                Let us know if you can still work each one.
+            </p>
+            <div id="conflictJobsList" class="conflict-jobs-list"></div>
+            <button type="button" class="btn btn-primary btn-block" id="conflictDoneBtn" style="margin-top:16px">
+                <i class="fa-solid fa-check"></i> Confirm Decisions
+            </button>
+        </div>
+    </div>
+
+    <!-- 2c. CUSTOMER CALENDAR BOOKING MODAL -->
+    <div id="customerCalendarModal" class="modal-backdrop hidden">
+        <div class="modal-card calendar-modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-calendar-days"></i> Book a Service</h3>
+                <button type="button" class="modal-close-btn" id="closeCalendarModalBtn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- Mini calendar -->
+            <div class="mini-cal-header">
+                <button type="button" class="cal-nav-btn" id="calPrevMonthBtn"><i class="fa-solid fa-chevron-left"></i></button>
+                <span id="calMonthLabel" class="cal-month-label"></span>
+                <button type="button" class="cal-nav-btn" id="calNextMonthBtn"><i class="fa-solid fa-chevron-right"></i></button>
+            </div>
+            <div class="mini-cal-dow-labels">
+                <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
+            </div>
+            <div id="miniCalGrid" class="mini-cal-grid"></div>
+
+            <!-- Workers available on selected date -->
+            <div id="calSelectedDateLabel" class="cal-selected-label hidden">
+                <i class="fa-solid fa-circle-check" style="color:var(--gs-primary)"></i>
+                <span id="calDateText"></span>
+            </div>
+            <div id="calWorkersPanel" class="cal-workers-panel hidden">
+                <p class="cal-workers-heading">Available Specialists</p>
+                <div id="calWorkersList" class="cal-workers-list"></div>
+            </div>
+
+            <!-- Time selector (shown once a worker is picked) -->
+            <div id="calTimeRow" class="form-row-2 hidden" style="margin-top:12px">
+                <div class="form-field">
+                    <label class="field-label" for="calTimeSelect">Preferred Time</label>
+                    <select id="calTimeSelect" class="field-input">
+                        <option value="08:00 AM">08:00 AM</option>
+                        <option value="09:00 AM">09:00 AM</option>
+                        <option value="10:00 AM" selected>10:00 AM</option>
+                        <option value="11:00 AM">11:00 AM</option>
+                        <option value="12:00 PM">12:00 PM</option>
+                        <option value="01:00 PM">01:00 PM</option>
+                        <option value="02:00 PM">02:00 PM</option>
+                        <option value="03:00 PM">03:00 PM</option>
+                        <option value="04:00 PM">04:00 PM</option>
+                        <option value="05:00 PM">05:00 PM</option>
+                    </select>
+                </div>
+                <div class="form-field" style="display:flex;align-items:flex-end">
+                    <button type="button" class="btn btn-primary btn-block" id="calConfirmBookingBtn">
+                        <i class="fa-solid fa-check"></i> Confirm
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
 
     <!-- 3. LOCATION SELECTOR MODAL -->
     <div id="locationModal" class="modal-backdrop hidden">

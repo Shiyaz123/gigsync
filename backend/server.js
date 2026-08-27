@@ -291,6 +291,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     // PATCH /api/workers/me/availability
+    // Accepts either the old single-slot format or the new pattern format:
+    //   { pattern: 'once'|'daily'|'weekly', daysOfWeek: [0-6], rangeStart, rangeEnd,
+    //     start_time, end_time, is_available }
     if (pathname === '/api/workers/me/availability' && req.method === 'PATCH') {
         const session = getAuthSession(req);
         if (!session || session.role !== 'worker') {
@@ -301,26 +304,81 @@ const server = http.createServer(async (req, res) => {
         const worker = DB.getWorkerByUserId(session.user_id);
         if (!worker) return sendJSON(res, { status: 'error', message: 'Worker profile not found.' }, 404);
 
+        // Toggle overall duty status
         if (body.is_available !== undefined) {
             DB.updateWorkerAvailabilityStatus(worker.id, body.is_available);
         }
 
-        if (body.date_str && body.start_time && body.end_time) {
+        // Slot / pattern save
+        const startTime  = body.start_time;
+        const endTime    = body.end_time;
+        const pattern    = body.pattern || 'once';
+        const daysOfWeek = body.days_of_week || body.daysOfWeek || [];
+        const rangeStart = body.range_start || body.rangeStart || body.date_str;
+        const rangeEnd   = body.range_end   || body.rangeEnd   || null;
+
+        if (startTime && endTime && rangeStart) {
             DB.setWorkerAvailabilitySlot({
-                workerId: worker.id,
+                workerId:    worker.id,
                 workerPhone: worker.phone,
-                trade: worker.trade,
-                dateStr: body.date_str,
-                startTime: body.start_time,
-                endTime: body.end_time,
+                trade:       worker.trade,
+                dateStr:     rangeStart,
+                startTime,
+                endTime,
                 isAvailable: body.is_available !== undefined ? body.is_available : true,
-                notes: body.notes || ''
+                notes:       body.notes || '',
+                pattern,
+                daysOfWeek,
+                rangeStart,
+                rangeEnd
             });
         }
 
         const updated = DB.getWorkerSchedule(worker.id);
         return sendJSON(res, { status: 'success', message: 'Availability updated.', ...updated });
     }
+
+    // GET /api/workers/me/availability/conflicts
+    // Pre-flight check: given proposed new slots, which future confirmed jobs are affected?
+    if (pathname === '/api/workers/me/availability/conflicts' && req.method === 'GET') {
+        const session = getAuthSession(req);
+        if (!session || session.role !== 'worker') {
+            return sendJSON(res, { status: 'error', message: 'Worker authorization required.' }, 403);
+        }
+        const worker = DB.getWorkerByUserId(session.user_id);
+        if (!worker) return sendJSON(res, { status: 'error', message: 'Worker profile not found.' }, 404);
+
+        // proposedSlots comes as a URL-encoded JSON string: ?slots=[{...}]
+        let proposedSlots = [];
+        try { proposedSlots = JSON.parse(params.get('slots') || '[]'); } catch (_) {}
+
+        const conflicts = DB.getConflictingJobsForAvailabilityChange(worker.id, proposedSlots);
+        return sendJSON(res, { status: 'success', conflicts });
+    }
+
+    // POST /api/workers/me/availability/resolve
+    // Worker submits per-job decision: [{ jobId, canWork: true/false }]
+    if (pathname === '/api/workers/me/availability/resolve' && req.method === 'POST') {
+        const session = getAuthSession(req);
+        if (!session || session.role !== 'worker') {
+            return sendJSON(res, { status: 'error', message: 'Worker authorization required.' }, 403);
+        }
+        const body = await parseBody(req);
+        const decisions = Array.isArray(body.decisions) ? body.decisions : [];
+        const results   = decisions.map(d => DB.resolveAvailabilityConflict(d.jobId, Boolean(d.canWork)));
+        return sendJSON(res, { status: 'success', results });
+    }
+
+    // GET /api/workers/available?date=YYYY-MM-DD&city=X
+    // Customer calendar: which workers have availability on a given date?
+    if (pathname === '/api/workers/available' && req.method === 'GET') {
+        const date = params.get('date');
+        const city = params.get('city') || null;
+        if (!date) return sendJSON(res, { status: 'error', message: 'date parameter required.' }, 400);
+        const workers = DB.getWorkersAvailableOnDate(date, city);
+        return sendJSON(res, { status: 'success', workers });
+    }
+
 
     // PATCH /api/workers/me/profile
     if (pathname === '/api/workers/me/profile' && req.method === 'PATCH') {

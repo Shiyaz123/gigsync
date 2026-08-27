@@ -168,8 +168,77 @@ await test('JobConflict for exact same time as existing confirmed job', () => {
 });
 
 /* =========================================================================
+   PHASE 0.5-B — SCHEDULING ENGINE & PATTERN TESTS
+   ========================================================================= */
+
+await test('Phase 0.5-B — Weekly pattern expansion & getWorkersAvailableOnDate', () => {
+    const reg = DB.registerWorkerProfile({
+        name: 'Anita Tailor', phone: '9876505555',
+        trade: 'Tailor', city: 'Ramanagara'
+    });
+    const worker = reg.worker || DB.getWorkerByPhone('9876505555');
+
+    // Worker sets Weekly pattern for Mon(1) and Wed(3), from 2026-09-01 to 2026-09-30
+    DB.setWorkerAvailabilitySlot({
+        workerId: worker.id, workerPhone: worker.phone, trade: worker.trade,
+        dateStr: '2026-09-01', startTime: '09:00 AM', endTime: '05:00 PM', isAvailable: true,
+        pattern: 'weekly', daysOfWeek: [1, 3], rangeStart: '2026-09-01', rangeEnd: '2026-09-30'
+    });
+
+    // 2026-09-07 is a Monday -> should be available
+    const mondayWorkers = DB.getWorkersAvailableOnDate('2026-09-07', 'Ramanagara');
+    const foundMon = mondayWorkers.find(w => w.id === worker.id);
+    assert.ok(foundMon, 'Worker should be available on Monday Sept 7');
+
+    // 2026-09-08 is a Tuesday -> should NOT be available
+    const tuesdayWorkers = DB.getWorkersAvailableOnDate('2026-09-08', 'Ramanagara');
+    const foundTue = tuesdayWorkers.find(w => w.id === worker.id);
+    assert.strictEqual(foundTue, undefined, 'Worker should NOT be available on Tuesday Sept 8');
+});
+
+await test('Phase 0.5-B — Conflict pre-flight check & resolution (cancel and repost)', () => {
+    const reg = DB.registerWorkerProfile({
+        name: 'Kiran Electrician', phone: '9876506666',
+        trade: 'Electrician', city: 'Ramanagara'
+    });
+    const worker = reg.worker || DB.getWorkerByPhone('9876506666');
+
+    // Step 1: Initial slot on 2026-09-10
+    DB.setWorkerAvailabilitySlot({
+        workerId: worker.id, workerPhone: worker.phone, trade: worker.trade,
+        dateStr: '2026-09-10', startTime: '09:00 AM', endTime: '05:00 PM', isAvailable: true
+    });
+
+    // Step 2: Customer books job on 2026-09-10
+    const job = DB.createJob({
+        customer_phone: '9876543210', customer_name: 'Customer A',
+        worker_id: worker.id, worker_phone: worker.phone, worker_name: worker.name,
+        service: 'Electrician', problem_description: 'Fix wiring',
+        location: 'Town Area', city: 'Ramanagara',
+        requested_date: '2026-09-10', requested_time: '10:00 AM',
+        budget: '₹400', status: 'Confirmed'
+    });
+
+    // Step 3: Worker edits availability to a date that does NOT include 2026-09-10
+    const proposed = [{ pattern: 'once', rangeStart: '2026-09-11', startTime: '09:00 AM', endTime: '05:00 PM' }];
+    const conflicts = DB.getConflictingJobsForAvailabilityChange(worker.id, proposed);
+    assert.strictEqual(conflicts.length, 1, 'Should detect 1 conflicting job');
+    assert.strictEqual(conflicts[0].id, job.id, 'Conflicting job ID must match');
+
+    // Step 4: Worker resolves conflict as cannot work (canWork = false)
+    const resolveRes = DB.resolveAvailabilityConflict(job.id, false);
+    assert.strictEqual(resolveRes.action, 'cancelled_and_reposted');
+
+    // Step 5: Verify job is now Requested, worker_id is null (reposted for others)
+    const updatedJob = DB.getJobById(job.id);
+    assert.strictEqual(updatedJob.status, 'Requested', 'Job status must revert to Requested');
+    assert.strictEqual(updatedJob.worker_id, null, 'Worker ID must be cleared');
+});
+
+/* =========================================================================
    RESULTS
    ========================================================================= */
+
 
 console.log('\nResults: ' + passed + ' passed, ' + failed + ' failed');
 if (failed > 0) process.exit(1);
