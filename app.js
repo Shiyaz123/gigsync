@@ -974,10 +974,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Direct Instant Booking: Status becomes immediately 'Confirmed' without extra confirmation modal
+    // -------------------------------------------------------------------------
+    // Direct Booking — shows a mini confirmation modal so the customer picks a
+    // real date (YYYY-MM-DD) and time before the POST is sent.
+    //
+    // WHY: the previous version hard-coded requested_date = 'Tomorrow' and
+    // requested_time = the full availability range string (e.g. '09:00 AM – 05:00 PM').
+    // Both values were incompatible with how the worker stored their availability:
+    //   • Worker stores:  date_str = '2026-08-28'
+    //   • Old booking:    requested_date = 'Tomorrow'
+    //   → LOWER('tomorrow') ≠ LOWER('2026-08-28')  → 'NotAvailable' every time.
+    //
+    // The modal pre-fills sensible defaults but lets the customer correct them,
+    // then sends a proper ISO date and single time the conflict checker can compare.
+    // -------------------------------------------------------------------------
     window._bookWorkerDirect = async function(workerId, workerName, workerPhone, workerTrade, price, availHours) {
         let custPhone = state.user?.phone || '';
-        let custName = state.user?.name || '';
+        let custName  = state.user?.name  || '';
 
         if (!custPhone) {
             custPhone = prompt('Please enter your 10-digit mobile number to book:');
@@ -986,45 +999,121 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             custPhone = custPhone.trim().replace(/\D/g, '');
-            custName = prompt('Please enter your name:') || 'Customer';
-            if (state.user) {
-                state.user.phone = custPhone;
-                state.user.name = custName;
+            custName  = prompt('Please enter your name:') || 'Customer';
+            if (state.user) { state.user.phone = custPhone; state.user.name = custName; }
+        }
+
+        // --- Build or reuse the booking confirmation modal ---
+        let modal = document.getElementById('_directBookModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = '_directBookModal';
+            modal.style.cssText = `
+                position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
+                background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);`;
+            modal.innerHTML = `
+                <div style="background:var(--card-bg,#1e1e2e);border:1px solid var(--border,#333);border-radius:16px;
+                            padding:28px 32px;width:min(420px,92vw);box-shadow:0 24px 64px rgba(0,0,0,.6);">
+                    <h3 id="_dbmTitle" style="margin:0 0 4px;font-size:1.15rem;color:var(--text,#fff)"></h3>
+                    <p  id="_dbmSub"   style="margin:0 0 20px;font-size:.85rem;color:var(--text-muted,#aaa)"></p>
+                    <label style="display:block;margin-bottom:12px;font-size:.85rem;color:var(--text-muted,#aaa)">
+                        Date
+                        <input id="_dbmDate" type="date" style="display:block;width:100%;margin-top:4px;padding:8px 12px;
+                               border-radius:8px;border:1px solid var(--border,#444);background:var(--input-bg,#111);
+                               color:var(--text,#fff);font-size:.95rem;box-sizing:border-box;">
+                    </label>
+                    <label style="display:block;margin-bottom:20px;font-size:.85rem;color:var(--text-muted,#aaa)">
+                        Time
+                        <select id="_dbmTime" style="display:block;width:100%;margin-top:4px;padding:8px 12px;
+                                border-radius:8px;border:1px solid var(--border,#444);background:var(--input-bg,#111);
+                                color:var(--text,#fff);font-size:.95rem;box-sizing:border-box;">
+                            ${['06:00 AM','07:00 AM','08:00 AM','09:00 AM','10:00 AM','11:00 AM',
+                               '12:00 PM','01:00 PM','02:00 PM','03:00 PM','04:00 PM','05:00 PM',
+                               '06:00 PM','07:00 PM','08:00 PM']
+                                .map(t => `<option value="${t}">${t}</option>`).join('')}
+                        </select>
+                    </label>
+                    <div style="display:flex;gap:10px;">
+                        <button id="_dbmCancel" type="button"
+                            style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--border,#444);
+                                   background:transparent;color:var(--text-muted,#aaa);cursor:pointer;font-size:.9rem;">
+                            Cancel
+                        </button>
+                        <button id="_dbmConfirm" type="button"
+                            style="flex:2;padding:10px;border-radius:8px;border:none;
+                                   background:var(--accent,#6366f1);color:#fff;cursor:pointer;
+                                   font-size:.9rem;font-weight:600;">
+                            Confirm Booking
+                        </button>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+            document.getElementById('_dbmCancel').addEventListener('click', () => {
+                modal.style.display = 'none';
+            });
+        }
+
+        // Pre-fill defaults
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const defaultDate = tomorrow.toISOString().split('T')[0];   // YYYY-MM-DD
+
+        document.getElementById('_dbmTitle').textContent = `Book ${workerName}`;
+        document.getElementById('_dbmSub').textContent   =
+            `${workerTrade} · ₹${price || 300} · Available: ${availHours || 'See profile'}`;
+        document.getElementById('_dbmDate').value = defaultDate;
+        document.getElementById('_dbmDate').min   = defaultDate;    // can't book in the past
+        document.getElementById('_dbmTime').value = '09:00 AM';     // sensible default
+
+        modal.style.display = 'flex';
+
+        // Wire up confirm button (replace previous listener by cloning)
+        const oldBtn = document.getElementById('_dbmConfirm');
+        const newBtn = oldBtn.cloneNode(true);
+        oldBtn.parentNode.replaceChild(newBtn, oldBtn);
+
+        newBtn.addEventListener('click', async () => {
+            const chosenDate = document.getElementById('_dbmDate').value;   // 'YYYY-MM-DD'
+            const chosenTime = document.getElementById('_dbmTime').value;   // 'HH:MM AM'
+
+            if (!chosenDate) {
+                toast('Please select a date.');
+                return;
             }
-        }
 
-        toast(`Booking ${workerName}...`);
+            modal.style.display = 'none';
+            toast(`Booking ${workerName}...`);
 
-        const payload = {
-            customer_phone: custPhone,
-            customer_name: custName || 'Customer',
-            worker_id: workerId || null,
-            worker_name: workerName,
-            worker_phone: workerPhone || null,
-            service: workerTrade,
-            problem_description: `Direct booking for ${workerName} (${workerTrade})`,
-            location: state.user?.area || 'Town Area',
-            city: state.city || 'Ramanagara',
-            requested_date: 'Tomorrow',
-            requested_time: availHours || '09:00 AM – 05:00 PM',
-            budget: `₹${price || 300}`,
-            status: 'Confirmed',
-            payment_method: 'Cash'
-        };
+            const payload = {
+                customer_phone:      custPhone,
+                customer_name:       custName || 'Customer',
+                worker_id:           workerId  || null,
+                worker_name:         workerName,
+                worker_phone:        workerPhone || null,
+                service:             workerTrade,
+                problem_description: `Direct booking for ${workerName} (${workerTrade})`,
+                location:            state.user?.area || 'Town Area',
+                city:                state.city || 'Ramanagara',
+                requested_date:      chosenDate,   // ISO YYYY-MM-DD — matches what workers store
+                requested_time:      chosenTime,   // single 'HH:MM AM' — parseTimeToMinutes can handle
+                budget:              `₹${price || 300}`,
+                status:              'Confirmed',
+                payment_method:      'Cash'
+            };
 
-        const res = await apiFetch('/api/jobs', {
-            method: 'POST',
-            body: JSON.stringify(payload)
+            const res = await apiFetch('/api/jobs', { method: 'POST', body: JSON.stringify(payload) });
+
+            if (res.ok) {
+                toast(`✅ Booking confirmed for ${workerName}!`);
+                loadCustomerHomeData();
+                if (state.customerView === 'bookings') loadCustomerBookings();
+            } else {
+                toast('❌ ' + (res.data?.message || 'Failed to create booking.'));
+            }
         });
-
-        if (res.ok) {
-            toast(`✅ Booking confirmed for ${workerName}!`);
-            loadCustomerHomeData();
-            if (state.customerView === 'bookings') loadCustomerBookings();
-        } else {
-            toast('Failed to create booking.');
-        }
     };
+
+
 
     /* ======================================================================
        LIVE UPDATES
