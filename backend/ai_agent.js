@@ -2366,6 +2366,7 @@ async function processWorkerTurn(session, text, actionsPerformed) {
 // Dedicated Simplified Customer Voice Agent Processor
 async function processCustomerTurn(session, text, actionsPerformed) {
     const lower = text.toLowerCase().trim();
+    console.log(`[DEBUG VOICE TURN] sessionId: "${session.sessionId}", pendingIntent: "${session.context.pendingIntent}", city: "${session.city}", text: "${text}"`);
 
     // 1. Gratitude & Call Ending
     if (/\b(thank you|thanks|thank you so much|dhanyavada|dhanyavadagalu|shukriya)\b/i.test(lower) ||
