@@ -1416,7 +1416,7 @@ class ConversationSessionManager {
             session = {
                 sessionId: key,
                 callerPhone: cleanPhone,
-                callerRole: defaultData.callerRole || 'worker',
+                callerRole: defaultData.callerRole || 'customer',
                 callerName: defaultData.callerName && defaultData.callerName !== 'User' ? defaultData.callerName : 'Caller',
                 city: defaultData.city || 'Ramanagara',
                 history: [],
@@ -1464,9 +1464,7 @@ class ConversationSessionManager {
             if (!session.workerDraft.phone) session.workerDraft.phone = session.callerPhone;
         }
         if (defaultData.city && !session.city) session.city = defaultData.city;
-        if (defaultData.callerRole && (!session.callerRole || defaultData.callerRole === 'customer')) {
-            session.callerRole = defaultData.callerRole;
-        }
+        // Role is immutable once set at session start
         if (defaultData.callerName && defaultData.callerName !== 'User' && (!session.callerName || session.callerName === 'Caller')) {
             session.callerName = defaultData.callerName;
         }
@@ -1926,7 +1924,7 @@ function isWorkerIntent(text, currentRole = 'customer') {
 }
 
 // Dedicated Simplified 3.5mm Worker Voice Agent Processor
-async function processWorker35mmTurn(session, text, actionsPerformed) {
+async function processWorkerTurn(session, text, actionsPerformed) {
     if (!session.workerDraft || typeof session.workerDraft !== 'object') {
         session.workerDraft = {};
     }
@@ -1943,6 +1941,9 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
     if (draft.completed === undefined) draft.completed = false;
     if (draft.awaiting_confirmation === undefined) draft.awaiting_confirmation = false;
     const lower = text.toLowerCase().trim();
+
+    const phoneForLookup = draft.phone || session.callerPhone;
+    const isRegistered = phoneForLookup ? Boolean(DB.getWorkerByPhone(phoneForLookup)) : false;
 
     // 1. Gratitude & Call Ending
     if (/\b(thank you|thanks|thank you so much|dhanyavada|dhanyavadagalu|shukriya)\b/i.test(lower) ||
@@ -2006,7 +2007,55 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
         }
     }
 
-    // 3. Direct Account Inquiries
+    // 3. check_job_availability
+    if (/\b(any job|any jobs|job availability|check job|check jobs|available job|available jobs|are there any jobs|is any job available)\b/i.test(lower)) {
+        const phone = draft.phone || session.callerPhone;
+        const worker = phone ? DB.getWorkerByPhone(phone) : null;
+        const trade = draft.job_role || (worker && worker.trade);
+        const city = session.city || (worker && worker.city) || 'Ramanagara';
+        
+        const allJobs = DB.getJobs ? DB.getJobs() : [];
+        const matchingJobs = allJobs.filter(j => 
+            j.status === 'Requested' && 
+            (!trade || j.service.toLowerCase() === trade.toLowerCase()) &&
+            j.city.toLowerCase() === city.toLowerCase()
+        );
+        
+        if (matchingJobs.length === 0) {
+            return {
+                spokenResponse: `There are no new service jobs available in ${city} for ${trade || 'your profession'} right now.`,
+                detectedIntent: 'check_job_availability'
+            };
+        } else {
+            return {
+                spokenResponse: `Yes, there are ${matchingJobs.length} jobs available in ${city} for ${trade}. For example, a request for ${matchingJobs[0].service} in ${matchingJobs[0].location}.`,
+                detectedIntent: 'check_job_availability',
+                toolExecuted: 'getAvailableJobRequests',
+                toolResult: { count: matchingJobs.length, jobs: matchingJobs }
+            };
+        }
+    }
+
+    // 4. check_license_status
+    if (/\b(license status|verification status|am i verified|check my verification|check my license)\b/i.test(lower)) {
+        const phone = draft.phone || session.callerPhone;
+        const worker = phone ? DB.getWorkerByPhone(phone) : null;
+        if (!worker) {
+            return {
+                spokenResponse: "I couldn't find a worker account for your number. Please register first.",
+                detectedIntent: 'check_license_status'
+            };
+        }
+        const verified = Boolean(worker.is_verified);
+        return {
+            spokenResponse: verified 
+                ? "Your license and worker verification status is active and verified." 
+                : "Your license verification is currently pending review by the admin team.",
+            detectedIntent: 'check_license_status'
+        };
+    }
+
+    // 5. Direct Account Inquiries
     if (/\b(what is my job|what is my profession|what trade am i|what do i do)\b/i.test(lower)) {
         const phone = draft.phone || session.callerPhone;
         const worker = phone ? DB.getWorkerByPhone(phone) : null;
@@ -2043,7 +2092,7 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
         }
     }
 
-    // 4. Awaiting Confirmation Response Check
+    // 6. Awaiting Confirmation Response Check
     if (draft.awaiting_confirmation) {
         if (/^(yes|yeah|yep|sure|correct|right|okay|ok|done|ha|haudu|yes please|confirm|confirmed)\b/i.test(lower)) {
             const writeResult = DB.registerOrUpdateWorker({
@@ -2091,7 +2140,7 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
         }
     }
 
-    // 5. If registration was already completed, handle follow-up greetings:
+    // 7. If registration was already completed, handle follow-up greetings:
     if (draft.completed) {
         if (/^(hello|hi|hey|namaskara|namaste)\b/i.test(lower) && lower.split(/\s+/).length <= 3) {
             const nameGreet = draft.name ? `Hello ${draft.name}. How can I help you today?` : "Hello. How can I help you today?";
@@ -2099,7 +2148,7 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
         }
     }
 
-    // 6. Unrelated Question Handling
+    // 8. Unrelated Question Handling
     if (/\b(weather|recipe|news|joke|cricket|score|president|capital of|movie|song)\b/i.test(lower)) {
         return {
             spokenResponse: "I can help with your GigSync worker details and bookings.",
@@ -2107,7 +2156,13 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
         };
     }
 
-    // 7. Generic Initial Greeting
+    // If the worker is already registered, do NOT run onboarding slot-filling!
+    // Instead, return null so that Gemini Conversational Brain can handle arbitrary worker requests (e.g. check earnings, etc.)
+    if (isRegistered) {
+        return null;
+    }
+
+    // 9. Generic Initial Greeting for new onboarding workers
     if (/^(hello|hi|hey|namaskara|namaste)\b/i.test(lower) && lower.split(/\s+/).length <= 3 && !draft.name && !draft.job_role && !draft.phone && !draft.availability_date && !draft.start_time) {
         return {
             spokenResponse: "Hello. What is your name?",
@@ -2115,7 +2170,7 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
         };
     }
 
-    // 8. Data Extraction
+    // 10. Data Extraction
     // Name
     const extractedName = extractCallerName(text);
     if (extractedName) {
@@ -2172,7 +2227,7 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
         }
     }
 
-    // 9. Slot-Filling Check for Missing Fields (in order: Name -> Job Role -> Phone -> Date -> Time)
+    // 11. Slot-Filling Check for Missing Fields (in order: Name -> Job Role -> Phone -> Date -> Time)
     // 1. Name
     if (!draft.name) {
         if (draft.last_asked_field === 'name') {
@@ -2259,6 +2314,155 @@ async function processWorker35mmTurn(session, text, actionsPerformed) {
     };
 }
 
+// Dedicated Simplified Customer Voice Agent Processor
+async function processCustomerTurn(session, text, actionsPerformed) {
+    const lower = text.toLowerCase().trim();
+
+    // 1. Gratitude & Call Ending
+    if (/\b(thank you|thanks|thank you so much|dhanyavada|dhanyavadagalu|shukriya)\b/i.test(lower) ||
+        (/\b(bye|goodbye|that's all|thats all|that is all|nothing else|nothing more)\b/i.test(lower) && lower.split(/\s+/).length <= 5)) {
+        actionsPerformed.push('Closed call upon gratitude/goodbye');
+        return {
+            spokenResponse: "You're welcome! Feel free to call back anytime. Have a great day!",
+            shouldEndCall: true,
+            detectedIntent: 'farewell'
+        };
+    }
+
+    // 2. check_booking_confirmation (Awaiting confirmation flow)
+    if (session.context.pendingIntent === 'confirm_booking') {
+        if (/^(yes|yeah|yep|sure|correct|right|okay|ok|ha|haudu|yes please|confirm|confirmed)\b/i.test(lower)) {
+            const jobData = session.context.pendingJobData;
+            if (jobData) {
+                const result = await AI_TOOLS.createJob(jobData);
+                actionsPerformed.push(`Created booking for customer ${jobData.customerPhone}`);
+                session.context.pendingIntent = null;
+                session.context.pendingJobData = null;
+                return {
+                    spokenResponse: `Done. Your service booking has been confirmed. A ${jobData.service} will arrive on ${jobData.requestedDate} around ${jobData.requestedTime}.`,
+                    detectedIntent: 'check_booking_confirmation',
+                    toolExecuted: 'createJob',
+                    toolResult: result
+                };
+            }
+        } else if (/^(no|nope|wrong|change|not correct|cancel)\b/i.test(lower)) {
+            session.context.pendingIntent = null;
+            session.context.pendingJobData = null;
+            return {
+                spokenResponse: "No problem. I have cancelled the booking request.",
+                detectedIntent: 'booking_cancelled'
+            };
+        }
+    }
+
+    // 3. check_slot_status
+    if (/\b(status of my booking|status of booking|check my booking|booking status|is my booking confirmed|check slot status|slot status|my bookings|my booking)\b/i.test(lower)) {
+        const phone = session.callerPhone || 'anonymous';
+        if (phone === 'anonymous') {
+            return {
+                spokenResponse: "Please tell me your phone number to check your bookings.",
+                detectedIntent: 'ask_phone_for_booking_status'
+            };
+        }
+        
+        const allJobs = DB.getJobs ? DB.getJobs() : [];
+        const custJobs = allJobs.filter(j => j.customer_phone === phone);
+        actionsPerformed.push(`Checked bookings for customer ${phone}: ${custJobs.length} found`);
+
+        if (custJobs.length === 0) {
+            return {
+                spokenResponse: "You don't have any bookings registered with this phone number.",
+                detectedIntent: 'check_slot_status',
+                toolExecuted: 'getCustomerBookings',
+                toolResult: { count: 0 }
+            };
+        } else {
+            const b = custJobs[custJobs.length - 1]; // get latest booking
+            return {
+                spokenResponse: `Your latest booking for ${b.service} on ${b.requested_date} at ${b.requested_time} is currently ${b.status.toLowerCase()}.`,
+                detectedIntent: 'check_slot_status',
+                toolExecuted: 'getCustomerBookings',
+                toolResult: { count: custJobs.length, bookings: custJobs }
+            };
+        }
+    }
+
+    // 4. request_service / book a service
+    const trade = extractTradeAndService(text);
+    if (/\b(book|hire|request|schedule|get an?|need an?)\b/i.test(lower) && trade) {
+        const city = extractLocationEntity(text, session.city || 'Ramanagara');
+        const phone = session.callerPhone || 'anonymous';
+        if (phone === 'anonymous') {
+            return {
+                spokenResponse: "Please sign in or tell me your phone number to proceed with the booking.",
+                detectedIntent: 'ask_phone_for_booking'
+            };
+        }
+
+        const searchResult = await AI_TOOLS.findWorkers({ trade, city });
+        let workerId = null;
+        let workerName = null;
+        let workerPhone = null;
+
+        if (searchResult.count > 0) {
+            const w = searchResult.workers[0];
+            workerId = w.id;
+            workerName = w.name;
+            workerPhone = w.phone;
+        }
+
+        session.context.pendingJobData = {
+            customerPhone: phone,
+            customerName: session.callerName || 'Guest Customer',
+            service: trade,
+            problemDescription: `Requested ${trade} repair`,
+            location: 'Town Area',
+            city,
+            requestedDate: 'Today',
+            requestedTime: 'Immediate',
+            budget: '₹300',
+            workerId,
+            workerName,
+            workerPhone
+        };
+        session.context.pendingIntent = 'confirm_booking';
+
+        return {
+            spokenResponse: `I can book ${workerName || `an available ${trade}`} in ${city} for you. Shall I confirm this booking?`,
+            detectedIntent: 'request_service'
+        };
+    }
+
+    // 5. check_worker_availability
+    const isAvailQuery = /\b(available|availability|free|working|any|look for|find|search for)\b/i.test(lower) || (trade && lower.includes(trade.toLowerCase()));
+    
+    if (isAvailQuery && trade) {
+        const city = extractLocationEntity(text, session.city || 'Ramanagara');
+        const searchResult = await AI_TOOLS.findWorkers({ trade, city });
+        actionsPerformed.push(`Searched for ${trade} in ${city}: ${searchResult.count} found`);
+
+        if (searchResult.count === 0) {
+            return {
+                spokenResponse: `I'm sorry, there are no ${trade}s available in ${city} right now.`,
+                detectedIntent: 'check_worker_availability',
+                toolExecuted: 'findWorkers',
+                toolResult: searchResult
+            };
+        } else {
+            const namesList = searchResult.workers.slice(0, 2).map(w => `${w.name} (starting at ${w.startingPrice})`).join(' and ');
+            return {
+                spokenResponse: `Yes, we have ${searchResult.count} ${trade}s available in ${city}. For example, ${namesList}. Would you like to book one?`,
+                detectedIntent: 'check_worker_availability',
+                toolExecuted: 'findWorkers',
+                toolResult: searchResult
+            };
+        }
+    }
+
+    // No exact rule matched
+    return null;
+}
+
 // 5. Intelligent Multi-Turn Conversational Processor
 class ContextAwareVoiceAgent {
     async processTurn(optsOrSession, maybeText) {
@@ -2274,7 +2478,7 @@ class ContextAwareVoiceAgent {
         } else if (optsOrSession && typeof optsOrSession === 'object' && typeof maybeText === 'string') {
             sessionId = optsOrSession.sessionId || optsOrSession.callerPhone || 'default_session';
             callerPhone = optsOrSession.callerPhone;
-            callerRole = optsOrSession.callerRole || 'worker';
+            callerRole = optsOrSession.callerRole || 'customer';
             callerName = optsOrSession.callerName || 'User';
             city = optsOrSession.city || 'Ramanagara';
             isVoiceCall = optsOrSession.isVoiceCall;
@@ -2282,7 +2486,7 @@ class ContextAwareVoiceAgent {
         } else if (optsOrSession && typeof optsOrSession === 'object') {
             sessionId = optsOrSession.sessionId || optsOrSession.callerPhone || 'default_session';
             callerPhone = optsOrSession.callerPhone;
-            callerRole = optsOrSession.callerRole || 'worker';
+            callerRole = optsOrSession.callerRole || 'customer';
             callerName = optsOrSession.callerName || 'User';
             city = optsOrSession.city || 'Ramanagara';
             isVoiceCall = optsOrSession.isVoiceCall;
@@ -2310,13 +2514,46 @@ class ContextAwareVoiceAgent {
         let shouldEndCall = false;
         const actionsPerformed = [];
 
-        // Dedicated Simplified 3.5mm Worker Voice Flow
-        const workerTurn = await processWorker35mmTurn(session, text, actionsPerformed);
-        spokenResponse = workerTurn.spokenResponse;
-        toolExecuted = workerTurn.toolExecuted || null;
-        toolResult = workerTurn.toolResult || null;
-        detectedIntent = workerTurn.detectedIntent || 'worker_interaction';
-        shouldEndCall = workerTurn.shouldEndCall || false;
+        // Route to the appropriate role-based dialogue tree
+        let turnResult = null;
+        if (session.callerRole === 'customer') {
+            turnResult = await processCustomerTurn(session, text, actionsPerformed);
+        } else {
+            turnResult = await processWorkerTurn(session, text, actionsPerformed);
+        }
+
+        // If rule-based processing did not match/resolve, fall back to Gemini Conversational Brain!
+        if (!turnResult) {
+            console.log(`[VOICE] No rule matched for ${session.callerRole}. Falling back to Gemini Conversational Brain.`);
+            const brainTurn = await geminiBrain.processTurn({ session, text });
+            if (brainTurn) {
+                turnResult = {
+                    spokenResponse: brainTurn.spokenResponse,
+                    toolExecuted: brainTurn.toolExecuted,
+                    toolResult: brainTurn.toolResult,
+                    detectedIntent: brainTurn.toolExecuted ? `tool_${brainTurn.toolExecuted}` : 'llm_interaction',
+                    shouldEndCall: brainTurn.shouldEndCall
+                };
+                if (brainTurn.actionsPerformed) {
+                    actionsPerformed.push(...brainTurn.actionsPerformed);
+                }
+            } else {
+                turnResult = {
+                    spokenResponse: session.callerRole === 'customer'
+                        ? "I'm sorry, I couldn't process your request. How can I help you book a service?"
+                        : "I'm sorry, I couldn't process your request. What type of work do you do?",
+                    detectedIntent: 'fallback_error',
+                    shouldEndCall: false
+                };
+            }
+            actionsPerformed.push(`Gemini fallback executed (Model: ${geminiBrain.lastModelUsed || 'default'})`);
+        }
+
+        spokenResponse = turnResult.spokenResponse;
+        toolExecuted = turnResult.toolExecuted || null;
+        toolResult = turnResult.toolResult || null;
+        detectedIntent = turnResult.detectedIntent || 'llm_interaction';
+        shouldEndCall = turnResult.shouldEndCall || false;
 
         // Add assistant turn to session memory and persist across serverless invocations
         sessionManager.addTurn(session, 'assistant', spokenResponse);

@@ -2365,10 +2365,24 @@ document.addEventListener('DOMContentLoaded', () => {
             ? (document.getElementById('terminalCallerPhone')?.value || '').replace(/\D/g, '')
             : '';
 
+        let callerRole = 'customer';
+        if (state.user && state.user.role) {
+            callerRole = state.user.role === 'admin' ? 'worker' : state.user.role;
+        } else if (state.portal === 'worker') {
+            callerRole = 'worker';
+        } else if (state.portal === 'terminal') {
+            callerRole = 'worker';
+        } else if (state.portal === 'customer') {
+            callerRole = 'customer';
+        } else {
+            callerRole = selectedRole === 'terminal' ? 'worker' : selectedRole;
+        }
+
         const payload = {
             sessionId: state.sessionId,
             city: state.city,
-            speechText
+            speechText,
+            callerRole
         };
         if (terminalCaller && terminalCaller.length === 10) payload.callerPhone = terminalCaller;
         else if (state.portal !== 'terminal' && state.user && state.user.phone) payload.callerPhone = state.user.phone;

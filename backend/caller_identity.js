@@ -71,7 +71,7 @@ function resolveAiCaller(session, body = {}) {
             }
             return {
                 callerPhone: null,
-                callerRole: 'worker',
+                callerRole: body.callerRole || 'worker',
                 callerName: 'Caller',
                 city: session.city || body.city || 'Ramanagara',
                 registeredWorker: false,
