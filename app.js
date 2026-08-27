@@ -1373,6 +1373,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const workerAvailModal = document.getElementById('workerAvailModal');
     document.getElementById('openEditAvailModalBtn')?.addEventListener('click', () => {
+        const today = new Date().toISOString().split('T')[0];
+        const rs = document.getElementById('availRangeStart');
+        if (rs) { if (!rs.value) rs.value = today; rs.min = today; }
+        const re = document.getElementById('availRangeEnd');
+        if (re) re.min = today;
+
         workerAvailModal?.classList.remove('hidden');
         _refreshAvailSlotsList();
     });
@@ -1472,7 +1478,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const endTime    = document.getElementById('availEndTimeSelect')?.value;
 
         if (!rangeStart || !startTime || !endTime) {
-            toast('Please fill in all required fields.');
+            toast('Please select a date and working hours.');
             return;
         }
 
@@ -1485,6 +1491,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
 
         const payload = {
+            worker_id:    state.user?.id || null,
+            worker_phone: state.user?.phone || null,
             pattern:      _availPattern,
             daysOfWeek:   [..._selectedDow],
             rangeStart,
@@ -1504,9 +1512,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Availability'; }
 
         if (!saveRes.ok) {
-            toast('❌ Failed to save availability.');
+            toast('❌ ' + (saveRes.data?.message || 'Failed to save availability.'));
             return;
         }
+
 
         toast('✅ Availability saved!');
         _refreshAvailSlotsList();

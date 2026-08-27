@@ -290,19 +290,32 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, { status: 'success', workerId, earnings });
     }
 
-    // PATCH /api/workers/me/availability
-    // Accepts either the old single-slot format or the new pattern format:
-    //   { pattern: 'once'|'daily'|'weekly', daysOfWeek: [0-6], rangeStart, rangeEnd,
-    //     start_time, end_time, is_available }
-    if (pathname === '/api/workers/me/availability' && req.method === 'PATCH') {
+    // POST or PATCH /api/workers/me/availability or /api/workers/:id/availability
+    // Accepts pattern format or legacy format:
+    //   { pattern: 'once'|'daily'|'weekly', daysOfWeek: [0-6], rangeStart/date, rangeEnd,
+    //     start_time/startTime, end_time/endTime, is_available }
+    const availRouteMatch = pathname.match(/^\/api\/workers\/(me|\d+)\/availability$/);
+    if (availRouteMatch && (req.method === 'PATCH' || req.method === 'POST')) {
         const session = getAuthSession(req);
-        if (!session || session.role !== 'worker') {
-            return sendJSON(res, { status: 'error', message: 'Worker authorization required.' }, 403);
+        const body = await parseBody(req);
+
+        let worker = null;
+        if (availRouteMatch[1] !== 'me') {
+            worker = DB.getWorkerById(Number(availRouteMatch[1]));
+        }
+        if (!worker && session) {
+            worker = DB.getWorkerByUserId(session.user_id) || DB.getWorkerByPhone(session.phone);
+        }
+        if (!worker && body.worker_id) {
+            worker = DB.getWorkerById(body.worker_id);
+        }
+        if (!worker && body.worker_phone) {
+            worker = DB.getWorkerByPhone(body.worker_phone);
         }
 
-        const body = await parseBody(req);
-        const worker = DB.getWorkerByUserId(session.user_id);
-        if (!worker) return sendJSON(res, { status: 'error', message: 'Worker profile not found.' }, 404);
+        if (!worker) {
+            return sendJSON(res, { status: 'error', message: 'Worker profile not found.' }, 404);
+        }
 
         // Toggle overall duty status
         if (body.is_available !== undefined) {
@@ -310,11 +323,11 @@ const server = http.createServer(async (req, res) => {
         }
 
         // Slot / pattern save
-        const startTime  = body.start_time;
-        const endTime    = body.end_time;
-        const pattern    = body.pattern || 'once';
+        const startTime  = body.start_time || body.startTime;
+        const endTime    = body.end_time   || body.endTime;
+        const pattern    = body.pattern    || 'once';
         const daysOfWeek = body.days_of_week || body.daysOfWeek || [];
-        const rangeStart = body.range_start || body.rangeStart || body.date_str;
+        const rangeStart = body.range_start || body.rangeStart || body.date_str || body.date;
         const rangeEnd   = body.range_end   || body.rangeEnd   || null;
 
         if (startTime && endTime && rangeStart) {
@@ -335,18 +348,28 @@ const server = http.createServer(async (req, res) => {
         }
 
         const updated = DB.getWorkerSchedule(worker.id);
-        return sendJSON(res, { status: 'success', message: 'Availability updated.', ...updated });
+        return sendJSON(res, { status: 'success', message: 'Availability updated successfully.', ...updated });
     }
 
-    // GET /api/workers/me/availability/conflicts
+    // GET /api/workers/me/availability/conflicts or GET /api/workers/:id/availability/conflicts
     // Pre-flight check: given proposed new slots, which future confirmed jobs are affected?
-    if (pathname === '/api/workers/me/availability/conflicts' && req.method === 'GET') {
+    const conflictRouteMatch = pathname.match(/^\/api\/workers\/(me|\d+)\/availability\/conflicts$/);
+    if (conflictRouteMatch && req.method === 'GET') {
         const session = getAuthSession(req);
-        if (!session || session.role !== 'worker') {
-            return sendJSON(res, { status: 'error', message: 'Worker authorization required.' }, 403);
+        let worker = null;
+        if (conflictRouteMatch[1] !== 'me') {
+            worker = DB.getWorkerById(Number(conflictRouteMatch[1]));
         }
-        const worker = DB.getWorkerByUserId(session.user_id);
-        if (!worker) return sendJSON(res, { status: 'error', message: 'Worker profile not found.' }, 404);
+        if (!worker && session) {
+            worker = DB.getWorkerByUserId(session.user_id) || DB.getWorkerByPhone(session.phone);
+        }
+        if (!worker && params.get('worker_id')) {
+            worker = DB.getWorkerById(Number(params.get('worker_id')));
+        }
+
+        if (!worker) {
+            return sendJSON(res, { status: 'error', message: 'Worker profile not found.' }, 404);
+        }
 
         // proposedSlots comes as a URL-encoded JSON string: ?slots=[{...}]
         let proposedSlots = [];
@@ -356,18 +379,17 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, { status: 'success', conflicts });
     }
 
-    // POST /api/workers/me/availability/resolve
+    // POST /api/workers/me/availability/resolve or POST /api/workers/:id/availability/resolve
     // Worker submits per-job decision: [{ jobId, canWork: true/false }]
-    if (pathname === '/api/workers/me/availability/resolve' && req.method === 'POST') {
+    const resolveRouteMatch = pathname.match(/^\/api\/workers\/(me|\d+)\/availability\/resolve$/);
+    if (resolveRouteMatch && req.method === 'POST') {
         const session = getAuthSession(req);
-        if (!session || session.role !== 'worker') {
-            return sendJSON(res, { status: 'error', message: 'Worker authorization required.' }, 403);
-        }
         const body = await parseBody(req);
         const decisions = Array.isArray(body.decisions) ? body.decisions : [];
         const results   = decisions.map(d => DB.resolveAvailabilityConflict(d.jobId, Boolean(d.canWork)));
         return sendJSON(res, { status: 'success', results });
     }
+
 
     // GET /api/workers/available?date=YYYY-MM-DD&city=X
     // Customer calendar: which workers have availability on a given date?
