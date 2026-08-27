@@ -1547,13 +1547,14 @@ function extractLocationEntity(text, defaultCity = 'Ramanagara') {
     return defaultCity;
 }
 
-// 4. Entity & Trade Extractor
-function extractTradeAndService(text) {
+// 4. Entity & Trade Extractor (Semantic Matcher with authoritative NCO-2015/O*NET base taxonomy)
+async function extractTradeAndService(text) {
     if (!text) return null;
     const lower = text.toLowerCase();
 
+    // -- 1. Step A: Fast Local Check (exact string matches for performance) --
     // Specific Multi-word trades first
-    if (lower.includes('washing machine') || lower.includes('washer') || lower.includes('വാഷിംഗ് മെಷೀನ್')) {
+    if (lower.includes('washing machine') || lower.includes('washer') || lower.includes('വാഷിംഗ് മെಷീൻ')) {
         return 'Washing Machine Repair';
     }
     if (lower.includes('water purifier') || lower.includes('ro technician') || lower.includes('aquaguard') || lower.includes('kent ro') || lower.includes('water filter')) {
@@ -1605,6 +1606,26 @@ function extractTradeAndService(text) {
     }
     if (lower.includes('paint') || lower.includes('painter') || lower.includes('whitewash') || lower.includes('wall paint') || lower.includes('ಬಣ್ಣ')) {
         return 'Painting';
+    }
+
+    // -- 2. Step B: Semantic Embedding Fallback (using local model) --
+    try {
+        const response = await fetch('http://127.0.0.1:8091/match', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: text, threshold: 0.55 })
+        });
+        if (response.ok) {
+            const data = await response.json();
+            if (data.matched) {
+                console.log(`[NLU Semantic Match] Resolved "${text}" to "${data.matched_trade}" (score: ${data.adjusted_score.toFixed(4)})`);
+                return data.matched_trade;
+            } else {
+                console.warn(`[NLU Semantic Miss] Low confidence match for "${text}" (best candidate: "${data.matched_trade}", score: ${data.adjusted_score.toFixed(4)}). Falling back to LLM.`);
+            }
+        }
+    } catch (err) {
+        console.warn(`[NLU Semantic Error] Semantic matcher service unavailable. Details: ${err.message}`);
     }
 
     return null;
@@ -2194,7 +2215,7 @@ async function processWorkerTurn(session, text, actionsPerformed) {
     }
 
     // Job Role
-    const extractedTrade = extractTradeAndService(text);
+    const extractedTrade = await extractTradeAndService(text);
     if (extractedTrade) {
         draft.job_role = extractedTrade;
     } else if (draft.last_asked_field === 'job_role') {
@@ -2388,7 +2409,7 @@ async function processCustomerTurn(session, text, actionsPerformed) {
     }
 
     // 4. request_service / book a service
-    const trade = extractTradeAndService(text);
+    const trade = await extractTradeAndService(text);
     if (/\b(book|hire|request|schedule|get an?|need an?)\b/i.test(lower) && trade) {
         const city = extractLocationEntity(text, session.city || 'Ramanagara');
         const phone = session.callerPhone || 'anonymous';

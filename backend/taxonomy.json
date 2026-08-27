@@ -1,0 +1,92 @@
+[
+  {
+    "trade": "Electrical",
+    "nco_code": "7411.0100",
+    "synonyms": ["electrician", "wireman", "lineman", "power repair", "fan fixer", "switchboard repair", "meter fixer", "current wire", "bulb repair", "electric repair", "electronic fitter", "cliteration", "literation", "elctric", "lectrition", "electritian", "electrition", "electrishan"],
+    "description": "General electrician services, wiring, switchboards, fan repair, light fittings, and household power maintenance."
+  },
+  {
+    "trade": "Plumbing",
+    "nco_code": "7126.0100",
+    "synonyms": ["plumber", "pipe fitter", "pipe repair", "tap fixer", "leakage repair", "drain cleaner", "water pipe", "leaking tap", "water filter", "plamber", "plamer", "drain", "water leak"],
+    "description": "General plumbing service, repairing pipe leaks, blockages, fitting taps, showers, wash basins, and water tank maintenance."
+  },
+  {
+    "trade": "Carpentry",
+    "nco_code": "7115.0100",
+    "synonyms": ["carpenter", "woodworker", "furnituremaker", "door repair", "locksmith", "window fixer", "carpanter", "carpnter", "wood craft", "lock installation"],
+    "description": "General carpentry, furniture repair, door and window locks installation, repairing wooden fixtures, cupboards, and tables."
+  },
+  {
+    "trade": "Masonry & Construction",
+    "nco_code": "7112.0100",
+    "synonyms": ["mason", "bricklayer", "plasterer", "cement worker", "tiles layer", "maistri", "construction worker", "builder", "stone mason"],
+    "description": "General masonry work, bricklaying, plastering, tiling, wall repair, floor tiling, and small household construction work."
+  },
+  {
+    "trade": "Tailoring & Alterations",
+    "nco_code": "7531.0100",
+    "synonyms": ["tailor", "dressmaker", "stitcher", "alteration specialist", "blouse stitcher", "clothing alteration", "sewing tech", "cloth stitch"],
+    "description": "General tailoring services, custom clothing stitching, dress alterations, fitting shirts, pants, blouses, and curtains repair."
+  },
+  {
+    "trade": "Welding & Metalwork",
+    "nco_code": "7212.0100",
+    "synonyms": ["welder", "grill maker", "metal fabricator", "gate repair", "welding repair", "iron smith", "metal welder", "window grill fix"],
+    "description": "General welding, repairing iron gates, window grills, structural steel fabrication, and welding of metallic household items."
+  },
+  {
+    "trade": "Driver Services",
+    "nco_code": "8322.0100",
+    "synonyms": ["driver", "chauffeur", "cab driver", "car driver", "truck driver", "temporary driver", "valet", "pilot"],
+    "description": "Professional driving services, personal car driver, commercial cab driver, or delivery truck driver."
+  },
+  {
+    "trade": "Mechanic",
+    "nco_code": "7231.0100",
+    "synonyms": ["mechanic", "auto mechanic", "bike repair", "puncture fixer", "two wheeler service", "scooter repair", "mecanic", "makanic", "breakdown", "engine fix"],
+    "description": "Automotive mechanic, bike or car servicing, repairing engine breakdowns, fixing punctures, and two-wheeler tune-ups."
+  },
+  {
+    "trade": "Home Cleaning",
+    "nco_code": "9112.0100",
+    "synonyms": ["cleaner", "house maid", "sweeper", "washer", "deep cleaning specialist", "brooming", "mopping", "toilet cleaning"],
+    "description": "Domestic cleaning services, deep house cleaning, kitchen scrubbing, bathroom sanitizing, floor sweeping, and mopping."
+  },
+  {
+    "trade": "Painting",
+    "nco_code": "7521.0100",
+    "synonyms": ["painter", "wall painter", "whitewasher", "home painter", "wall texture artist", "distemper paint"],
+    "description": "House painting services, interior wall painting, exterior coating, wall priming, whitewashing, and wall texture applications."
+  },
+  {
+    "trade": "AC & Appliances",
+    "nco_code": "7412.0401",
+    "synonyms": ["ac technician", "air conditioner repair", "cooler repair", "appliances repair", "ac servicing", "gas filling ac", "split ac install"],
+    "description": "Air conditioner servicing, AC repair, split/window AC installation, gas charging, and fixing electrical household appliances."
+  },
+  {
+    "trade": "Washing Machine Repair",
+    "nco_code": "7412.0402",
+    "synonyms": ["washing machine repair", "washer service", "laundry machine tech", "automatic washer fix", "front load washer repair"],
+    "description": "Washing machine repair services, fixing load drum errors, water drain pump issues, and motor/timer electronics replacement."
+  },
+  {
+    "trade": "Water Purifier & RO Service",
+    "nco_code": "8189.9900",
+    "synonyms": ["ro technician", "water filter installation", "aquaguard repair", "ro filter replace", "kent service"],
+    "description": "Water purifier filter servicing, RO membrane replacement, water filter installation, and repairing purifiers leaking water."
+  },
+  {
+    "trade": "TV & Electronics Repair",
+    "nco_code": "7422.0100",
+    "synonyms": ["tv technician", "television repair", "led screen repair", "electronics technician", "smart tv repair", "display replacement tv"],
+    "description": "TV and home electronics repair, fixing smart TV display panels, speaker issues, motherboards, and power board repairs."
+  },
+  {
+    "trade": "Refrigerator Repair",
+    "nco_code": "7412.0403",
+    "synonyms": ["fridge technician", "fridge repair", "freezer technician", "refrigerator gas fill", "double door fridge fix"],
+    "description": "Refrigerator and freezer repair services, compressor replacement, refrigerator gas recharge, and fixing cool temperature drop issues."
+  }
+]

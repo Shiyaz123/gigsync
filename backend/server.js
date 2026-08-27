@@ -705,6 +705,31 @@ process.on('unhandledRejection', (reason) => {
     console.error('[Unhandled Rejection]:', reason);
 });
 
+const { spawn } = require('child_process');
+
+function startNluServer() {
+    const req = http.get('http://127.0.0.1:8091/health', (res) => {
+        if (res.statusCode === 200) {
+            console.log('[NLU Server] Python microservice is already running on port 8091.');
+        } else {
+            spawnNluProcess();
+        }
+    });
+    req.on('error', () => {
+        spawnNluProcess();
+    });
+}
+
+function spawnNluProcess() {
+    console.log('[NLU Server] Spawning Python NLU microservice on port 8091...');
+    const pythonPath = path.join(__dirname, 'nlu_server.py');
+    const nluProcess = spawn('python3', [pythonPath], {
+        detached: true,
+        stdio: 'ignore'
+    });
+    nluProcess.unref();
+}
+
 server.listen(PORT, () => {
     console.log('=======================================================');
     console.log(` GigSync Full-Stack Desktop Server & AI Voice Gateway`);
@@ -714,6 +739,9 @@ server.listen(PORT, () => {
     console.log(` Real Authentication: Enabled (/api/auth/*)`);
     console.log(` Desktop Customer & Worker REST Endpoints: Live`);
     console.log('=======================================================');
+    
+    // Start Python NLU microservice
+    startNluServer();
 });
 
 module.exports = server;

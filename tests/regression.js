@@ -142,6 +142,47 @@ async function runTests() {
         assert.strictEqual(session2.callerRole, 'customer', "Role should remain customer and not be overwritten");
     });
 
+    // 4. Semantic NLU Tests
+    await test("Semantic matching: 'I fix ACs' should resolve to 'AC & Appliances'", async () => {
+        const sessionId = "test_nlu_ac_" + Date.now();
+        const session = sessionManager.getSession(sessionId, {
+            callerRole: 'worker',
+            callerPhone: '1112223333',
+            callerName: 'AC Worker'
+        });
+        
+        await aiAgent.processCallTurn(session, "I fix ACs");
+        const draft = session.workerDraft;
+        assert.ok(draft && draft.job_role === 'AC & Appliances', "Extracted job role should be AC & Appliances");
+    });
+
+    await test("Semantic matching: 'stitch clothes' should resolve to 'Tailoring & Alterations'", async () => {
+        const sessionId = "test_nlu_tailor_" + Date.now();
+        const session = sessionManager.getSession(sessionId, {
+            callerRole: 'customer',
+            callerPhone: '9991112223',
+            callerName: 'Customer',
+            city: 'Ramanagara'
+        });
+        
+        const turn = await aiAgent.processCallTurn(session, "I want to book someone to stitch my clothes");
+        assert.strictEqual(turn.detectedIntent, 'request_service', "Intent should be request_service");
+        assert.strictEqual(session.context.pendingJobData.service, 'Tailoring & Alterations', "Service should be Tailoring & Alterations");
+    });
+
+    await test("Semantic matching: random text should fall back to low confidence / LLM", async () => {
+        const sessionId = "test_nlu_random_" + Date.now();
+        const session = sessionManager.getSession(sessionId, {
+            callerRole: 'customer',
+            callerPhone: '9991112223',
+            callerName: 'Customer'
+        });
+        
+        const turn = await aiAgent.processCallTurn(session, "is it going to rain today");
+        assert.ok(turn.detectedIntent !== 'request_service', "Intent should not be request_service");
+        assert.ok(turn.detectedIntent !== 'check_worker_availability', "Intent should not be check_worker_availability");
+    });
+
     console.log(`\nResults: ${passed} passed, ${failed} failed`);
     if (failed > 0) {
         process.exit(1);
