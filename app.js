@@ -2198,6 +2198,7 @@ document.addEventListener('DOMContentLoaded', () => {
         accumulatedAiSpeech = '';
         clearTimeout(modalSilenceTimer);
         modalSilenceTimer = null;
+        speechRecNetworkBlocked = false;
 
         const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRec) {

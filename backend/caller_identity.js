@@ -36,7 +36,7 @@ function resolveAiCaller(session, body = {}) {
             callerPhone: phone,
             callerRole: worker ? 'worker' : (user ? user.role : fallbackRole),
             callerName: worker ? worker.name : (user ? user.name : fallbackName),
-            city: body.city || (worker && worker.city) || (user && user.city) || fallbackCity || 'Ramanagara',
+            city: body.city || (worker && worker.city) || (user && user.city) || fallbackCity || null,
             registeredWorker: Boolean(worker)
         };
     };
@@ -45,7 +45,7 @@ function resolveAiCaller(session, body = {}) {
     if (body.isVoiceCall || body.portal === 'terminal') {
         if (claimedPhone.length === 10) {
             return {
-                ...describe(claimedPhone, body.callerRole || 'worker', body.callerName || 'Caller', body.city || 'Ramanagara'),
+                ...describe(claimedPhone, body.callerRole || 'worker', body.callerName || 'Caller', body.city || null),
                 source: 'voice_call'
             };
         }
@@ -53,7 +53,7 @@ function resolveAiCaller(session, body = {}) {
             callerPhone: null,
             callerRole: body.callerRole || 'worker',
             callerName: body.callerName || 'Caller',
-            city: body.city || 'Ramanagara',
+            city: body.city || null,
             registeredWorker: false,
             source: 'anonymous_voice_call'
         };
@@ -73,7 +73,7 @@ function resolveAiCaller(session, body = {}) {
                 callerPhone: null,
                 callerRole: body.callerRole || 'worker',
                 callerName: 'Caller',
-                city: session.city || body.city || 'Ramanagara',
+                city: session.city || body.city || null,
                 registeredWorker: false,
                 source: 'terminal_incoming_call'
             };
@@ -86,7 +86,7 @@ function resolveAiCaller(session, body = {}) {
     // No verified session (e.g. 3.5mm incoming telephony call, guest caller, or new worker)
     if (claimedPhone.length === 10) {
         return {
-            ...describe(claimedPhone, body.callerRole || 'worker', body.callerName || 'Caller', body.city || 'Ramanagara'),
+            ...describe(claimedPhone, body.callerRole || 'worker', body.callerName || 'Caller', body.city || null),
             source: 'telephony_or_web_caller'
         };
     }
@@ -96,7 +96,7 @@ function resolveAiCaller(session, body = {}) {
         callerPhone: null,
         callerRole: body.callerRole || 'worker',
         callerName: body.callerName || 'Caller',
-        city: body.city || 'Ramanagara',
+        city: body.city || null,
         registeredWorker: false,
         source: 'anonymous_incoming_call'
     };

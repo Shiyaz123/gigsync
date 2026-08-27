@@ -1399,7 +1399,7 @@ class ConversationSessionManager {
     }
 
     getSession(sessionId, defaultData = {}) {
-        const key = sessionId || defaultData.callerPhone || 'default_session';
+        const key = sessionId || defaultData.callerPhone || ('anon_sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8));
         let session = this.sessions.get(key);
         if (!session) {
             const saved = (DB && DB.getVoiceSession) ? DB.getVoiceSession(key) : null;
@@ -1418,7 +1418,7 @@ class ConversationSessionManager {
                 callerPhone: cleanPhone,
                 callerRole: defaultData.callerRole || 'customer',
                 callerName: defaultData.callerName && defaultData.callerName !== 'User' ? defaultData.callerName : 'Caller',
-                city: defaultData.city || 'Ramanagara',
+                city: defaultData.city || null,
                 history: [],
                 workerDraft: {
                     name: null,
@@ -1499,11 +1499,45 @@ class ConversationSessionManager {
 const sessionManager = new ConversationSessionManager();
 
 // 3. Location Entity Extractor
-function extractLocationEntity(text, defaultCity = 'Ramanagara') {
+function extractLocationEntity(text, defaultCity = null) {
     if (!text) return defaultCity;
     const lower = text.toLowerCase();
 
-    // Specific city / neighborhood matching FIRST
+    // -- Step A: Preposition Match First (highly specific location of interest, e.g. "in kanakapura", "in rt nagar") --
+    const prepMatch = text.match(/\b(?:in|at|near|around|for)\s+([a-zA-Z0-9]+(?:\s+[a-zA-Z0-9]+)?)\b/i);
+    if (prepMatch && !/^(today|now|tomorrow|morning|afternoon|evening|tonight|monday|saturday|sunday|daily)$/i.test(prepMatch[1])) {
+        const matchedLoc = prepMatch[1].trim().toLowerCase();
+        
+        const locationMap = [
+            { patterns: ['ramanagara', 'ramnagar', 'ರಾಮನಗರ'], city: 'Ramanagara' },
+            { patterns: ['kanakapura', 'kanakpur', 'ಕನಕಪುರ'], city: 'Kanakapura' },
+            { patterns: ['channapatna', 'channapatana', 'ಚನ್ನಪಟ್ಟಣ'], city: 'Channapatna' },
+            { patterns: ['bengaluru', 'bangalore', 'ಬೆಂಗಳೂರು'], city: 'Bengaluru' },
+            { patterns: ['mysuru', 'mysore', 'ಮೈಸೂರು'], city: 'Mysuru' },
+            { patterns: ['vijaya nagar', 'vijayanagar', 'ವಿಜಯನಗರ'], city: 'Vijaya Nagar' },
+            { patterns: ['bidadi', 'ಬಿದದಿ'], city: 'Bidadi' },
+            { patterns: ['magadi', 'ಮಾಗಡಿ'], city: 'Magadi' },
+            { patterns: ['mandya', 'ಮಂಡ್ಯ'], city: 'Mandya' },
+            { patterns: ['hassan', 'ಹಾಸನ'], city: 'Hassan' },
+            { patterns: ['tumakuru', 'tumkur', 'ತುಮಕೂರು'], city: 'Tumakuru' },
+            { patterns: ['shivamogga', 'shimoga', 'ಶಿವಮೊಗ್ಗ'], city: 'Shivamogga' },
+            { patterns: ['davangere', 'ದಾವಣಗೆರೆ'], city: 'Davangere' },
+            { patterns: ['belagavi', 'belgaum', 'ಬೆಳಗಾವಿ'], city: 'Belagavi' },
+            { patterns: ['hubballi', 'hubli', 'ಹುಬ್ಬಳ್ಳಿ'], city: 'Hubballi' },
+            { patterns: ['kannur'], city: 'Kannur' },
+            { patterns: ['kasaragod'], city: 'Kasaragod' }
+        ];
+
+        for (const item of locationMap) {
+            if (item.patterns.includes(matchedLoc)) {
+                return item.city;
+            }
+        }
+        
+        return matchedLoc.replace(/\b\w/g, c => c.toUpperCase());
+    }
+
+    // -- Step B: Fallback to entire text scan if no preposition matched --
     const locationMap = [
         { patterns: ['ramanagara', 'ramnagar', 'ರಾಮನಗರ'], city: 'Ramanagara' },
         { patterns: ['kanakapura', 'kanakpur', 'ಕನಕಪುರ'], city: 'Kanakapura' },
@@ -1536,12 +1570,6 @@ function extractLocationEntity(text, defaultCity = 'Ramanagara') {
     // Relative / local location references (with boundary checking to avoid false substring matches like 'is there')
     if (/\b(near me|my current location|my location|current location|around here|locally)\b/i.test(lower)) {
         return defaultCity;
-    }
-
-    // Fallback: Check preposition patterns (e.g. "in Mysore", "near Bidadi", "at Vijaya Nagar")
-    const prepMatch = text.match(/\b(?:in|at|near|around|for)\s+([A-Z][a-zA-Z]*(?:\s+[A-Z][a-zA-Z]*)?)\b/);
-    if (prepMatch && !/^(today|now|tomorrow|morning|afternoon|evening|tonight|monday|saturday|sunday)$/i.test(prepMatch[1])) {
-        return prepMatch[1].trim();
     }
 
     return defaultCity;
@@ -2352,6 +2380,38 @@ async function processCustomerTurn(session, text, actionsPerformed) {
 
     // 2. check_booking_confirmation (Awaiting confirmation flow)
     if (session.context.pendingIntent === 'confirm_booking') {
+        const correctedCity = extractLocationEntity(text);
+        // If they provided a city and it's not a generic yes/no response, treat it as location correction!
+        if (correctedCity && !/^(yes|yeah|yep|sure|correct|right|okay|ok|done|ha|haudu|yes please|confirm|confirmed|no|nope|wrong|change|not correct|cancel)$/i.test(lower)) {
+            session.city = correctedCity;
+            session.context.currentLocation = correctedCity;
+            const jobData = session.context.pendingJobData || {};
+            jobData.city = correctedCity;
+            
+            const trade = jobData.service;
+            const searchResult = await AI_TOOLS.findWorkers({ trade, city: correctedCity });
+            let workerId = null;
+            let workerName = null;
+            let workerPhone = null;
+
+            if (searchResult.count > 0) {
+                const w = searchResult.workers[0];
+                workerId = w.id;
+                workerName = w.name;
+                workerPhone = w.phone;
+            }
+
+            jobData.workerId = workerId;
+            jobData.workerName = workerName;
+            jobData.workerPhone = workerPhone;
+            session.context.pendingJobData = jobData;
+
+            return {
+                spokenResponse: `Apologies for the mistake. I can book ${workerName || `an available ${trade}`} in ${correctedCity} for you. Shall I confirm this booking?`,
+                detectedIntent: 'request_service'
+            };
+        }
+
         if (/^(yes|yeah|yep|sure|correct|right|okay|ok|ha|haudu|yes please|confirm|confirmed)\b/i.test(lower)) {
             const jobData = session.context.pendingJobData;
             if (jobData) {
@@ -2372,6 +2432,84 @@ async function processCustomerTurn(session, text, actionsPerformed) {
             return {
                 spokenResponse: "No problem. I have cancelled the booking request.",
                 detectedIntent: 'booking_cancelled'
+            };
+        }
+    }
+
+    // Awaiting city input for booking flow
+    if (session.context.pendingIntent === 'ask_city_for_booking') {
+        const city = extractLocationEntity(text);
+        if (city) {
+            session.city = city;
+            session.context.currentLocation = city;
+            const jobData = session.context.pendingJobData || {};
+            jobData.city = city;
+            
+            const trade = jobData.service;
+            const searchResult = await AI_TOOLS.findWorkers({ trade, city });
+            let workerId = null;
+            let workerName = null;
+            let workerPhone = null;
+
+            if (searchResult.count > 0) {
+                const w = searchResult.workers[0];
+                workerId = w.id;
+                workerName = w.name;
+                workerPhone = w.phone;
+            }
+
+            jobData.workerId = workerId;
+            jobData.workerName = workerName;
+            jobData.workerPhone = workerPhone;
+            
+            session.context.pendingJobData = jobData;
+            session.context.pendingIntent = 'confirm_booking';
+
+            return {
+                spokenResponse: `I can book ${workerName || `an available ${trade}`} in ${city} for you. Shall I confirm this booking?`,
+                detectedIntent: 'request_service'
+            };
+        } else {
+            return {
+                spokenResponse: "Which city or area do you need the service in?",
+                detectedIntent: 'ask_city_for_booking'
+            };
+        }
+    }
+
+    // Awaiting city input for availability query flow
+    if (session.context.pendingIntent === 'ask_city_for_availability') {
+        const city = extractLocationEntity(text);
+        if (city) {
+            session.city = city;
+            session.context.currentLocation = city;
+            const trade = session.context.pendingTrade;
+            session.context.pendingIntent = null;
+            session.context.pendingTrade = null;
+
+            const searchResult = await AI_TOOLS.findWorkers({ trade, city });
+            actionsPerformed.push(`Searched for ${trade} in ${city}: ${searchResult.count} found`);
+
+            if (searchResult.count === 0) {
+                return {
+                    spokenResponse: `I'm sorry, there are no ${trade}s available in ${city} right now.`,
+                    detectedIntent: 'check_worker_availability',
+                    toolExecuted: 'findWorkers',
+                    toolResult: searchResult
+                };
+            } else {
+                const namesList = searchResult.workers.slice(0, 2).map(w => `${w.name} (starting at ${w.startingPrice})`).join(' and ');
+                return {
+                    spokenResponse: `Yes, we have ${searchResult.count} ${trade}s available in ${city}. For example, ${namesList}. Would you like to book one?`,
+                    detectedIntent: 'check_worker_availability',
+                    toolExecuted: 'findWorkers',
+                    toolResult: searchResult
+                };
+            }
+        } else {
+            return {
+                spokenResponse: "Which city or area are you looking in?",
+                detectedIntent: 'ask_city_for_availability'
             };
         }
     }
@@ -2411,8 +2549,27 @@ async function processCustomerTurn(session, text, actionsPerformed) {
     // 4. request_service / book a service
     const trade = await extractTradeAndService(text);
     if (/\b(book|hire|request|schedule|get an?|need an?)\b/i.test(lower) && trade) {
-        const city = extractLocationEntity(text, session.city || 'Ramanagara');
+        const city = extractLocationEntity(text, session.city);
         const phone = session.callerPhone || 'anonymous';
+
+        if (!city) {
+            session.context.pendingJobData = {
+                customerPhone: phone,
+                customerName: session.callerName || 'Guest Customer',
+                service: trade,
+                problemDescription: `Requested ${trade} repair`,
+                location: 'Town Area',
+                requestedDate: 'Today',
+                requestedTime: 'Immediate',
+                budget: '₹300'
+            };
+            session.context.pendingIntent = 'ask_city_for_booking';
+            return {
+                spokenResponse: "Which city or area do you need the service in?",
+                detectedIntent: 'ask_city_for_booking'
+            };
+        }
+
         if (phone === 'anonymous') {
             return {
                 spokenResponse: "Please sign in or tell me your phone number to proceed with the booking.",
@@ -2458,7 +2615,16 @@ async function processCustomerTurn(session, text, actionsPerformed) {
     const isAvailQuery = /\b(available|availability|free|working|any|look for|find|search for)\b/i.test(lower) || (trade && lower.includes(trade.toLowerCase()));
     
     if (isAvailQuery && trade) {
-        const city = extractLocationEntity(text, session.city || 'Ramanagara');
+        const city = extractLocationEntity(text, session.city);
+        if (!city) {
+            session.context.pendingTrade = trade;
+            session.context.pendingIntent = 'ask_city_for_availability';
+            return {
+                spokenResponse: "Which city or area are you looking in?",
+                detectedIntent: 'ask_city_for_availability'
+            };
+        }
+
         const searchResult = await AI_TOOLS.findWorkers({ trade, city });
         actionsPerformed.push(`Searched for ${trade} in ${city}: ${searchResult.count} found`);
 
@@ -2497,19 +2663,19 @@ class ContextAwareVoiceAgent {
             sessionId = optsOrSession;
             speechText = maybeText;
         } else if (optsOrSession && typeof optsOrSession === 'object' && typeof maybeText === 'string') {
-            sessionId = optsOrSession.sessionId || optsOrSession.callerPhone || 'default_session';
+            sessionId = optsOrSession.sessionId || optsOrSession.callerPhone || null;
             callerPhone = optsOrSession.callerPhone;
             callerRole = optsOrSession.callerRole || 'customer';
             callerName = optsOrSession.callerName || 'User';
-            city = optsOrSession.city || 'Ramanagara';
+            city = optsOrSession.city || null;
             isVoiceCall = optsOrSession.isVoiceCall;
             speechText = maybeText;
         } else if (optsOrSession && typeof optsOrSession === 'object') {
-            sessionId = optsOrSession.sessionId || optsOrSession.callerPhone || 'default_session';
+            sessionId = optsOrSession.sessionId || optsOrSession.callerPhone || null;
             callerPhone = optsOrSession.callerPhone;
             callerRole = optsOrSession.callerRole || 'customer';
             callerName = optsOrSession.callerName || 'User';
-            city = optsOrSession.city || 'Ramanagara';
+            city = optsOrSession.city || null;
             isVoiceCall = optsOrSession.isVoiceCall;
             speechText = optsOrSession.speechText || optsOrSession.text || '';
         } else {
@@ -2517,7 +2683,7 @@ class ContextAwareVoiceAgent {
         }
 
         const text = (speechText || '').trim();
-        const targetCity = extractLocationEntity(text, city || 'Ramanagara');
+        const targetCity = extractLocationEntity(text, city || null);
 
         const session = (optsOrSession && optsOrSession.context && optsOrSession.history)
             ? optsOrSession

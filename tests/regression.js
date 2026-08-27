@@ -183,6 +183,48 @@ async function runTests() {
         assert.ok(turn.detectedIntent !== 'check_worker_availability', "Intent should not be check_worker_availability");
     });
 
+    // 5. Interactive Location Flow Tests
+    await test("Customer booking without location should prompt for city, then confirm when provided", async () => {
+        const sessionId = "test_cust_no_loc_" + Date.now();
+        const session = sessionManager.getSession(sessionId, {
+            callerRole: 'customer',
+            callerPhone: '9991112223',
+            callerName: 'Test Customer'
+        });
+
+        // 1. Initial request without city
+        const turn1 = await aiAgent.processCallTurn(session, "I need a plumber tomorrow morning");
+        assert.strictEqual(turn1.detectedIntent, 'ask_city_for_booking', "Should ask for city");
+        assert.ok(turn1.spokenResponse.includes("Which city or area"), "Response should prompt for city");
+
+        // 2. Provide city "in rt nagar" (which resolves to Rt Nagar)
+        const turn2 = await aiAgent.processCallTurn(session, "I need in rt nagar");
+        assert.strictEqual(turn2.detectedIntent, 'request_service', "Should now proceed to request_service");
+        assert.strictEqual(session.city, 'Rt Nagar', "City should be extracted as Rt Nagar");
+        assert.ok(turn2.spokenResponse.includes("Rt Nagar"), "Response should confirm location is Rt Nagar");
+    });
+
+    await test("Customer should be able to correct location during confirmation", async () => {
+        const sessionId = "test_cust_correct_loc_" + Date.now();
+        const session = sessionManager.getSession(sessionId, {
+            callerRole: 'customer',
+            callerPhone: '9991112223',
+            callerName: 'Test Customer',
+            city: 'Ramanagara'
+        });
+
+        // 1. Book plumber -> prompts confirmation in Ramanagara
+        const turn1 = await aiAgent.processCallTurn(session, "I need a plumber");
+        assert.strictEqual(turn1.detectedIntent, 'request_service', "Should prompt for confirmation");
+        assert.ok(turn1.spokenResponse.includes("Ramanagara"), "Should offer to book in Ramanagara");
+
+        // 2. Correct location to Kanakapura -> updates and re-prompts for confirmation in Kanakapura
+        const turn2 = await aiAgent.processCallTurn(session, "I need in kanakapura, who said Ramanagara?");
+        assert.strictEqual(turn2.detectedIntent, 'request_service', "Should still be in request_service/confirmation flow");
+        assert.strictEqual(session.city, 'Kanakapura', "City should update to Kanakapura");
+        assert.ok(turn2.spokenResponse.includes("Kanakapura"), "Response should confirm location is Kanakapura");
+    });
+
     console.log(`\nResults: ${passed} passed, ${failed} failed`);
     if (failed > 0) {
         process.exit(1);
