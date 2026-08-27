@@ -306,16 +306,39 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (body.date_str && body.start_time && body.end_time) {
-            DB.setWorkerAvailabilitySlot({
-                workerId: worker.id,
-                workerPhone: worker.phone,
-                trade: worker.trade,
-                dateStr: body.date_str,
-                startTime: body.start_time,
-                endTime: body.end_time,
-                isAvailable: body.is_available !== undefined ? body.is_available : true,
-                notes: body.notes || ''
-            });
+            const repeat = body.repeat || 'once';
+            const parts = body.date_str.split('-');
+            const year = parseInt(parts[0]);
+            const month = parseInt(parts[1]) - 1;
+            const day = parseInt(parts[2]);
+            const baseDate = new Date(year, month, day);
+
+            let iterations = 1;
+            let stepDays = 1;
+            if (repeat === 'daily') {
+                iterations = 30;
+                stepDays = 1;
+            } else if (repeat === 'weekly') {
+                iterations = 12;
+                stepDays = 7;
+            }
+
+            for (let i = 0; i < iterations; i++) {
+                const d = new Date(baseDate);
+                d.setDate(baseDate.getDate() + (i * stepDays));
+                const targetDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                
+                DB.setWorkerAvailabilitySlot({
+                    workerId: worker.id,
+                    workerPhone: worker.phone,
+                    trade: worker.trade,
+                    dateStr: targetDateStr,
+                    startTime: body.start_time,
+                    endTime: body.end_time,
+                    isAvailable: body.is_available !== undefined ? body.is_available : true,
+                    notes: body.notes || ''
+                });
+            }
         }
 
         const updated = DB.getWorkerSchedule(worker.id);
@@ -410,11 +433,19 @@ const server = http.createServer(async (req, res) => {
 
         // Schedule Conflict Prevention Check
         if (body.worker_id && body.requested_date && body.requested_time) {
-            const hasConflict = DB.checkScheduleConflict(body.worker_id, body.requested_date, body.requested_time);
-            if (hasConflict) {
+            const conflictCode = DB.checkScheduleConflict(body.worker_id, body.requested_date, body.requested_time);
+            if (conflictCode) {
+                let msg = 'This worker is not available at this time.';
+                if (conflictCode === 'NotAvailable') {
+                    msg = 'This worker has not marked themselves as available on this date.';
+                } else if (conflictCode === 'OutsideHours') {
+                    msg = 'The requested time is outside the worker\'s availability hours on this date.';
+                } else if (conflictCode === 'JobConflict') {
+                    msg = 'This worker already has an active booking around this time.';
+                }
                 return sendJSON(res, {
                     status: 'error',
-                    message: 'This worker already has an accepted booking during this time slot. Please choose another time or worker.'
+                    message: msg
                 }, 409);
             }
         }

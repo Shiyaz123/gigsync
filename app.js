@@ -477,15 +477,54 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         toast('Detecting GPS location...');
         navigator.geolocation.getCurrentPosition(
-            () => {
-                updateActiveCity('Ramanagara');
-                locationModal?.classList.add('hidden');
-                toast('📍 Location confirmed: Ramanagara cluster');
+            async (position) => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                try {
+                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`);
+                    const data = await res.json();
+                    const address = data.address || {};
+                    const city = address.city || address.town || address.village || address.suburb || address.county || '';
+                    
+                    let detectedCity = 'Bengaluru';
+                    const cityLower = city.toLowerCase();
+                    if (cityLower.includes('ramanagara') || cityLower.includes('ramnagar')) {
+                        detectedCity = 'Ramanagara';
+                    } else if (cityLower.includes('kanakapura') || cityLower.includes('kanakpur')) {
+                        detectedCity = 'Kanakapura';
+                    } else if (cityLower.includes('channapatna')) {
+                        detectedCity = 'Channapatna';
+                    } else if (cityLower.includes('mysuru') || cityLower.includes('mysore')) {
+                        detectedCity = 'Mysuru';
+                    } else if (cityLower.includes('mandya')) {
+                        detectedCity = 'Mandya';
+                    } else if (cityLower.includes('hassan')) {
+                        detectedCity = 'Hassan';
+                    } else if (cityLower.includes('tumkur') || cityLower.includes('tumakuru')) {
+                        detectedCity = 'Tumakuru';
+                    } else if (cityLower.includes('shimoga') || cityLower.includes('shivamogga')) {
+                        detectedCity = 'Shivamogga';
+                    } else if (cityLower.includes('davangere')) {
+                        detectedCity = 'Davangere';
+                    } else if (cityLower.includes('belgaum') || cityLower.includes('belagavi')) {
+                        detectedCity = 'Belagavi';
+                    } else if (cityLower.includes('hubli') || cityLower.includes('hubballi')) {
+                        detectedCity = 'Hubballi';
+                    }
+                    
+                    updateActiveCity(detectedCity);
+                    locationModal?.classList.add('hidden');
+                    toast(`📍 Location confirmed: ${detectedCity} cluster`);
+                } catch (e) {
+                    updateActiveCity('Bengaluru');
+                    locationModal?.classList.add('hidden');
+                    toast('📍 Defaulted to Bengaluru cluster');
+                }
             },
             () => {
-                updateActiveCity('Ramanagara');
+                updateActiveCity('Bengaluru');
                 locationModal?.classList.add('hidden');
-                toast('Defaulted to Ramanagara cluster');
+                toast('Defaulted to Bengaluru cluster');
             }
         );
     });
@@ -882,8 +921,7 @@ document.addEventListener('DOMContentLoaded', () => {
             closeCreateJobModal();
             loadCustomerHomeData();
         } else {
-            toast('Job posted locally.');
-            closeCreateJobModal();
+            toast('❌ ' + (res.data?.message || 'Failed to post job.'));
         }
     });
 
@@ -1022,7 +1060,7 @@ document.addEventListener('DOMContentLoaded', () => {
             loadCustomerHomeData();
             if (state.customerView === 'bookings') loadCustomerBookings();
         } else {
-            toast('Failed to create booking.');
+            toast('❌ ' + (res.data?.message || 'Failed to create booking.'));
         }
     };
 
@@ -1182,6 +1220,78 @@ document.addEventListener('DOMContentLoaded', () => {
         toast(`✅ Profile updated: ${name}`);
     });
 
+    /* ======================================================================
+       WORKER PROFILE MODAL
+       ====================================================================== */
+
+    const workerProfileModal = document.getElementById('workerProfileModal');
+
+    function openWorkerProfileModal() {
+        workerDropdownMenu?.classList.add('hidden');
+        if (state.user) {
+            document.getElementById('workerProfileName').value = state.user.name || '';
+            document.getElementById('workerProfilePhone').value = state.user.phone || '';
+            document.getElementById('workerProfileCity').value = state.user.profile?.city || state.user.city || 'Ramanagara';
+            document.getElementById('workerProfileArea').value = state.user.profile?.area || 'Town';
+            document.getElementById('workerProfileTrade').value = state.user.profile?.trade || 'Electrician';
+            document.getElementById('workerProfilePrice').value = state.user.profile?.price || 300;
+        }
+        workerProfileModal?.classList.remove('hidden');
+    }
+
+    document.getElementById('workerProfileBtn')?.addEventListener('click', openWorkerProfileModal);
+    document.getElementById('editWorkerTradeBtn')?.addEventListener('click', openWorkerProfileModal);
+    document.getElementById('closeWorkerProfileModalBtn')?.addEventListener('click', () => workerProfileModal?.classList.add('hidden'));
+
+    document.getElementById('workerProfileForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('workerProfileName')?.value.trim();
+        const city = document.getElementById('workerProfileCity')?.value;
+        const area = document.getElementById('workerProfileArea')?.value.trim() || 'Town';
+        const trade = document.getElementById('workerProfileTrade')?.value;
+        const price = Number(document.getElementById('workerProfilePrice')?.value) || 300;
+
+        if (state.user) {
+            state.user.name = name;
+            if (!state.user.profile) state.user.profile = {};
+            state.user.profile.city = city;
+            state.user.profile.area = area;
+            state.user.profile.trade = trade;
+            state.user.profile.price = price;
+        }
+
+        if (city) updateActiveCity(city);
+
+        document.getElementById('workerDisplayName') && (document.getElementById('workerDisplayName').textContent = name);
+        document.getElementById('wDropdownName') && (document.getElementById('wDropdownName').textContent = name);
+        document.getElementById('wDropdownTrade') && (document.getElementById('wDropdownTrade').textContent = trade);
+        
+        const tradeIcons = {
+            'Electrician': '⚡', 'Master Electrician': '⚡',
+            'Plumber': '🔧', 'Plumbing Specialist': '🔧',
+            'Carpenter': '🔨', 'General Carpenter': '🔨',
+            'Mechanic': '🏍️', 'Two-Wheeler Mechanic': '🏍️',
+            'AC': '❄️', 'AC & Fridge Tech': '❄️',
+            'Painter': '🎨', 'Appliance': '🔌', 'Appliance Repair Tech': '🔌',
+            'Tailor': '🧵', 'Cleaner': '🧹', 'Home Cleaner': '🧹'
+        };
+        const tradeIcon = Object.keys(tradeIcons).find(k => trade.includes(k)) ? tradeIcons[Object.keys(tradeIcons).find(k => trade.includes(k))] : '🔧';
+        document.getElementById('workerTradeHeading') && (document.getElementById('workerTradeHeading').textContent = `${tradeIcon} ${trade}`);
+
+        if (state.token) {
+            await apiFetch('/api/workers/me/profile', {
+                method: 'PATCH',
+                body: JSON.stringify({ name, city, area, trade, price })
+            }).catch(() => {});
+        }
+
+        workerProfileModal?.classList.add('hidden');
+        toast(`✅ Profile updated: ${name}`);
+        
+        // Refresh dashboard data
+        loadWorkerDashboardData();
+    });
+
 
 
     // Load Customer My Bookings View
@@ -1278,31 +1388,60 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // Helper to format 24h time to 12h AM/PM
+    function formatTimeToAmPm(timeStr) {
+        if (!timeStr) return '';
+        const parts = timeStr.split(':');
+        let hours = parseInt(parts[0]);
+        const minutes = parts[1];
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12;
+        hours = hours ? hours : 12;
+        const formattedHours = hours < 10 ? '0' + hours : hours;
+        return `${formattedHours}:${minutes} ${ampm}`;
+    }
+
     // Worker Availability Edit Modal
     const workerAvailModal = document.getElementById('workerAvailModal');
-    document.getElementById('openEditAvailModalBtn')?.addEventListener('click', () => workerAvailModal?.classList.remove('hidden'));
+    document.getElementById('openEditAvailModalBtn')?.addEventListener('click', () => {
+        // Pre-fill date input with today's date
+        const dateInput = document.getElementById('availDateInput');
+        if (dateInput) {
+            const today = new Date();
+            dateInput.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        }
+        workerAvailModal?.classList.remove('hidden');
+    });
     document.getElementById('closeAvailModalBtn')?.addEventListener('click', () => workerAvailModal?.classList.add('hidden'));
 
     document.getElementById('workerAvailForm')?.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const day = document.getElementById('availDaySelect')?.value;
-        const start = document.getElementById('availStartTimeInput')?.value.trim();
-        const end = document.getElementById('availEndTimeInput')?.value.trim();
+        const dateVal = document.getElementById('availDateInput')?.value;
+        const start = document.getElementById('availStartTimeInput')?.value;
+        const end = document.getElementById('availEndTimeInput')?.value;
+        const repeat = document.getElementById('availRepeatSelect')?.value || 'once';
 
-        const hoursText = `${start} – ${end}`;
+        const startAmPm = formatTimeToAmPm(start);
+        const endAmPm = formatTimeToAmPm(end);
+        const hoursText = `${startAmPm} – ${endAmPm}`;
+
         document.getElementById('workerTodayHoursLabel') && (document.getElementById('workerTodayHoursLabel').textContent = hoursText);
-        toast(`Availability updated for ${day}: ${hoursText}`);
+        toast(`Availability set for ${dateVal}: ${hoursText} (${repeat})`);
         workerAvailModal?.classList.add('hidden');
 
-        await apiFetch(`/api/workers/${state.user ? state.user.id : 1}/availability`, {
-            method: 'POST',
+        await apiFetch('/api/workers/me/availability', {
+            method: 'PATCH',
             body: JSON.stringify({
-                date: day,
-                startTime: start,
-                endTime: end,
-                isAvailable: true
+                date_str: dateVal,
+                start_time: startAmPm,
+                end_time: endAmPm,
+                repeat: repeat,
+                is_available: true
             })
         });
+
+        // Reload dashboard to refresh schedules
+        loadWorkerDashboardData();
     });
 
     // Load Worker Dashboard Data
@@ -1368,9 +1507,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const jobsUrl = workerPhone ? `/api/jobs?worker_phone=${encodeURIComponent(workerPhone)}` : '/api/jobs';
         const res = await apiFetch(jobsUrl);
         const allJobs = (res.ok && res.data.jobs) ? res.data.jobs : [];
-        // Filter jobs strictly relevant to this worker
-        const jobs = workerPhone ? allJobs.filter(j => j.worker_phone === workerPhone || (j.worker_phone === null && j.status === 'Requested')) : [];
-        state.jobs = jobs;
+        state.jobs = allJobs;
 
         // Availability Display — show slot or 'On Duty' from database schedule
         const availBadge = document.getElementById('workerAvailBadge');
@@ -1424,23 +1561,16 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // GAP 3: Available Job Opportunities — unassigned Requested jobs in worker's city/trade
-        const workerCity = state.user?.city || state.city;
-        const workerTrade2 = (state.user?.profile?.trade || state.user?.trade || '').toLowerCase();
-        const opportunities = allJobs.filter(j =>
-            j.status === 'Requested' &&
-            !j.worker_phone &&
-            (!workerCity || j.city === workerCity || j.city === state.city)
-        );
+        // Available Job Opportunities — unassigned Requested jobs in worker's city/trade
+        const rawOpps = (res.ok && res.data.opportunities) ? res.data.opportunities : [];
+        const declined = JSON.parse(localStorage.getItem('declinedJobIds') || '[]');
+        const opportunities = rawOpps.filter(j => !declined.includes(String(j.id)) && !declined.includes(Number(j.id)));
 
         // Show opportunities in the Upcoming Bookings section (with Accept/Decline)
         const upcomingList = document.getElementById('workerUpcomingBookingsList');
         if (upcomingList) {
             // Worker's own confirmed bookings
-            const myUpcoming = allJobs.filter(j =>
-                (j.status === 'Confirmed') &&
-                workerPhone && j.worker_phone === workerPhone
-            );
+            const myUpcoming = allJobs.filter(j => j.status === 'Confirmed');
 
             let html = '';
 
@@ -1529,9 +1659,12 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window._workerDeclineJob = async function(id) {
-        // Decline just removes from view for this worker — don't change status
-        toast(`Job #${id} declined. It remains available for other workers.`);
-        // Just refresh to reflect latest state
+        let declined = JSON.parse(localStorage.getItem('declinedJobIds') || '[]');
+        if (!declined.includes(String(id))) {
+            declined.push(String(id));
+            localStorage.setItem('declinedJobIds', JSON.stringify(declined));
+        }
+        toast(`Job #${id} declined.`);
         loadWorkerDashboardData();
     };
 

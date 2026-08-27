@@ -342,6 +342,7 @@
                                 <span id="wDropdownTrade">Electrician</span>
                             </div>
                             <hr class="divider">
+                            <button type="button" class="dropdown-item" id="workerProfileBtn"><i class="fa-solid fa-user-circle"></i> My Profile</button>
                             <button type="button" class="dropdown-item" id="workerSwitchCustBtn"><i class="fa-solid fa-user"></i> Switch to Customer</button>
                             <button type="button" class="dropdown-item" id="wDropdownTerminalBtn"><i class="fa-solid fa-headset"></i> Voice Terminal</button>
                             <hr class="divider">
@@ -740,18 +741,28 @@
                 <div class="form-row-2">
                     <div class="form-field">
                         <label class="field-label" for="newJobDate">Date</label>
-                        <input type="text" id="newJobDate" class="field-input" value="Today" required>
+                        <input type="date" id="newJobDate" class="field-input" required>
                     </div>
                     <div class="form-field">
                         <label class="field-label" for="newJobTime">Time</label>
-                        <input type="text" id="newJobTime" class="field-input" value="Immediate" required>
+                        <input type="time" id="newJobTime" class="field-input" required>
                     </div>
                 </div>
 
                 <div class="form-row-2">
                     <div class="form-field">
                         <label class="field-label" for="newJobLocation">Location / Area</label>
-                        <input type="text" id="newJobLocation" class="field-input" value="Town Area" required>
+                        <select id="newJobLocation" class="field-input" required>
+                            <option value="Ramanagara">Ramanagara</option>
+                            <option value="Bengaluru">Bengaluru</option>
+                            <option value="Kanakapura">Kanakapura</option>
+                            <option value="Channapatna">Channapatna</option>
+                            <option value="Bidadi">Bidadi</option>
+                            <option value="Magadi">Magadi</option>
+                            <option value="Mandya">Mandya</option>
+                            <option value="Mysuru">Mysuru</option>
+                            <option value="Rt Nagar">Rt Nagar</option>
+                        </select>
                     </div>
                     <div class="form-field">
                         <label class="field-label" for="newJobBudget">Budget (₹)</label>
@@ -775,29 +786,28 @@
             </div>
             <form id="workerAvailForm" class="modal-form">
                 <div class="form-field">
-                    <label class="field-label" for="availDaySelect">Day</label>
-                    <select id="availDaySelect" class="field-input">
-                        <option value="Today">Today</option>
-                        <option value="Tomorrow">Tomorrow</option>
-                        <option value="Monday">Monday</option>
-                        <option value="Tuesday">Tuesday</option>
-                        <option value="Wednesday">Wednesday</option>
-                        <option value="Thursday">Thursday</option>
-                        <option value="Friday">Friday</option>
-                        <option value="Saturday">Saturday</option>
-                        <option value="Sunday">Sunday</option>
-                    </select>
+                    <label class="field-label" for="availDateInput">Date</label>
+                    <input type="date" id="availDateInput" class="field-input" required>
                 </div>
 
                 <div class="form-row-2">
                     <div class="form-field">
                         <label class="field-label" for="availStartTimeInput">Start Time</label>
-                        <input type="text" id="availStartTimeInput" class="field-input" value="09:00 AM">
+                        <input type="time" id="availStartTimeInput" class="field-input" required>
                     </div>
                     <div class="form-field">
                         <label class="field-label" for="availEndTimeInput">End Time</label>
-                        <input type="text" id="availEndTimeInput" class="field-input" value="04:00 PM">
+                        <input type="time" id="availEndTimeInput" class="field-input" required>
                     </div>
+                </div>
+
+                <div class="form-field">
+                    <label class="field-label" for="availRepeatSelect">Repeat Schedule</label>
+                    <select id="availRepeatSelect" class="field-input">
+                        <option value="once">Only this day (Once)</option>
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                    </select>
                 </div>
 
                 <button type="submit" class="btn btn-primary btn-block">
@@ -820,6 +830,8 @@
                 </button>
                 <div class="cities-grid" id="citiesListGrid">
                     <div class="city-tile active" data-city="Ramanagara"><strong>Ramanagara</strong><span>Karnataka</span></div>
+                    <div class="city-tile" data-city="Bengaluru"><strong>Bengaluru</strong><span>Karnataka</span></div>
+                    <div class="city-tile" data-city="Kanakapura"><strong>Kanakapura</strong><span>Karnataka</span></div>
                     <div class="city-tile" data-city="Chitradurga"><strong>Chitradurga</strong><span>Karnataka</span></div>
                     <div class="city-tile" data-city="Mandya"><strong>Mandya</strong><span>Karnataka</span></div>
                     <div class="city-tile" data-city="Hassan"><strong>Hassan</strong><span>Karnataka</span></div>
@@ -934,6 +946,68 @@
                 </div>
                 <button type="submit" class="btn btn-primary btn-block">
                     <i class="fa-solid fa-check"></i> Save Profile
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 6. WORKER PROFILE EDIT MODAL -->
+    <div id="workerProfileModal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-user-gear"></i> Edit Worker Profile</h3>
+                <button type="button" class="modal-close-btn" id="closeWorkerProfileModalBtn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="workerProfileForm" class="modal-form">
+                <div class="form-field">
+                    <label class="field-label" for="workerProfileName">Full Name</label>
+                    <input type="text" id="workerProfileName" class="field-input" placeholder="Your full name" required>
+                </div>
+                <div class="form-field">
+                    <label class="field-label" for="workerProfilePhone">Mobile Number</label>
+                    <input type="text" id="workerProfilePhone" class="field-input" readonly style="background:var(--gs-bg-alt);cursor:not-allowed;opacity:.7">
+                </div>
+                <div class="form-row-2">
+                    <div class="form-field">
+                        <label class="field-label" for="workerProfileCity">City</label>
+                        <select id="workerProfileCity" class="field-input">
+                            <option value="Ramanagara">Ramanagara</option>
+                            <option value="Bengaluru">Bengaluru</option>
+                            <option value="Kanakapura">Kanakapura</option>
+                            <option value="Channapatna">Channapatna</option>
+                            <option value="Bidadi">Bidadi</option>
+                            <option value="Magadi">Magadi</option>
+                            <option value="Mandya">Mandya</option>
+                            <option value="Mysuru">Mysuru</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label class="field-label" for="workerProfileArea">Area / Locality</label>
+                        <input type="text" id="workerProfileArea" class="field-input" placeholder="e.g. Town, Market Circle" required>
+                    </div>
+                </div>
+                <div class="form-row-2">
+                    <div class="form-field">
+                        <label class="field-label" for="workerProfileTrade">Profession / Trade</label>
+                        <select id="workerProfileTrade" class="field-input">
+                            <option value="Electrician">Electrician</option>
+                            <option value="Plumber">Plumber</option>
+                            <option value="Carpenter">Carpenter</option>
+                            <option value="Mechanic">Mechanic</option>
+                            <option value="AC & Appliances">AC & Appliances</option>
+                            <option value="Home Cleaning">Home Cleaning</option>
+                            <option value="Painting">Painting</option>
+                            <option value="Tailoring & Alterations">Tailoring & Alterations</option>
+                            <option value="Driver Services">Driver Services</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label class="field-label" for="workerProfilePrice">Rate / Price (₹)</label>
+                        <input type="number" id="workerProfilePrice" class="field-input" required>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">
+                    <i class="fa-solid fa-check"></i> Save Changes
                 </button>
             </form>
         </div>

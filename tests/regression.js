@@ -225,6 +225,73 @@ async function runTests() {
         assert.ok(turn2.spokenResponse.includes("Kanakapura"), "Response should confirm location is Kanakapura");
     });
 
+    await test("Worker should be able to register availability slots and check overlap", async () => {
+        // Register test worker John Plumber
+        const regResult = DB.registerWorkerProfile({
+            name: "John Plumber",
+            phone: "9845022334",
+            trade: "Plumber",
+            city: "Bengaluru",
+            price: 400
+        });
+        const worker = regResult.worker || DB.getWorkerByPhone("9845022334");
+
+        assert.ok(worker && worker.id, "Worker registration should succeed");
+
+        // Set availability slot for John Plumber for tomorrow (2026-08-28) from 09:00 AM to 05:00 PM
+        const slot = DB.setWorkerAvailabilitySlot({
+            workerId: worker.id,
+            workerPhone: worker.phone,
+            trade: worker.trade,
+            dateStr: "2026-08-28",
+            startTime: "09:00 AM",
+            endTime: "05:00 PM",
+            isAvailable: true
+        });
+
+        assert.ok(slot.success, "Setting availability slot should succeed");
+
+        // Test conflict checking logic:
+        // 1. Booking at 10:00 AM should NOT conflict initially (since there are no jobs booked)
+        const conflict1 = DB.checkScheduleConflict(worker.id, "2026-08-28", "10:00 AM");
+        assert.strictEqual(conflict1, null, "Should be no conflict initially");
+
+        // 2. Booking at 08:00 AM should be OUTSIDE hours (availability starts at 09:00 AM)
+        const conflictOutside = DB.checkScheduleConflict(worker.id, "2026-08-28", "08:00 AM");
+        assert.strictEqual(conflictOutside, "OutsideHours", "Should return OutsideHours");
+
+        // 3. Create a confirmed job at 10:00 AM
+        const firstJob = DB.createJob({
+            customer_phone: "9998887776",
+            customer_name: "Test Customer",
+            worker_id: worker.id,
+            worker_phone: worker.phone,
+            worker_name: worker.name,
+            service: "Plumber",
+            problem_description: "Fix faucet",
+            location: "Town Area",
+            city: "Bengaluru",
+            requested_date: "2026-08-28",
+            requested_time: "10:00 AM",
+            budget: "₹400",
+            status: "Confirmed"
+        });
+
+        assert.ok(firstJob && firstJob.id, "Job creation should succeed");
+
+        // 4. Booking at 10:00 AM again should return JobConflict
+        const conflict2 = DB.checkScheduleConflict(worker.id, "2026-08-28", "10:00 AM");
+        assert.strictEqual(conflict2, "JobConflict", "Should return JobConflict");
+
+        // 5. Booking at 10:30 AM should also return JobConflict (within 1-hour overlap window)
+        const conflict3 = DB.checkScheduleConflict(worker.id, "2026-08-28", "10:30 AM");
+        assert.strictEqual(conflict3, "JobConflict", "Should return JobConflict due to 1-hour window");
+
+        // 6. Booking at 11:30 AM should NOT conflict (outside the 1-hour window of 10:00 AM job)
+        const conflict4 = DB.checkScheduleConflict(worker.id, "2026-08-28", "11:30 AM");
+        assert.strictEqual(conflict4, null, "Should not conflict at 11:30 AM");
+    });
+
     console.log(`\nResults: ${passed} passed, ${failed} failed`);
     if (failed > 0) {
         process.exit(1);
