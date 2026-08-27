@@ -1111,19 +1111,86 @@ const DB = {
     },
 
     checkScheduleConflict(workerId, requestedDate, requestedTime) {
-        if (!db) {
-            const conflict = memoryStore.jobs.find(j => j.worker_id === workerId && j.requested_date === requestedDate && j.requested_time === requestedTime && ['Accepted', 'On the Way', 'In Progress'].includes(j.status));
-            return Boolean(conflict);
+        // Helper to parse time to minutes from midnight.
+        // If a range string is passed (e.g. "09:00 AM – 05:00 PM"), only the START
+        // portion is used.  This prevents the parser from silently returning 0
+        // (midnight) when a range is forwarded instead of a point-in-time.
+        function parseTimeToMinutes(timeStr) {
+            if (!timeStr) return 0;
+            // Strip anything after the first dash / en-dash / em-dash so a range
+            // string like "09:00 AM – 05:00 PM" is treated as "09:00 AM".
+            let clean = timeStr.split(/[-\u2013\u2014]/)[0].trim().toUpperCase();
+            const isAm = clean.includes('AM');
+            const isPm = clean.includes('PM');
+            clean = clean.replace(/(AM|PM)/, '').trim();
+            const parts = clean.split(':');
+            let hours = parseInt(parts[0], 10) || 0;
+            const minutes = parseInt(parts[1], 10) || 0;
+            if (isPm && hours < 12) hours += 12;
+            if (isAm && hours === 12) hours = 0;
+            return hours * 60 + minutes;
         }
-        const conflict = db.prepare(`
-            SELECT * FROM jobs
+
+        const reqMin = parseTimeToMinutes(requestedTime);
+
+        if (!db) {
+            // 1. Check availability slot
+            const phone = memoryStore.workers.find(w => w.id === Number(workerId))?.phone;
+            if (phone && memoryStore.availability[phone]) {
+                const avail = memoryStore.availability[phone].find(
+                    s => String(s.date_str).toLowerCase() === String(requestedDate).toLowerCase() && s.is_available === 1
+                );
+                if (!avail) return 'NotAvailable';
+                const startMin = parseTimeToMinutes(avail.start_time);
+                const endMin = parseTimeToMinutes(avail.end_time);
+                if (reqMin < startMin || reqMin > endMin) return 'OutsideHours';
+            } else {
+                return 'NotAvailable';
+            }
+
+            // 2. Check conflicting jobs
+            const conflict = memoryStore.jobs.find(j => {
+                if (j.worker_id !== Number(workerId) || j.requested_date !== requestedDate) return false;
+                if (!['Confirmed', 'Accepted', 'On the Way', 'In Progress'].includes(j.status)) return false;
+                const jMin = parseTimeToMinutes(j.requested_time);
+                return Math.abs(reqMin - jMin) < 60;
+            });
+            if (conflict) return 'JobConflict';
+            return null;
+        }
+
+        // SQLite Implementation
+        // 1. Check availability
+        const avail = db.prepare(`
+            SELECT start_time, end_time FROM worker_availability
+            WHERE (worker_id = ? OR worker_phone = ?)
+              AND LOWER(date_str) = LOWER(?)
+              AND is_available = 1
+            ORDER BY id DESC LIMIT 1
+        `).get(Number(workerId), String(workerId).replace(/\D/g, ''), requestedDate);
+
+        if (!avail) return 'NotAvailable';
+        
+        const startMin = parseTimeToMinutes(avail.start_time);
+        const endMin = parseTimeToMinutes(avail.end_time);
+        if (reqMin < startMin || reqMin > endMin) return 'OutsideHours';
+
+        // 2. Check conflicting jobs
+        const jobs = db.prepare(`
+            SELECT requested_time FROM jobs
             WHERE worker_id = ?
               AND requested_date = ?
-              AND requested_time = ?
-              AND status IN ('Accepted', 'On the Way', 'In Progress')
-        `).get(workerId, requestedDate, requestedTime);
+              AND status IN ('Confirmed', 'Accepted', 'On the Way', 'In Progress')
+        `).all(Number(workerId), requestedDate);
 
-        return Boolean(conflict);
+        for (const j of jobs) {
+            const jMin = parseTimeToMinutes(j.requested_time);
+            if (Math.abs(reqMin - jMin) < 60) {
+                return 'JobConflict';
+            }
+        }
+
+        return null;
     },
 
     // ---------------- JOB & BOOKING OPERATIONS ----------------
